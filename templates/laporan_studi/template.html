@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{ meta.report_title }}</title>
+<!--
+  CONTOH TEMPLATE. Ganti desain, warna, dan logo dengan identitas resmi klien.
+  Variabel: `c` = isi dari Gemini (sesuai schema.json), `meta` = diisi sistem.
+-->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Source+Sans+3:wght@400;600&family=Source+Serif+4:opsz,wght@8..60,500;8..60,600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --harbor: #16324F;   /* warna identitas */
+    --text: #1E2329;
+    --muted: #5B6470;
+    --rule: #CBD3DB;
+    --tint: #EEF2F6;
+    --high: #A4372A;
+    --mid: #8A6100;
+    --low: #3D6B4F;
+  }
+  @page {
+    size: A4;
+    margin: 22mm 20mm 24mm 22mm;
+    @bottom-left { content: "{{ meta.company_name | replace('"', '') | safe }}"; font: 8.5pt "Source Sans 3", Arial, sans-serif; color: #5B6470; }
+    @bottom-right { content: "Halaman " counter(page) " dari " counter(pages); font: 8.5pt "Source Sans 3", Arial, sans-serif; color: #5B6470; }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0 auto; max-width: 170mm; color: var(--text); background: #fff;
+    font: 10.5pt/1.55 "Source Sans 3", "Segoe UI", Arial, sans-serif;
+  }
+  h1, h2, h3 { font-family: "Source Serif 4", Georgia, "Times New Roman", serif; color: var(--harbor); font-weight: 600; }
+
+  /* Sampul: satu-satunya elemen yang tegas */
+  .cover { border-left: 6px solid var(--harbor); padding: 4mm 0 4mm 7mm; margin-bottom: 10mm; }
+  .cover .org { color: var(--muted); font-size: 10pt; margin: 0 0 3mm; }
+  .cover h1 { font-size: 24pt; line-height: 1.15; margin: 0 0 4mm; }
+  .cover dl { display: grid; grid-template-columns: 34mm 1fr; gap: 1mm 4mm; margin: 0; font-size: 9.5pt; }
+  .cover dt { color: var(--muted); }
+  .cover dd { margin: 0; }
+
+  section { margin: 0 0 8mm; }
+  h2 { font-size: 14pt; margin: 0 0 3mm; padding-bottom: 1.5mm; border-bottom: 1px solid var(--rule); }
+  p { margin: 0 0 3mm; max-width: 72ch; }
+
+  .summary { background: var(--tint); padding: 5mm 6mm; }
+  .summary p:last-child { margin-bottom: 0; }
+
+  .finding { margin: 0 0 5mm; page-break-inside: avoid; }
+  .finding h3 { font-size: 11.5pt; margin: 0 0 1.5mm; }
+  .finding h3 .num { color: var(--muted); font-weight: 500; margin-right: 2mm; }
+  .cite { font-size: 8.5pt; color: var(--muted); margin: 0; }
+
+  ul.plain { margin: 0; padding-left: 5mm; }
+  ul.plain li { margin-bottom: 1.5mm; }
+
+  table { width: 100%; border-collapse: collapse; font-size: 9.5pt; }
+  th { text-align: left; font-weight: 600; color: var(--harbor); border-bottom: 1.5px solid var(--harbor); padding: 2mm 2mm 2mm 0; }
+  td { vertical-align: top; border-bottom: 1px solid var(--rule); padding: 2mm 2mm 2mm 0; }
+  tr { page-break-inside: avoid; }
+  .prio { font-weight: 600; white-space: nowrap; }
+  .prio-Tinggi { color: var(--high); }
+  .prio-Sedang { color: var(--mid); }
+  .prio-Rendah { color: var(--low); }
+
+  .note { font-size: 9pt; color: var(--muted); border-top: 1px solid var(--rule); padding-top: 3mm; margin-top: 10mm; }
+</style>
+</head>
+<body>
+
+<header class="cover">
+  <p class="org">{{ meta.company_name }}</p>
+  <h1>{{ meta.report_title }}</h1>
+  <dl>
+    <dt>Jenis laporan</dt><dd>{{ meta.template_title }}</dd>
+    <dt>Periode</dt><dd>{{ c.periode }}</dd>
+    <dt>Tanggal dibuat</dt><dd>{{ meta.generated_date }}</dd>
+    <dt>Disusun oleh</dt><dd>{{ meta.generated_by }}</dd>
+  </dl>
+</header>
+
+<section>
+  <h2>Ringkasan eksekutif</h2>
+  <div class="summary">
+    {% for para in c.ringkasan_eksekutif.split('\n\n') if para.strip() %}<p>{{ para.strip() }}</p>{% endfor %}
+  </div>
+</section>
+
+<section>
+  <h2>Latar belakang</h2>
+  {% for para in c.latar_belakang.split('\n\n') if para.strip() %}<p>{{ para.strip() }}</p>{% endfor %}
+</section>
+
+<section>
+  <h2>Temuan utama</h2>
+  {% for t in c.temuan_utama %}
+  <article class="finding">
+    <h3><span class="num">Temuan {{ loop.index }}</span>{{ t.judul }}</h3>
+    <p>{{ t.uraian }}</p>
+    <p class="cite">Sumber: {{ t.sitasi | join('; ') }}</p>
+  </article>
+  {% endfor %}
+</section>
+
+{% if c.implikasi %}
+<section>
+  <h2>Implikasi</h2>
+  <ul class="plain">{% for i in c.implikasi %}<li>{{ i }}</li>{% endfor %}</ul>
+</section>
+{% endif %}
+
+{% if c.rekomendasi %}
+<section>
+  <h2>Rekomendasi</h2>
+  <table>
+    <thead><tr><th style="width:44%">Rekomendasi</th><th style="width:14%">Prioritas</th><th>Alasan</th></tr></thead>
+    <tbody>
+    {% for r in c.rekomendasi %}
+      <tr><td>{{ r.rekomendasi }}</td><td class="prio prio-{{ r.prioritas }}">{{ r.prioritas }}</td><td>{{ r.alasan }}</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endif %}
+
+<section>
+  <h2>Keterbatasan</h2>
+  <p>{{ c.keterbatasan }}</p>
+</section>
+
+<section>
+  <h2>Daftar sumber</h2>
+  <table>
+    <thead><tr><th>Dokumen</th><th style="width:20%">Versi</th></tr></thead>
+    <tbody>
+    {% for s in c.daftar_sumber %}<tr><td>{{ s.judul_dokumen }}</td><td>{{ s.versi }}</td></tr>{% endfor %}
+    </tbody>
+  </table>
+</section>
+
+<p class="note">Laporan ini disusun otomatis berdasarkan insight dan dokumen yang dipilih pengguna di perpustakaan dokumen, dengan format mengikuti template resmi. Dibuat {{ meta.generated_at }}.</p>
+
+</body>
+</html>

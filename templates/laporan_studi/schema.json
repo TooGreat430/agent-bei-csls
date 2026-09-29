@@ -1,0 +1,78 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Isi Laporan Studi",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["periode", "ringkasan_eksekutif", "latar_belakang", "temuan_utama", "implikasi", "rekomendasi", "keterbatasan", "daftar_sumber"],
+  "properties": {
+    "periode": {
+      "type": "string",
+      "description": "Periode atau cakupan studi, misalnya 'Q3 2026'. Tulis 'Tidak disebutkan' jika tidak ada di sumber."
+    },
+    "ringkasan_eksekutif": {
+      "type": "string",
+      "description": "2-4 paragraf ringkas untuk pimpinan. Pisahkan paragraf dengan baris kosong."
+    },
+    "latar_belakang": {
+      "type": "string",
+      "description": "Konteks dan tujuan studi, 1-2 paragraf."
+    },
+    "temuan_utama": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 8,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["judul", "uraian", "sitasi"],
+        "properties": {
+          "judul": {"type": "string", "description": "Judul temuan, satu kalimat."},
+          "uraian": {"type": "string", "description": "Penjelasan temuan berdasarkan insight."},
+          "sitasi": {
+            "type": "array",
+            "minItems": 1,
+            "items": {"type": "string"},
+            "description": "Label sitasi persis dari sumber, misalnya '[Studi CSLS 2026, v2, hal. 12]'."
+          }
+        }
+      }
+    },
+    "implikasi": {
+      "type": "array",
+      "maxItems": 6,
+      "items": {"type": "string"},
+      "description": "Implikasi bisnis dari temuan."
+    },
+    "rekomendasi": {
+      "type": "array",
+      "maxItems": 6,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["rekomendasi", "prioritas", "alasan"],
+        "properties": {
+          "rekomendasi": {"type": "string"},
+          "prioritas": {"type": "string", "enum": ["Tinggi", "Sedang", "Rendah"]},
+          "alasan": {"type": "string", "description": "Kaitkan dengan temuan."}
+        }
+      }
+    },
+    "keterbatasan": {
+      "type": "string",
+      "description": "Keterbatasan data atau cakupan sumber yang dipakai."
+    },
+    "daftar_sumber": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["judul_dokumen", "versi"],
+        "properties": {
+          "judul_dokumen": {"type": "string"},
+          "versi": {"type": "string"}
+        }
+      }
+    }
+  }
+}

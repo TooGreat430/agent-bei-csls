@@ -1,0 +1,7 @@
+{
+  "id": "laporan_studi",
+  "title": "Laporan Studi (BEI/CSLS)",
+  "description": "Laporan hasil studi berbasis dokumen BEI/CSLS: ringkasan eksekutif, temuan bersitasi, implikasi, rekomendasi, dan daftar sumber. CONTOH - ganti dengan template resmi klien.",
+  "outputs": ["html", "pdf"],
+  "version": "1"
+}
