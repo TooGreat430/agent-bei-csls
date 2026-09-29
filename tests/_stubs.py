@@ -56,7 +56,9 @@ def install() -> None:
     mod("google.adk.agents", LlmAgent=_Any)
     mod("google.adk.agents.callback_context", CallbackContext=_Any)
     mod("google.adk.tools", ToolContext=_Any)
-    genai = mod("google.genai")
+    mod("google.adk.models", Gemini=_Any)
+    mod("google.adk.models.google_llm", Gemini=_Any)
+    genai = mod("google.genai", Client=_Any)
     genai.types = mod("google.genai.types", Content=_Any, Part=_Any, GenerateContentConfig=_Any)
     google.adk = sys.modules["google.adk"]
     google.genai = genai

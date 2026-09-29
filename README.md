@@ -49,6 +49,7 @@ library_agent/
   insights.py         insight tersimpan (insights/<user>.json di GCS)
   report_engine.py    registry template, composer, validasi, render
   prompts.py          instruksi agent
+  llm.py              model Gemini dengan lokasi endpoint dikunci (LIB_GEMINI_LOCATION)
   config.py           semua konfigurasi (env LIB_*)
 templates/laporan_studi/   CONTOH template (ganti dengan template klien)
 poc/upload_probe/          agent POC uji lampiran chat
@@ -177,7 +178,7 @@ Lalu di konsol Gemini Enterprise, buka **Agents**, tambahkan agent custom berbas
 - **Metadata otomatis + konfirmasi saat upload** (`metadata.py`). Hasil ekstraksi selalu ditampilkan ke user sebelum disimpan. User cukup menjawab "benar" atau menyebut bagian yang salah. Field yang tidak yakin ditandai "mohon dicek". Versi dan tanggal yang tidak tertulis di dokumen diusulkan default (v1 dan tanggal upload) dengan keterangan. Isi `LIB_DOC_TYPE_HINTS` dengan penjelasan tiap jenis dokumen agar klasifikasi BEI/CSLS lebih akurat. User bisa mengoreksi kapan saja ("judulnya salah, harusnya ...") lewat `update_document_metadata`.
 - **Versi dokumen:** judul dan jenis yang sama dengan file berbeda memicu konfirmasi "versi baru". Versi lama tetap tersimpan dengan `is_latest=false`.
 - **Composer laporan memakai skema dinamis** per template lewat `google-genai` (`response_json_schema`), bukan `output_schema` ADK yang statis. Output divalidasi dengan `jsonschema` dan dicoba ulang sekali jika tidak valid.
-- **Model:** atur `LIB_MODEL_FAST` dan `LIB_MODEL_PRO` ke versi Gemini terbaru yang tersedia di project.
+- **Model:** default `gemini-3.5-flash`. Agent ADK memanggil Gemini lewat endpoint `LIB_GEMINI_LOCATION` (default `global`), terpisah dari region Agent Engine, supaya agent bisa berjalan di Jakarta tanpa bergantung pada ketersediaan model di region itu.
 
 ## 8. Belum termasuk (tahap berikutnya)
 

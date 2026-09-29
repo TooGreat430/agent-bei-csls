@@ -73,7 +73,7 @@ def probe(callback_context: CallbackContext) -> Optional[types.Content]:
 
 root_agent = LlmAgent(
     name="upload_probe",
-    model="gemini-2.5-flash",
+    model="gemini-3.5-flash",
     description="POC: menampilkan struktur pesan (termasuk lampiran) yang diterima agent.",
     instruction="Balas singkat.",
     before_agent_callback=probe,

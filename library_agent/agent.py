@@ -9,6 +9,7 @@ from google.adk.agents import LlmAgent
 
 from .callbacks import capture_uploads
 from .config import settings
+from .llm import make_model
 from .prompts import ROOT_INSTRUCTION
 from .subagents.report import report_agent
 from .subagents.research import research_agent
@@ -17,7 +18,7 @@ logging.basicConfig(level=logging.INFO)
 
 root_agent = LlmAgent(
     name="asisten_perpustakaan",
-    model=settings.model_fast,
+    model=make_model(settings.model_fast),
     description="Perpustakaan dokumen BEI/CSLS: unggah, pilih dokumen, diskusi bersitasi, insight, dan laporan dari template.",
     instruction=ROOT_INSTRUCTION,
     sub_agents=[research_agent, report_agent],

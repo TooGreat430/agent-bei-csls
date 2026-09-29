@@ -57,8 +57,8 @@ class Settings:
     insight_prefix: str = field(default_factory=lambda: _env("LIB_INSIGHT_PREFIX", "insights"))
 
     # --- Model ------------------------------------------------------------------
-    model_fast: str = field(default_factory=lambda: _env("LIB_MODEL_FAST", "gemini-2.5-flash"))
-    model_pro: str = field(default_factory=lambda: _env("LIB_MODEL_PRO", "gemini-2.5-pro"))
+    model_fast: str = field(default_factory=lambda: _env("LIB_MODEL_FAST", "gemini-3.5-flash"))
+    model_pro: str = field(default_factory=lambda: _env("LIB_MODEL_PRO", "gemini-3.5-flash"))
 
     # --- Aturan perpustakaan -------------------------------------------------
     allowed_doc_types: tuple[str, ...] = field(
