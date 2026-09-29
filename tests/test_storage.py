@@ -97,15 +97,38 @@ class StorageTest(unittest.TestCase):
         titles = {d["title"] for d in catalog.list_documents()}
         self.assertIn("Dok B", titles)
 
-    def test_insights_are_per_user(self):
-        item = insights.save("a@klien.co.id", "BEI 2026", "Temuan", "Isi", ["[Dok, v1, hal. 2]"], ["doc-1"])
-        self.assertEqual(len(insights.list_for("a@klien.co.id", "BEI 2026")), 1)
-        self.assertEqual(insights.list_for("b@klien.co.id", "BEI 2026"), [])
-        self.assertEqual(insights.get_many("b@klien.co.id", [item["insight_id"]]), [])
-        updated = insights.update("a@klien.co.id", item["insight_id"], None, "Isi baru")
-        self.assertEqual(updated["content"], "Isi baru")
-        self.assertTrue(insights.delete("a@klien.co.id", item["insight_id"]))
-        self.assertFalse(insights.delete("a@klien.co.id", item["insight_id"]))
+    def test_insights_shared_in_workspace_but_owner_only_edit(self):
+        item = insights.save("a@klien.co.id", "BEI Study 2026", "Temuan", "Isi", ["[Dok, v1, hal. 2]"], ["doc-1"])
+        # user lain di workspace yang sama bisa melihat dan memakai
+        self.assertEqual(len(insights.list_for("BEI Study 2026")), 1)
+        self.assertEqual(insights.get_many("bei study 2026", [item["insight_id"]])[0]["owner"], "a@klien.co.id")
+        # workspace lain tidak melihat
+        self.assertEqual(insights.list_for("CSLS 2026"), [])
+        # hanya pembuat yang bisa mengubah / menghapus
+        self.assertEqual(insights.update("b@klien.co.id", "BEI Study 2026", item["insight_id"], None, "x")["status"], "forbidden")
+        self.assertEqual(insights.delete("b@klien.co.id", "BEI Study 2026", item["insight_id"])["status"], "forbidden")
+        self.assertEqual(insights.update("a@klien.co.id", "BEI Study 2026", item["insight_id"], None, "Isi baru")["insight"]["content"], "Isi baru")
+        self.assertEqual(insights.delete("a@klien.co.id", "BEI Study 2026", item["insight_id"])["status"], "ok")
+        self.assertEqual(insights.delete("a@klien.co.id", "BEI Study 2026", item["insight_id"])["status"], "not_found")
+
+    def test_delete_creates_tombstone_and_promotes_previous_version(self):
+        v1 = self._add("Studi CSLS 2026", "1", content_hash="h1")
+        v2 = self._add("Studi CSLS 2026", "2", previous=v1, content_hash="h2")
+        result = catalog.mark_deleted(v2, "b@klien.co.id")
+        self.assertEqual(result["promoted"], v1)
+        self.assertIsNone(catalog.get(v2))                      # tidak terlihat lagi
+        self.assertTrue(catalog.get(v1)["is_latest"])           # versi lama naik
+        self.assertIsNone(catalog.find_by_hash("h2"))           # upload ulang via chat tidak dianggap duplikat
+        self.assertEqual(len(catalog.list_documents()), 1)
+        tomb = [r for r in catalog.all_records() if r["doc_key"] == v2][0]
+        self.assertEqual(tomb["status"], "deleted")             # tombstone tetap untuk impor folder
+        self.assertIsNone(catalog.mark_deleted(v2, "x"))        # hapus dua kali aman
+
+    def test_anyone_can_update_metadata(self):
+        key = self._add("Laporan BEI", "1")
+        updated = catalog.update_metadata(key, {"title": "Laporan BEI Nasional"})
+        self.assertEqual(updated["title"], "Laporan BEI Nasional")
+        self.assertNotIn("updated_by", updated)
 
 
 if __name__ == "__main__":

@@ -53,8 +53,8 @@ def generate_report(
     except Exception as exc:  # noqa: BLE001
         return {"status": "error", "message": str(exc)}
 
-    items = (insights.get_many(user_id, insight_ids) if insight_ids
-             else insights.list_for(user_id, workspace))
+    items = (insights.get_many(workspace, insight_ids) if insight_ids
+             else insights.list_for(workspace))
     if not items:
         return {"status": "error",
                 "message": "Belum ada insight yang bisa dijadikan landasan. Simpan insight terlebih dahulu."}

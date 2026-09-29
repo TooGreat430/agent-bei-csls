@@ -74,14 +74,11 @@ def promote_to_library(staged_uri: str, doc_type: str, doc_key: str, filename: s
     return f"gs://{settings.bucket}/{dst_path}"
 
 
-def import_to_datastore(
-    *, doc_key: str, gcs_uri: str, mime_type: str, title: str, doc_type: str,
-    version: str, doc_date: str, collection: str = "umum",
-) -> str:
-    """Impor satu dokumen (incremental). Mengembalikan nama long-running operation."""
+def _build_document(*, doc_key: str, gcs_uri: str, mime_type: str, title: str, doc_type: str,
+                    version: str, doc_date: str, collection: str = "umum"):
     from google.cloud import discoveryengine_v1 as de
 
-    document = de.Document(
+    return de.Document(
         id=doc_key,
         struct_data={
             "doc_key": doc_key,
@@ -93,15 +90,68 @@ def import_to_datastore(
         },
         content=de.Document.Content(uri=gcs_uri, mime_type=mime_type),
     )
+
+
+def import_many(documents: list[dict[str, Any]]) -> str:
+    """Impor beberapa dokumen sekaligus (incremental, maks 100 per panggilan).
+
+    Setiap item berisi: doc_key, gcs_uri, mime_type, title, doc_type, version, doc_date,
+    dan opsional collection. Mengembalikan nama long-running operation.
+    """
+    from google.cloud import discoveryengine_v1 as de
+
+    if not documents:
+        raise ValueError("Tidak ada dokumen untuk diimpor.")
+    if len(documents) > 100:
+        raise ValueError("Maksimal 100 dokumen per impor.")
     request = de.ImportDocumentsRequest(
         parent=branch_path(),
-        inline_source=de.ImportDocumentsRequest.InlineSource(documents=[document]),
+        inline_source=de.ImportDocumentsRequest.InlineSource(
+            documents=[_build_document(**d) for d in documents]
+        ),
         reconciliation_mode=de.ImportDocumentsRequest.ReconciliationMode.INCREMENTAL,
     )
     operation = document_client().import_documents(request=request)
     op_name = operation.operation.name
-    logger.info("import started doc_key=%s op=%s", doc_key, op_name)
+    logger.info("import started docs=%d op=%s", len(documents), op_name)
     return op_name
+
+
+def import_to_datastore(
+    *, doc_key: str, gcs_uri: str, mime_type: str, title: str, doc_type: str,
+    version: str, doc_date: str, collection: str = "umum",
+) -> str:
+    """Impor satu dokumen (incremental). Mengembalikan nama long-running operation."""
+    return import_many([{
+        "doc_key": doc_key, "gcs_uri": gcs_uri, "mime_type": mime_type, "title": title,
+        "doc_type": doc_type, "version": version, "doc_date": doc_date, "collection": collection,
+    }])
+
+
+def delete_from_datastore(doc_key: str) -> None:
+    """Hapus dokumen dari data store. Tidak error jika dokumen sudah tidak ada."""
+    from google.api_core.exceptions import NotFound
+
+    try:
+        document_client().delete_document(name=f"{branch_path()}/documents/{doc_key}")
+    except NotFound:
+        logger.info("doc %s sudah tidak ada di data store", doc_key)
+
+
+def delete_library_copy(gcs_uri: str) -> None:
+    """Hapus salinan file HANYA jika berada di folder perpustakaan agent.
+
+    File asli di folder sumber (mis. ge-docs-datastore) tidak pernah dihapus.
+    """
+    from google.api_core.exceptions import NotFound
+
+    bucket, path = parse_gcs_uri(gcs_uri)
+    if bucket != settings.bucket or not path.startswith(settings.library_prefix.rstrip("/") + "/"):
+        return
+    try:
+        storage_client().bucket(bucket).blob(path).delete()
+    except NotFound:
+        pass
 
 
 def check_import_operation(op_name: str) -> dict[str, Any]:

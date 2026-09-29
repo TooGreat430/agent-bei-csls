@@ -7,6 +7,8 @@ Agent ADK yang menjadikan Gemini Enterprise (GE) sebagai **perpustakaan dokumen 
 | Satu chat untuk semua | Satu root agent terdaftar di GE, dengan `research_agent` dan `report_agent` sebagai sub-agent |
 | Pilih dokumen, chat terpusat, dan bisa diperluas di tengah chat | Daftar dokumen aktif di session state, dan setiap pencarian dipaksa filter `doc_key: ANY(...)` di level API |
 | Upload dokumen dari chat ke perpustakaan | Callback menangkap lampiran, Gemini mengekstrak judul/jenis/versi/tanggal (`extract_upload_metadata`), agent menampilkan hasilnya untuk dikonfirmasi user, lalu dokumen disimpan (`confirm_upload`) ke GCS, data store, dan katalog. User hanya memperbaiki bagian yang salah |
+| Impor dokumen yang sudah ada di folder bucket | `scripts/import_folder.py`: scan → cek CSV → run, aman diulang berkala |
+| Hapus dokumen dan insight bersama | `delete_document` (semua user, dengan konfirmasi, tombstone agar tidak diimpor ulang). Insight per workspace terlihat semua user, diubah hanya oleh pembuatnya |
 | Laporan dari template perusahaan | Gemini hanya mengisi JSON sesuai `schema.json`, lalu Jinja2 merender `template.html` ke HTML/PDF |
 
 > **Status POC:** jalur upload via chat bergantung pada apakah GE meneruskan lampiran ke agent custom. Uji dulu dengan `poc/upload_probe` sebelum demo ke klien (lihat bagian POC).
@@ -44,9 +46,11 @@ library_agent/
   search.py           pencarian berfilter dokumen aktif + label sitasi
   ingest.py           staging, salin ke library/, impor ke data store
   metadata.py         ekstraksi metadata dokumen otomatis dengan Gemini
+  folder_import.py    impor dokumen dari folder bucket (dipakai scripts/import_folder.py)
+  library_admin.py    operasi hapus dokumen (dipakai agent dan script impor)
   store.py            baca/tulis JSON di GCS, aman untuk penulisan bersamaan
   catalog.py          katalog perpustakaan (catalog/index.json di GCS)
-  insights.py         insight tersimpan (insights/<user>.json di GCS)
+  insights.py         insight per workspace (insights/<workspace>.json di GCS)
   report_engine.py    registry template, composer, validasi, render
   prompts.py          instruksi agent
   llm.py              model Gemini dengan lokasi endpoint dikunci (LIB_GEMINI_LOCATION)

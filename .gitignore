@@ -3,3 +3,4 @@ __pycache__/
 *.pyc
 preview_*.html
 preview_*.pdf
+import_review.csv

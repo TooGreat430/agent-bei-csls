@@ -1,16 +1,16 @@
-"""Penyimpanan insight di Cloud Storage (satu file JSON per user).
+"""Penyimpanan insight di Cloud Storage (satu file JSON per workspace).
 
-Lokasi: gs://<LIB_BUCKET>/<LIB_INSIGHT_PREFIX>/<user>.json   (default prefix: insights)
+Lokasi: gs://<LIB_BUCKET>/<LIB_INSIGHT_PREFIX>/<workspace>.json
 
 Format:
-    {"insights": {"<insight_id>": {title, content, citations, doc_keys,
-                                    workspace, created_at, updated_at}}}
+    {"insights": {"<insight_id>": {owner, title, content, citations, doc_keys,
+                                    created_at, updated_at}}}
 
-Insight adalah temuan penting dari diskusi yang disimpan user, lengkap dengan
-sitasi. Insight menjadi landasan penyusunan laporan, sehingga user tidak perlu
-mengetik ulang hasil analisisnya. Insight tetap ada walaupun user membuka chat baru.
+Aturan akses:
+- Semua user di workspace yang sama bisa MELIHAT dan MEMAKAI insight untuk laporan.
+- Hanya pembuat insight yang bisa MENGUBAH atau MENGHAPUS insight miliknya.
 
-Karena file dipisah per user, user hanya bisa membaca dan mengubah insight miliknya.
+Insight tetap ada walaupun user membuka chat baru.
 """
 from __future__ import annotations
 
@@ -23,9 +23,13 @@ from . import store
 from .config import settings
 
 
-def _path(owner: str) -> str:
-    slug = re.sub(r"[^A-Za-z0-9._@-]+", "_", owner)
-    return f"{settings.insight_prefix}/{slug}.json"
+def workspace_slug(workspace: str) -> str:
+    slug = re.sub(r"[^a-z0-9]+", "-", workspace.strip().lower()).strip("-")
+    return slug or "umum"
+
+
+def _path(workspace: str) -> str:
+    return f"{settings.insight_prefix}/{workspace_slug(workspace)}.json"
 
 
 def _empty() -> dict[str, Any]:
@@ -39,23 +43,23 @@ def _now() -> str:
 def _view(insight_id: str, data: dict[str, Any]) -> dict[str, Any]:
     return {
         "insight_id": insight_id,
+        "owner": data.get("owner"),
         "title": data.get("title"),
         "content": data.get("content"),
         "citations": data.get("citations", []),
         "doc_keys": data.get("doc_keys", []),
-        "workspace": data.get("workspace"),
     }
 
 
-def _load(owner: str) -> dict[str, dict[str, Any]]:
-    return store.read_json(_path(owner), _empty).get("insights", {})
+def _load(workspace: str) -> dict[str, dict[str, Any]]:
+    return store.read_json(_path(workspace), _empty).get("insights", {})
 
 
 def save(owner: str, workspace: str, title: str, content: str,
          citations: list[str], doc_keys: list[str]) -> dict[str, Any]:
     insight_id = f"ins-{uuid.uuid4().hex[:10]}"
     data = {
-        "workspace": workspace,
+        "owner": owner,
         "title": title.strip(),
         "content": content.strip(),
         "citations": citations,
@@ -67,38 +71,49 @@ def save(owner: str, workspace: str, title: str, content: str,
     def mutate(doc: dict[str, Any]) -> None:
         doc.setdefault("insights", {})[insight_id] = data
 
-    store.update_json(_path(owner), _empty, mutate)
+    store.update_json(_path(workspace), _empty, mutate)
     return _view(insight_id, data)
 
 
-def list_for(owner: str, workspace: str) -> list[dict[str, Any]]:
-    items = [(i, d) for i, d in _load(owner).items() if d.get("workspace") == workspace]
-    items.sort(key=lambda it: it[1].get("created_at", ""))
+def list_for(workspace: str) -> list[dict[str, Any]]:
+    items = sorted(_load(workspace).items(), key=lambda it: it[1].get("created_at", ""))
     return [_view(i, d) for i, d in items]
 
 
-def get_many(owner: str, insight_ids: list[str]) -> list[dict[str, Any]]:
-    all_items = _load(owner)
+def get_many(workspace: str, insight_ids: list[str]) -> list[dict[str, Any]]:
+    all_items = _load(workspace)
     return [_view(i, all_items[i]) for i in insight_ids if i in all_items]
 
 
-def update(owner: str, insight_id: str, title: str | None, content: str | None) -> dict[str, Any] | None:
-    def mutate(doc: dict[str, Any]) -> dict[str, Any] | None:
+def update(user: str, workspace: str, insight_id: str,
+           title: str | None, content: str | None) -> dict[str, Any]:
+    """Hasil: {"status": "ok"|"not_found"|"forbidden", "insight": ...}."""
+    def mutate(doc: dict[str, Any]) -> dict[str, Any]:
         item = doc.get("insights", {}).get(insight_id)
         if not item:
-            return None
+            return {"status": "not_found"}
+        if item.get("owner") != user:
+            return {"status": "forbidden", "owner": item.get("owner")}
         if title:
             item["title"] = title.strip()
         if content:
             item["content"] = content.strip()
         item["updated_at"] = _now()
-        return _view(insight_id, item)
+        return {"status": "ok", "insight": _view(insight_id, item)}
 
-    return store.update_json(_path(owner), _empty, mutate)
+    return store.update_json(_path(workspace), _empty, mutate)
 
 
-def delete(owner: str, insight_id: str) -> bool:
-    def mutate(doc: dict[str, Any]) -> bool:
-        return doc.get("insights", {}).pop(insight_id, None) is not None
+def delete(user: str, workspace: str, insight_id: str) -> dict[str, Any]:
+    """Hasil: {"status": "ok"|"not_found"|"forbidden"}."""
+    def mutate(doc: dict[str, Any]) -> dict[str, Any]:
+        items = doc.get("insights", {})
+        item = items.get(insight_id)
+        if not item:
+            return {"status": "not_found"}
+        if item.get("owner") != user:
+            return {"status": "forbidden", "owner": item.get("owner")}
+        del items[insight_id]
+        return {"status": "ok"}
 
-    return store.update_json(_path(owner), _empty, mutate)
+    return store.update_json(_path(workspace), _empty, mutate)

@@ -10,7 +10,7 @@ from typing import Any
 
 from google.adk.tools import ToolContext
 
-from .. import catalog, ingest, insights, metadata, search
+from .. import catalog, ingest, insights, library_admin, metadata, search
 from ..callbacks import PENDING_KEY
 from ..clients import get_user_id
 from ..config import settings
@@ -297,7 +297,7 @@ def update_document_metadata(
     doc_key: str, tool_context: ToolContext, title: str = "", doc_type: str = "",
     version: str = "", doc_date: str = "",
 ) -> dict[str, Any]:
-    """Mengoreksi metadata dokumen yang sudah masuk perpustakaan (hanya oleh pengunggahnya).
+    """Mengoreksi metadata dokumen yang sudah ada di perpustakaan. Semua user boleh mengoreksi.
 
     Args:
         doc_key: doc_key dokumen.
@@ -309,16 +309,17 @@ def update_document_metadata(
     record = catalog.get(doc_key)
     if not record:
         return {"status": "error", "message": "Dokumen tidak ditemukan."}
-    if record.get("uploader") != get_user_id(tool_context):
-        return {"status": "error", "message": "Hanya pengunggah dokumen yang bisa mengubah metadatanya."}
     if doc_type and doc_type.strip().upper() not in settings.allowed_doc_types:
         return {"status": "error",
                 "message": f"Jenis dokumen harus salah satu dari: {', '.join(settings.allowed_doc_types)}"}
 
     updated = catalog.update_metadata(
-        doc_key, {"title": title.strip(), "doc_type": doc_type.strip(), "version": version.strip(),
-                  "doc_date": doc_date.strip()},
+        doc_key,
+        {"title": title.strip(), "doc_type": doc_type.strip(), "version": version.strip(),
+         "doc_date": doc_date.strip()},
     )
+    if not updated:
+        return {"status": "error", "message": "Dokumen tidak ditemukan."}
     # Perbarui metadata di data store juga (impor ulang dengan ID yang sama).
     ingest.import_to_datastore(
         doc_key=doc_key, gcs_uri=updated["gcs_uri"], mime_type=updated["mime_type"],
@@ -326,6 +327,29 @@ def update_document_metadata(
         doc_date=updated["doc_date"], collection=updated.get("collection", "umum"),
     )
     return {"status": "ok", "document": catalog.public_view(updated)}
+
+
+def delete_document(doc_key: str, tool_context: ToolContext, confirmed: bool = False) -> dict[str, Any]:
+    """Menghapus dokumen dari perpustakaan bersama. Semua user boleh menghapus.
+
+    WAJIB dua langkah: panggil dulu dengan confirmed=False untuk menampilkan dokumen yang akan
+    dihapus, lalu panggil lagi dengan confirmed=True HANYA setelah user menjawab ya.
+    File asli di folder sumber tidak ikut terhapus.
+
+    Args:
+        doc_key: doc_key dokumen yang akan dihapus.
+        confirmed: True hanya jika user sudah mengonfirmasi penghapusan.
+    """
+    record = catalog.get(doc_key)
+    if not record:
+        return {"status": "error", "message": "Dokumen tidak ditemukan."}
+    if not confirmed:
+        return {"status": "needs_confirmation", "document": catalog.public_view(record),
+                "message": ("Tanyakan ke user: yakin menghapus dokumen ini dari perpustakaan? "
+                            "Dokumen tidak akan bisa dipakai oleh semua user.")}
+    result = library_admin.delete_document(doc_key, get_user_id(tool_context))
+    tool_context.state[ACTIVE_KEY] = [k for k in _active(tool_context) if k != doc_key]
+    return result
 
 
 def check_indexing_status(doc_key: str) -> dict[str, Any]:
@@ -351,18 +375,18 @@ def check_indexing_status(doc_key: str) -> dict[str, Any]:
 # Workspace & insight
 # ==========================================================================
 def set_workspace(name: str, tool_context: ToolContext) -> dict[str, Any]:
-    """Memilih workspace untuk mengelompokkan insight, misalnya "BEI Study 2026".
+    """Memilih workspace, misalnya "BEI Study 2026". Insight di workspace bisa dilihat semua user.
 
     Args:
         name: Nama workspace.
     """
     tool_context.state[WORKSPACE_KEY] = name.strip() or DEFAULT_WORKSPACE
-    items = insights.list_for(get_user_id(tool_context), _workspace(tool_context))
+    items = insights.list_for(_workspace(tool_context))
     return {"status": "ok", "workspace": _workspace(tool_context), "insight_count": len(items)}
 
 
 def save_insight(title: str, content: str, citations: list[str], tool_context: ToolContext) -> dict[str, Any]:
-    """Menyimpan insight penting dari diskusi agar bisa dipakai sebagai landasan laporan.
+    """Menyimpan insight penting dari diskusi ke workspace aktif (terlihat oleh semua user di workspace).
 
     Args:
         title: Judul singkat insight.
@@ -373,37 +397,40 @@ def save_insight(title: str, content: str, citations: list[str], tool_context: T
         owner=get_user_id(tool_context), workspace=_workspace(tool_context),
         title=title, content=content, citations=citations, doc_keys=_active(tool_context),
     )
-    return {"status": "ok", "insight": item}
+    return {"status": "ok", "workspace": _workspace(tool_context), "insight": item}
 
 
 def list_insights(tool_context: ToolContext) -> dict[str, Any]:
-    """Menampilkan semua insight tersimpan milik user di workspace aktif."""
-    items = insights.list_for(get_user_id(tool_context), _workspace(tool_context))
+    """Menampilkan semua insight di workspace aktif, dari semua user, beserta pembuatnya."""
+    items = insights.list_for(_workspace(tool_context))
     return {"status": "ok", "workspace": _workspace(tool_context), "insights": items}
 
 
 def update_insight(insight_id: str, tool_context: ToolContext, title: str = "", content: str = "") -> dict[str, Any]:
-    """Mengubah judul dan/atau isi insight.
+    """Mengubah judul dan/atau isi insight. Hanya pembuat insight yang boleh mengubah.
 
     Args:
         insight_id: ID insight.
         title: Judul baru (kosongkan jika tidak diubah).
         content: Isi baru (kosongkan jika tidak diubah).
     """
-    item = insights.update(get_user_id(tool_context), insight_id, title or None, content or None)
-    if not item:
-        return {"status": "error", "message": "Insight tidak ditemukan."}
-    return {"status": "ok", "insight": item}
+    result = insights.update(get_user_id(tool_context), _workspace(tool_context),
+                             insight_id, title or None, content or None)
+    if result["status"] == "forbidden":
+        result["message"] = f"Hanya pembuat insight ({result.get('owner')}) yang bisa mengubahnya."
+    return result
 
 
 def delete_insight(insight_id: str, tool_context: ToolContext) -> dict[str, Any]:
-    """Menghapus insight.
+    """Menghapus insight. Hanya pembuat insight yang boleh menghapus.
 
     Args:
         insight_id: ID insight.
     """
-    ok = insights.delete(get_user_id(tool_context), insight_id)
-    return {"status": "ok" if ok else "error"}
+    result = insights.delete(get_user_id(tool_context), _workspace(tool_context), insight_id)
+    if result["status"] == "forbidden":
+        result["message"] = f"Hanya pembuat insight ({result.get('owner')}) yang bisa menghapusnya."
+    return result
 
 
 RESEARCH_TOOLS = [
@@ -417,6 +444,7 @@ RESEARCH_TOOLS = [
     extract_upload_metadata,
     confirm_upload,
     update_document_metadata,
+    delete_document,
     check_indexing_status,
     set_workspace,
     save_insight,
