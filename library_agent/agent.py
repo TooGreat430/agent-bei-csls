@@ -17,7 +17,7 @@ from .subagents.research import research_agent
 logging.basicConfig(level=logging.INFO)
 
 root_agent = LlmAgent(
-    name="asisten_perpustakaan",
+    name="document_insight_agent",
     model=make_model(settings.model_fast),
     description="Perpustakaan dokumen BEI/CSLS: unggah, pilih dokumen, diskusi bersitasi, insight, dan laporan dari template.",
     instruction=ROOT_INSTRUCTION,

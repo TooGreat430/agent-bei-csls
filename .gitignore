@@ -1,6 +1,5 @@
 .env
 __pycache__/
 *.pyc
-preview_*.html
-preview_*.pdf
+preview_*
 import_review.csv

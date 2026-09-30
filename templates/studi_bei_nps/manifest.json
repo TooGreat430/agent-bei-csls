@@ -1,0 +1,34 @@
+{
+  "id": "studi_bei_nps",
+  "title": "Studi BEI & NPS (template uji)",
+  "description": "Laporan gaya deck riset pasar: ringkasan, latar belakang, tujuan, temuan per topik (dengan tabel data), rekomendasi, keterbatasan, dan sumber. TEMPLATE UJI - ganti dengan template resmi klien.",
+  "outputs": ["html", "pdf", "pptx"],
+  "version": "1",
+  "theme": {
+    "primary": "1C2757",
+    "accent": "1BA5B8",
+    "highlight": "D6DD3C",
+    "text": "1E2329",
+    "muted": "5B6470",
+    "light": "EEF2F7",
+    "line": "D5DBE3"
+  },
+  "cover": {"title_field": "judul_utama", "subtitle_fields": ["segmen", "periode"], "tag_field": "segmen"},
+  "footer": "{company} | {report_title} | {date} | Client Use Only | Strictly Confidential",
+  "layout": [
+    {"type": "bullets", "field": "ringkasan_eksekutif", "title": "Ringkasan Eksekutif", "lead": "Poin utama dari studi ini"},
+    {"type": "text", "field": "latar_belakang", "title": "Latar Belakang"},
+    {"type": "cards", "field": "tujuan", "title": "Tujuan Penelitian", "card_title": "judul", "card_body": "uraian"},
+    {"type": "section", "title": "Temuan Penelitian"},
+    {"type": "findings", "field": "temuan_utama"},
+    {"type": "section", "title": "Rekomendasi"},
+    {"type": "table", "field": "rekomendasi", "title": "Apa yang harus dilakukan?",
+     "columns": [{"key": "area", "label": "Area"}, {"key": "tindakan", "label": "Tindakan"},
+                 {"key": "prioritas", "label": "Prioritas", "style": "priority"}, {"key": "alasan", "label": "Alasan"}],
+     "widths": [0.17, 0.38, 0.11, 0.34]},
+    {"type": "text", "field": "keterbatasan", "title": "Keterbatasan Studi"},
+    {"type": "table", "field": "daftar_sumber", "title": "Daftar Sumber",
+     "columns": [{"key": "judul_dokumen", "label": "Dokumen"}, {"key": "versi", "label": "Versi"}],
+     "widths": [0.82, 0.18]}
+  ]
+}

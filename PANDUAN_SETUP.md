@@ -1,4 +1,4 @@
-# Panduan Setup sampai Penggunaan — Asisten Perpustakaan Dokumen (POC)
+# Panduan Setup sampai Penggunaan — Document Insight Agent (POC)
 
 Project: `ptpl-land-dev` · App GE: lokasi `global` · Repo: `github.com/TooGreat430/agent-bei-csls`
 
@@ -70,6 +70,33 @@ Pengaturan berikut disimpan di **`gs://ptpl-ge-bucket/ge-docs-agent/config/setti
 **Cara mengubah:** Konsol → **Cloud Storage → `ptpl-ge-bucket` → `ge-docs-agent/config/`** → klik `settings.json` → **Download** → edit dengan Notepad → **Upload files** ke folder yang sama (timpa file lama). Jika isi file rusak atau salah format, agent otomatis memakai nilai bawaan, jadi agent tidak akan error.
 
 Yang **tetap** butuh update kode (Cloud Shell): perubahan perilaku atau instruksi agent, dan fitur baru.
+
+---
+
+## 📄 Template laporan dan format output
+
+Laporan bisa dikeluarkan dalam **PDF, PowerPoint (.pptx), atau HTML**. Agent hanya membuat format yang diminta user, misalnya *"Buatkan laporannya dalam PDF"*. Jika user tidak menyebut format, agent menanyakannya sekali.
+
+**Template yang tersedia:**
+
+| Template | Gaya | Format |
+|---|---|---|
+| `studi_bei_nps` | Deck riset pasar 16:9 (meniru gaya laporan Studi BEI & NPS): sampul, ringkasan, latar belakang, tujuan, temuan per topik dengan tabel data, rekomendasi | PDF, PPTX, HTML |
+| `laporan_studi` | Dokumen laporan sederhana | PDF, PPTX, HTML |
+
+Keduanya adalah **template uji**, dan nanti diganti dengan template resmi klien.
+
+**Lokasi:** `gs://ptpl-ge-bucket/ge-docs-agent/templates/<nama_template>/`
+
+| File | Wajib? | Fungsi |
+|---|---|---|
+| `manifest.json` | Ya | Judul, format yang didukung, warna tema, susunan halaman |
+| `schema.json` | Ya | Bagian-bagian laporan yang diisi Gemini |
+| `style_examples.md` | Tidak | Contoh gaya bahasa dari laporan lama |
+| `template.pptx` | Tidak | File PowerPoint resmi klien. Master/tema slide-nya (latar, logo, font) dipakai untuk output PPTX |
+| `template.html` | Tidak | Desain HTML khusus. Jika tidak ada, HTML dibuat dari susunan halaman di `manifest.json` |
+
+**Menambah atau mengganti template:** upload folder template lewat Konsol (**Upload folder**) ke `ge-docs-agent/templates/`. Template langsung bisa dipakai, tanpa redeploy dan tanpa Cloud Shell. File PDF atau PPT laporan lama **tidak bisa langsung dipakai** sebagai template, karena perlu diubah dulu menjadi `manifest.json` dan `schema.json`.
 
 ---
 
@@ -315,7 +342,7 @@ echo "LIB_AGENT_RESOURCE=<RESOURCE_NAME>" >> .env && set -a && source .env && se
 
 ### 7.2 Daftarkan ke app GE
 
-Sama seperti Tahap 4.3. Nama tampilan: **Asisten Perpustakaan Dokumen**. Tambahkan `mirptpl@gmail.com` sebagai user yang boleh memakai agent.
+Sama seperti Tahap 4.3. Nama tampilan: **Document Insight Agent**. Tambahkan `mirptpl@gmail.com` sebagai user yang boleh memakai agent.
 
 ### 7.3 Akses baca laporan untuk penguji
 
@@ -349,7 +376,7 @@ Jalankan skenario Tahap 8 langsung dari GE, login sebagai penguji.
 3. **Pilih dokumen:** "Pakai dokumen <judul> saja."
 4. **Tanya:** pertanyaan yang jawabannya ada di dokumen (harus ada sitasi) dan yang tidak ada (harus "tidak ditemukan").
 5. **Insight:** "Gunakan workspace BEI Study 2026." → "Simpan temuan ini sebagai insight."
-6. **Laporan:** "Buatkan laporan dengan template laporan studi dari semua insight. Judulnya Laporan Uji POC." → buka link.
+6. **Laporan:** "Buatkan laporan dengan template Studi BEI & NPS dari semua insight dalam format PDF. Judulnya Laporan Uji POC." → buka link. Ulangi dengan "dalam format PowerPoint" dan "dalam format HTML". Setiap permintaan hanya menghasilkan satu file sesuai format yang diminta. Tanpa menyebut format, agent harus menanyakannya.
 7. **Koreksi:** "Judul dokumen <judul> salah, harusnya <judul baru>." (semua user boleh)
 8. **Sinkronisasi folder:** (a) taruh 1 PDF di `ge-docs-datastore` lewat Konsol → `Dokumen apa saja yang ada di perpustakaan?` → dokumen baru langsung muncul. (b) Hapus file itu dari folder lewat Konsol → tanyakan katalog lagi → dokumen hilang dari katalog. (c) Upload file lewat chat → cek di Konsol bahwa file muncul di `ge-docs-datastore/`.
 9. **Insight bersama:** login dengan akun lain, buka workspace yang sama ("Gunakan workspace BEI Study 2026"), lalu "Tampilkan insight." Insight dari user pertama harus terlihat, tetapi tidak bisa diubah oleh user kedua.

@@ -26,6 +26,7 @@ def generate_report(
     template_id: str,
     insight_ids: list[str],
     tool_context: ToolContext,
+    output_format: str = "",
     report_title: str = "",
     extra_instructions: str = "",
     use_document_excerpts: bool = True,
@@ -33,9 +34,12 @@ def generate_report(
     """Membuat laporan dari insight tersimpan, mengikuti template resmi perusahaan.
 
     Layout laporan dikunci oleh template. Model hanya mengisi konten sesuai skema.
+    Hanya SATU format yang dibuat, sesuai permintaan user.
 
     Args:
         template_id: ID template dari list_report_templates.
+        output_format: Format yang diminta user: "pdf", "pptx" (PowerPoint), atau "html".
+            Kosongkan jika user belum menyebut format; tool akan mengembalikan pilihan format.
         insight_ids: ID insight yang dijadikan landasan (lihat list_insights). Kosongkan
             untuk memakai semua insight di workspace aktif.
         report_title: Judul laporan, misalnya "Laporan Studi CSLS Q3 2026".
@@ -52,6 +56,14 @@ def generate_report(
         template = report_engine.load_template(template_id)
     except Exception as exc:  # noqa: BLE001
         return {"status": "error", "message": str(exc)}
+
+    fmt = report_engine.normalize_format(output_format)
+    if not fmt:
+        return {"status": "needs_input", "available_formats": template.outputs,
+                "message": "Tanyakan ke user format laporan yang diinginkan (PDF, PowerPoint, atau HTML)."}
+    if fmt not in template.outputs:
+        return {"status": "error", "available_formats": template.outputs,
+                "message": f"Template ini tidak mendukung format {fmt}."}
 
     items = (insights.get_many(workspace, insight_ids) if insight_ids
              else insights.list_for(workspace))
@@ -79,15 +91,14 @@ def generate_report(
         return {"status": "error", "message": str(exc)}
 
     meta = report_engine.build_meta(template, user_id, report_title)
-    html = report_engine.render_html(template, content, meta)
-    pdf = report_engine.html_to_pdf(html) if "pdf" in template.manifest.get("outputs", ["html"]) else None
-    links = report_engine.save_outputs(
-        user_id, template_id, meta["report_title"], html, pdf,
-        record={
-            "workspace": workspace,
-            "insight_ids": [i["insight_id"] for i in items],
-            "doc_keys": active,
-        },
+    try:
+        data, ext, ctype = report_engine.render(template, content, meta, fmt)
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("Render laporan gagal")
+        return {"status": "error", "message": f"Laporan gagal dibuat dalam format {fmt}: {exc}"}
+    links = report_engine.save_output(
+        user_id, template_id, meta["report_title"], data, ext, ctype,
+        record={"workspace": workspace, "insight_ids": [i["insight_id"] for i in items], "doc_keys": active},
     )
     return {"status": "ok", "report_title": meta["report_title"], **links}
 

@@ -1,4 +1,4 @@
-# Asisten Perpustakaan Dokumen — Gemini Enterprise (ADK)
+# Document Insight Agent — Gemini Enterprise (ADK)
 
 Agent ADK yang menjadikan Gemini Enterprise (GE) sebagai **perpustakaan dokumen bersama**, dengan semua pekerjaan dilakukan dalam **satu chat**.
 
@@ -9,6 +9,7 @@ Agent ADK yang menjadikan Gemini Enterprise (GE) sebagai **perpustakaan dokumen 
 | Upload dokumen dari chat ke perpustakaan | Callback menangkap lampiran, Gemini mengekstrak judul/jenis/versi/tanggal (`extract_upload_metadata`), agent menampilkan hasilnya untuk dikonfirmasi user, lalu dokumen disimpan (`confirm_upload`) ke GCS, data store, dan katalog. User hanya memperbaiki bagian yang salah |
 | Folder `ge-docs-datastore` sebagai satu-satunya tempat dokumen | `sync.py`: katalog otomatis disamakan dengan isi folder setiap kali katalog dibuka atau dokumen dipilih. Upload lewat chat disimpan ke folder yang sama |
 | Hapus dokumen dan insight bersama | `delete_document` (semua user, dengan konfirmasi, file ikut dihapus dari folder dokumen). Insight per workspace terlihat semua user, diubah hanya oleh pembuatnya |
+| Laporan dalam PDF / PowerPoint / HTML sesuai permintaan | `report_render.py`: satu isi JSON dirender ke format yang diminta (reportlab untuk PDF, python-pptx untuk PPTX). Template: `manifest.json` (tema + layout) + `schema.json`, opsional `template.pptx` klien |
 | Laporan dari template perusahaan | Gemini hanya mengisi JSON sesuai `schema.json`, lalu Jinja2 merender `template.html` ke HTML/PDF |
 
 > **Status POC:** jalur upload via chat bergantung pada apakah GE meneruskan lampiran ke agent custom. Uji dulu dengan `poc/upload_probe` sebelum demo ke klien (lihat bagian POC).
@@ -20,7 +21,7 @@ Agent ADK yang menjadikan Gemini Enterprise (GE) sebagai **perpustakaan dokumen 
 ```
                      Gemini Enterprise — 1 chat
                                │
-                 ┌──── asisten_perpustakaan (root) ────┐
+                 ┌──── document_insight_agent (root) ────┐
                  │  before_agent_callback: capture_uploads
       ┌──────────┴───────────┐           ┌─────────────┴──────────┐
       │ research_agent       │           │ report_agent           │
@@ -52,7 +53,9 @@ library_agent/
   store.py            baca/tulis JSON di GCS, aman untuk penulisan bersamaan
   catalog.py          katalog perpustakaan (catalog/index.json di GCS)
   insights.py         insight per workspace (insights/<workspace>.json di GCS)
-  report_engine.py    registry template, composer, validasi, render
+  report_engine.py    registry template, composer, validasi, pilih format
+  report_render.py    render HTML / PDF / PPTX dari layout template
+  fonts/              Liberation Sans (SIL OFL) untuk PDF
   prompts.py          instruksi agent
   llm.py              model Gemini dengan lokasi endpoint dikunci (LIB_GEMINI_LOCATION)
   config.py           semua konfigurasi (env LIB_*)

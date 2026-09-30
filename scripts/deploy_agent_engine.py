@@ -52,7 +52,7 @@ def main() -> None:
         from library_agent.agent import root_agent
 
         packages = ["./library_agent", "./templates"]
-        display_name = "asisten-perpustakaan"
+        display_name = os.getenv("LIB_AGENT_DISPLAY_NAME", "document-insight-agent")
 
     env_vars = {k: v for k, v in os.environ.items() if k.startswith("LIB_") and v}
     env_vars["GOOGLE_GENAI_USE_VERTEXAI"] = "TRUE"

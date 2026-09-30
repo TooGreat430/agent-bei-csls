@@ -52,9 +52,8 @@ if [ -n "$OLD_ROOT" ] && [ "$OLD_ROOT" != "$NEW_ROOT" ] && gcloud storage ls "$B
   gcloud storage rm -r "$B/$OLD_ROOT/" >/dev/null
   echo "      folder $OLD_ROOT/ dihapus (katalog dibangun ulang otomatis dari ge-docs-datastore)"
 fi
-if ! gcloud storage ls "$B/$NEW_ROOT/templates/" >/dev/null 2>&1; then
-  python scripts/upload_templates.py >/dev/null && echo "    template laporan diunggah"
-fi
+# Template baru dari repo diunggah; template yang sudah ada di bucket tidak ditimpa.
+python scripts/upload_templates.py --missing-only | sed 's/^/    /' || true
 if ! gcloud storage ls "$B/$NEW_ROOT/config/settings.json" >/dev/null 2>&1; then
   gcloud storage cp setup/settings.json "$B/$NEW_ROOT/config/settings.json" >/dev/null && echo "    settings.json diunggah"
 fi
@@ -63,12 +62,13 @@ echo "==> 5/6 Uji unit"
 python -m unittest discover tests >/dev/null 2>&1 || { python -m unittest discover tests; echo "Uji gagal, update dibatalkan."; exit 1; }
 echo "    OK"
 if [ -z "${LIB_AGENT_RESOURCE:-}" ]; then
-  echo "    Mencari resource agent 'asisten-perpustakaan'..."
+  echo "    Mencari resource agent '${LIB_AGENT_DISPLAY_NAME:-document-insight-agent}'..."
   RES=$(python - <<'PY'
 import os, vertexai
 from vertexai import agent_engines
 vertexai.init(project=os.environ["LIB_PROJECT_ID"], location=os.environ["LIB_AGENT_ENGINE_REGION"])
-found = [e.resource_name for e in agent_engines.list() if e.display_name == "asisten-perpustakaan"]
+name = os.environ.get("LIB_AGENT_DISPLAY_NAME", "document-insight-agent")
+found = [e.resource_name for e in agent_engines.list() if e.display_name in (name, "asisten-perpustakaan")]
 print(found[0] if len(found) == 1 else "")
 PY
 )
