@@ -11,7 +11,7 @@ research_agent = LlmAgent(
     name="research_agent",
     model=make_model(settings.model_pro),
     description=(
-        "Mengelola perpustakaan dokumen (katalog, unggah dokumen), memilih dokumen aktif, "
+        "Mengelola perpustakaan dokumen (katalog yang selalu disamakan dengan folder ge-docs-datastore, unggah dokumen), memilih dokumen aktif, "
         "menjawab pertanyaan hanya dari dokumen aktif dengan sitasi, dan menyimpan insight."
     ),
     instruction=RESEARCH_INSTRUCTION,

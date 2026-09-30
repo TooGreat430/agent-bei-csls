@@ -73,7 +73,7 @@ def capture_uploads(callback_context: CallbackContext) -> Optional[types.Content
                 if mime not in SUPPORTED_MIME_TYPES:
                     rejected.append({"file": name, "mime_type": mime})
                     continue
-                if ingest.sha256(part.inline_data.data) in known_hashes:
+                if ingest.md5_b64(part.inline_data.data) in known_hashes:
                     continue  # sudah ditangkap (callback juga terpasang di sub-agent)
                 staged = ingest.stage_bytes(part.inline_data.data, name, mime, session_id)
             elif part.file_data and part.file_data.file_uri:

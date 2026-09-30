@@ -1,0 +1,9 @@
+{
+  "company_name": "PT Pertamina Lubricants",
+  "allowed_doc_types": ["BEI", "CSLS"],
+  "doc_type_hints": "BEI: Brand Equity Index - laporan studi ekuitas merek pelumas (brand awareness, brand image, preferensi, brand funnel, perbandingan dengan merek pesaing); CSLS: Customer Satisfaction and Loyalty Survey - laporan survei kepuasan dan loyalitas pelanggan (indeks kepuasan, NPS, loyalitas, evaluasi produk dan layanan)",
+  "max_active_docs": 10,
+  "source_folder": "gs://ptpl-ge-bucket/ge-docs-datastore/",
+  "folder_batch_size": 20,
+  "max_file_mb": 100
+}

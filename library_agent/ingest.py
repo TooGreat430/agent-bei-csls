@@ -1,16 +1,17 @@
-"""Upload dokumen dari chat ke perpustakaan.
+"""Operasi file dan data store.
 
-Alur:
-1. Callback menyimpan lampiran chat ke GCS `staging/` (stage_bytes / stage_gcs_uri).
-2. Setelah metadata dikonfirmasi user, file disalin ke `library/` dan diimpor
-   ke data store (import_to_datastore) secara incremental.
-3. Status indexing bisa dicek lewat check_import_operation.
+- Lampiran chat disimpan SEMENTARA di `staging/` sampai user mengonfirmasi metadata,
+  lalu DIPINDAHKAN ke folder dokumen (LIB_SOURCE_FOLDER, mis. ge-docs-datastore).
+  File staging yang tidak pernah dikonfirmasi dibersihkan otomatis setelah 24 jam.
+- Semua dokumen perpustakaan berada di folder dokumen. Tidak ada salinan di folder lain.
 """
 from __future__ import annotations
 
+import base64
 import hashlib
 import logging
 import re
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from .clients import branch_path, document_client, storage_client
@@ -27,8 +28,32 @@ def safe_filename(name: str, mime_type: str = "") -> str:
     return base[:120]
 
 
-def sha256(data: bytes) -> str:
-    return hashlib.sha256(data).hexdigest()
+def md5_b64(data: bytes) -> str:
+    """Hash isi file dengan format yang sama seperti `md5_hash` di Cloud Storage."""
+    return base64.b64encode(hashlib.md5(data).digest()).decode()  # noqa: S324 (bukan untuk keamanan)
+
+
+def source_folder_parts() -> tuple[str, str]:
+    """(bucket, prefix/) dari folder dokumen."""
+    from .config import live
+
+    folder = live("source_folder")
+    if not folder:
+        raise RuntimeError("Folder dokumen belum dikonfigurasi (source_folder).")
+    bucket, prefix = parse_gcs_uri(folder.rstrip("/") + "/")
+    return bucket, prefix
+
+
+def unique_name(existing: set[str], filename: str) -> str:
+    """Nama file yang belum dipakai di folder: laporan.pdf -> laporan-2.pdf -> laporan-3.pdf."""
+    if filename not in existing:
+        return filename
+    stem, dot, ext = filename.rpartition(".")
+    stem, ext = (stem, f".{ext}") if dot else (filename, "")
+    n = 2
+    while f"{stem}-{n}{ext}" in existing:
+        n += 1
+    return f"{stem}-{n}{ext}"
 
 
 def parse_gcs_uri(uri: str) -> tuple[str, str]:
@@ -43,7 +68,8 @@ def parse_gcs_uri(uri: str) -> tuple[str, str]:
 # --------------------------------------------------------------------------
 def stage_bytes(data: bytes, filename: str, mime_type: str, session_id: str) -> dict[str, Any]:
     fname = safe_filename(filename, mime_type)
-    path = f"{settings.staging_prefix}/{session_id}/{sha256(data)[:12]}_{fname}"
+    digest = hashlib.sha256(data).hexdigest()[:12]
+    path = f"{settings.staging_prefix}/{session_id}/{digest}_{fname}"
     blob = storage_client().bucket(settings.bucket).blob(path)
     blob.upload_from_string(data, content_type=mime_type)
     return {
@@ -51,7 +77,7 @@ def stage_bytes(data: bytes, filename: str, mime_type: str, session_id: str) -> 
         "filename": fname,
         "mime_type": mime_type,
         "size_bytes": len(data),
-        "content_hash": sha256(data),
+        "content_hash": md5_b64(data),
     }
 
 
@@ -63,15 +89,73 @@ def stage_gcs_uri(uri: str, filename: str, mime_type: str, session_id: str) -> d
 
 
 # --------------------------------------------------------------------------
-# Masuk perpustakaan
+# Folder dokumen
 # --------------------------------------------------------------------------
-def promote_to_library(staged_uri: str, doc_type: str, doc_key: str, filename: str) -> str:
-    src_bucket_name, src_path = parse_gcs_uri(staged_uri)
+def list_source_files() -> list[dict[str, Any]]:
+    """Semua file di folder dokumen (rekursif), tanpa mengunduh isinya."""
+    bucket, prefix = source_folder_parts()
+    files = []
+    for blob in storage_client().list_blobs(bucket, prefix=prefix):
+        if blob.name.endswith("/"):
+            continue
+        files.append({
+            "source_uri": f"gs://{bucket}/{blob.name}",
+            "file_name": blob.name.rsplit("/", 1)[-1],
+            "size_bytes": blob.size or 0,
+            "generation": str(blob.generation),
+            "content_hash": blob.md5_hash or f"crc32c:{blob.crc32c}",
+        })
+    return files
+
+
+def plan_destination(filename: str) -> dict[str, str]:
+    """Tentukan lokasi file baru di folder dokumen (nama belum dipakai)."""
+    bucket_name, prefix = source_folder_parts()
+    existing = {b.name[len(prefix):] for b in storage_client().list_blobs(bucket_name, prefix=prefix)
+                if "/" not in b.name[len(prefix):]}
+    name = unique_name(existing, filename)
+    return {"source_uri": f"gs://{bucket_name}/{prefix}{name}", "file_name": name}
+
+
+def copy_staged_to(staged_uri: str, dest_uri: str) -> str:
+    """Salin file staging ke lokasi tujuan (tidak menimpa file yang sudah ada), lalu hapus staging.
+
+    Mengembalikan generation file tujuan. Error PreconditionFailed jika tujuan sudah ada.
+    """
     client = storage_client()
+    src_bucket_name, src_path = parse_gcs_uri(staged_uri)
+    dst_bucket_name, dst_path = parse_gcs_uri(dest_uri)
     src_bucket = client.bucket(src_bucket_name)
-    dst_path = f"{settings.library_prefix}/{doc_type.upper()}/{doc_key}/{filename}"
-    src_bucket.copy_blob(src_bucket.blob(src_path), client.bucket(settings.bucket), dst_path)
-    return f"gs://{settings.bucket}/{dst_path}"
+    new_blob = src_bucket.copy_blob(src_bucket.blob(src_path), client.bucket(dst_bucket_name), dst_path,
+                                    if_generation_match=0)
+    src_bucket.blob(src_path).delete()
+    return str(new_blob.generation)
+
+
+def delete_source_file(source_uri: str) -> bool:
+    """Hapus file dari folder dokumen. Hanya berlaku untuk file DI DALAM folder dokumen."""
+    from google.api_core.exceptions import NotFound
+
+    bucket_name, prefix = source_folder_parts()
+    bucket, path = parse_gcs_uri(source_uri)
+    if bucket != bucket_name or not path.startswith(prefix):
+        return False
+    try:
+        storage_client().bucket(bucket).blob(path).delete()
+    except NotFound:
+        pass
+    return True
+
+
+def cleanup_staging(max_age_hours: int = 24) -> int:
+    """Hapus lampiran chat yang tidak pernah dikonfirmasi (lebih dari `max_age_hours`)."""
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=max_age_hours)
+    removed = 0
+    for blob in storage_client().list_blobs(settings.bucket, prefix=settings.staging_prefix.rstrip("/") + "/"):
+        if blob.time_created and blob.time_created < cutoff:
+            blob.delete()
+            removed += 1
+    return removed
 
 
 def _build_document(*, doc_key: str, gcs_uri: str, mime_type: str, title: str, doc_type: str,
@@ -136,22 +220,6 @@ def delete_from_datastore(doc_key: str) -> None:
         document_client().delete_document(name=f"{branch_path()}/documents/{doc_key}")
     except NotFound:
         logger.info("doc %s sudah tidak ada di data store", doc_key)
-
-
-def delete_library_copy(gcs_uri: str) -> None:
-    """Hapus salinan file HANYA jika berada di folder perpustakaan agent.
-
-    File asli di folder sumber (mis. ge-docs-datastore) tidak pernah dihapus.
-    """
-    from google.api_core.exceptions import NotFound
-
-    bucket, path = parse_gcs_uri(gcs_uri)
-    if bucket != settings.bucket or not path.startswith(settings.library_prefix.rstrip("/") + "/"):
-        return
-    try:
-        storage_client().bucket(bucket).blob(path).delete()
-    except NotFound:
-        pass
 
 
 def check_import_operation(op_name: str) -> dict[str, Any]:

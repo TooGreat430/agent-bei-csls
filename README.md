@@ -7,8 +7,8 @@ Agent ADK yang menjadikan Gemini Enterprise (GE) sebagai **perpustakaan dokumen 
 | Satu chat untuk semua | Satu root agent terdaftar di GE, dengan `research_agent` dan `report_agent` sebagai sub-agent |
 | Pilih dokumen, chat terpusat, dan bisa diperluas di tengah chat | Daftar dokumen aktif di session state, dan setiap pencarian dipaksa filter `doc_key: ANY(...)` di level API |
 | Upload dokumen dari chat ke perpustakaan | Callback menangkap lampiran, Gemini mengekstrak judul/jenis/versi/tanggal (`extract_upload_metadata`), agent menampilkan hasilnya untuk dikonfirmasi user, lalu dokumen disimpan (`confirm_upload`) ke GCS, data store, dan katalog. User hanya memperbaiki bagian yang salah |
-| Impor dokumen yang sudah ada di folder bucket | `scripts/import_folder.py`: scan → cek CSV → run, aman diulang berkala |
-| Hapus dokumen dan insight bersama | `delete_document` (semua user, dengan konfirmasi, tombstone agar tidak diimpor ulang). Insight per workspace terlihat semua user, diubah hanya oleh pembuatnya |
+| Folder `ge-docs-datastore` sebagai satu-satunya tempat dokumen | `sync.py`: katalog otomatis disamakan dengan isi folder setiap kali katalog dibuka atau dokumen dipilih. Upload lewat chat disimpan ke folder yang sama |
+| Hapus dokumen dan insight bersama | `delete_document` (semua user, dengan konfirmasi, file ikut dihapus dari folder dokumen). Insight per workspace terlihat semua user, diubah hanya oleh pembuatnya |
 | Laporan dari template perusahaan | Gemini hanya mengisi JSON sesuai `schema.json`, lalu Jinja2 merender `template.html` ke HTML/PDF |
 
 > **Status POC:** jalur upload via chat bergantung pada apakah GE meneruskan lampiran ke agent custom. Uji dulu dengan `poc/upload_probe` sebelum demo ke klien (lihat bagian POC).
@@ -30,7 +30,8 @@ Agent ADK yang menjadikan Gemini Enterprise (GE) sebagai **perpustakaan dokumen 
       │ • tanya-jawab+sitasi │           │   (JSON → Jinja → PDF) │
       │ • insight            │           └────────────────────────┘
       └──────────────────────┘
-   GCS bucket utama: staging/, library/, templates/, catalog/index.json, insights/
+   Folder dokumen (LIB_SOURCE_FOLDER, mis. ge-docs-datastore/): SEMUA dokumen perpustakaan
+   Folder internal agent: staging/, templates/, catalog/index.json, insights/, config/, reports/
    GCS bucket laporan: reports/  (satu-satunya bucket yang bisa dibaca user)
    Data store GE (dokumen + metadata, layout parser, chunking)
 ```
@@ -44,9 +45,9 @@ library_agent/
   tools/              tool ADK (library_tools.py, report_tools.py)
   callbacks.py        penangkap lampiran chat + log POC
   search.py           pencarian berfilter dokumen aktif + label sitasi
-  ingest.py           staging, salin ke library/, impor ke data store
+  ingest.py           staging lampiran, pindah ke folder dokumen, impor/hapus di data store
   metadata.py         ekstraksi metadata dokumen otomatis dengan Gemini
-  folder_import.py    impor dokumen dari folder bucket (dipakai scripts/import_folder.py)
+  sync.py             sinkronisasi katalog dengan folder dokumen (ge-docs-datastore)
   library_admin.py    operasi hapus dokumen (dipakai agent dan script impor)
   store.py            baca/tulis JSON di GCS, aman untuk penulisan bersamaan
   catalog.py          katalog perpustakaan (catalog/index.json di GCS)
@@ -183,6 +184,11 @@ Lalu di konsol Gemini Enterprise, buka **Agents**, tambahkan agent custom berbas
 - **Versi dokumen:** judul dan jenis yang sama dengan file berbeda memicu konfirmasi "versi baru". Versi lama tetap tersimpan dengan `is_latest=false`.
 - **Composer laporan memakai skema dinamis** per template lewat `google-genai` (`response_json_schema`), bukan `output_schema` ADK yang statis. Output divalidasi dengan `jsonschema` dan dicoba ulang sekali jika tidak valid.
 - **Model:** default `gemini-3.5-flash`. Agent ADK memanggil Gemini lewat endpoint `LIB_GEMINI_LOCATION` (default `global`), terpisah dari region Agent Engine, supaya agent bisa berjalan di Jakarta tanpa bergantung pada ketersediaan model di region itu.
+
+## 7b. Pengaturan tanpa redeploy dan update satu perintah
+
+- `setup/settings.json` diunggah ke `gs://<LIB_BUCKET>/<root>/config/settings.json`. Nilai di sana (nama perusahaan, jenis dokumen, hints, batas-batas, folder sumber) menimpa `.env` dan dibaca ulang setiap 5 menit (`config.live`).
+- Update kode: `bash scripts/update_agent.sh` (pull, dependensi, `.env`, uji, cari resource, `--update`).
 
 ## 8. Belum termasuk (tahap berikutnya)
 

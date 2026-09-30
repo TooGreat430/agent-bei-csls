@@ -65,37 +65,69 @@ class StorageTest(unittest.TestCase):
     def tearDown(self):
         mock.patch.stopall()
 
-    def _add(self, title, version, previous=None, content_hash=None):
+    def _add(self, title, version, content_hash=None, name=None, default_version=False, doc_type="csls"):
         key = catalog.new_doc_key()
-        catalog.create_version(
-            doc_key=key, family_id=previous or key, title=title, doc_type="csls", version=version,
-            doc_date="2026-09-01", uploader="a@klien.co.id", gcs_uri=f"gs://b/{key}.pdf",
-            mime_type="application/pdf", content_hash=content_hash or key, import_operation="op",
-            previous_doc_key=previous,
+        name = name or f"{key}.pdf"
+        return catalog.create(
+            doc_key=key, title=title, doc_type=doc_type, version=version, doc_date="2026-09-01",
+            uploader="a@klien.co.id", source_uri=f"gs://b/ge-docs-datastore/{name}", file_name=name,
+            mime_type="application/pdf", content_hash=content_hash or key, source_generation="1",
+            version_is_default=default_version,
         )
-        return key
 
-    def test_catalog_versioning(self):
+    def test_catalog_versioning_by_title(self):
         v1 = self._add("Studi CSLS 2026", "1")
-        v2 = self._add("Studi  csls 2026", "2", previous=v1)
-        latest = catalog.find_latest_by_title("studi CSLS 2026", "CSLS")
-        self.assertEqual(latest["doc_key"], v2)
+        v2 = self._add("Studi  csls 2026", "2")
+        self.assertEqual(catalog.find_latest_by_title("studi CSLS 2026", "CSLS")["doc_key"], v2["doc_key"])
+        self.assertEqual(v2["family_id"], v1["family_id"])
         self.assertEqual(len(catalog.list_documents()), 1)
         self.assertEqual(len(catalog.list_documents(include_old_versions=True)), 2)
-        self.assertFalse(catalog.get(v1)["is_latest"])
+        self.assertFalse(catalog.get(v1["doc_key"])["is_latest"])
 
-    def test_catalog_hash_and_status(self):
-        key = self._add("Laporan BEI", "1", content_hash="abc")
-        self.assertEqual(catalog.find_by_hash("abc")["doc_key"], key)
-        catalog.update_status(key, "ready")
-        self.assertEqual(catalog.get(key)["status"], "ready")
+    def test_version_bumped_when_missing_or_same(self):
+        self._add("Laporan BEI", "1", doc_type="bei")
+        v2 = self._add("Laporan BEI", "1", doc_type="bei")                    # versi sama
+        v3 = self._add("Laporan BEI", "1", doc_type="bei", default_version=True)  # versi tidak tertulis
+        self.assertEqual((v2["version"], v3["version"]), ("2", "3"))
+
+    def test_same_file_is_not_added_twice(self):
+        self._add("Dok A", "1", name="a.pdf")
+        self.assertIsNone(self._add("Dok A lain", "1", name="a.pdf"))
+        self.assertEqual(len(catalog.all_records()), 1)
+
+    def test_hash_and_status(self):
+        rec = self._add("Laporan BEI", "1", content_hash="abc")
+        self.assertEqual(catalog.find_by_hash("abc")["doc_key"], rec["doc_key"])
+        catalog.set_import_operation([rec["doc_key"]], "op-1")
+        catalog.update_status(rec["doc_key"], "ready")
+        self.assertEqual(catalog.get(rec["doc_key"])["status"], "ready")
+        self.assertEqual(catalog.get(rec["doc_key"])["import_operation"], "op-1")
 
     def test_write_conflict_is_retried(self):
         self._add("Dok A", "1")
         self.bucket.interfere_once = True
         self._add("Dok B", "1")
-        titles = {d["title"] for d in catalog.list_documents()}
-        self.assertIn("Dok B", titles)
+        self.assertIn("Dok B", {d["title"] for d in catalog.list_documents()})
+
+    def test_remove_promotes_previous_version(self):
+        v1 = self._add("Studi CSLS 2026", "1")
+        v2 = self._add("Studi CSLS 2026", "2")
+        result = catalog.remove(v2["doc_key"])
+        self.assertEqual(result["promoted"], v1["doc_key"])
+        self.assertIsNone(catalog.get(v2["doc_key"]))
+        self.assertTrue(catalog.get(v1["doc_key"])["is_latest"])
+        self.assertIsNone(catalog.remove(v2["doc_key"]))
+
+    def test_user_corrections_survive_reextraction(self):
+        rec = self._add("Laporan BEI", "1", doc_type="bei")
+        catalog.update_fields(rec["doc_key"], {"needs_review": ["doc_type", "title"]})
+        updated = catalog.update_metadata(rec["doc_key"], {"title": "Laporan BEI Nasional"})
+        self.assertEqual(updated["manual_fields"], ["title"])
+        self.assertEqual(updated["needs_review"], ["doc_type"])
+        merged = catalog.merge_extracted(updated, {"title": "Judul Hasil Ekstraksi", "doc_type": "BEI",
+                                                   "version": "2", "doc_date": "2026-10-01"})
+        self.assertEqual(merged["title"], "Laporan BEI Nasional")   # koreksi user dipertahankan
+        self.assertEqual(merged["version"], "2")                    # field lain diperbarui
 
     def test_insights_shared_in_workspace_but_owner_only_edit(self):
         item = insights.save("a@klien.co.id", "BEI Study 2026", "Temuan", "Isi", ["[Dok, v1, hal. 2]"], ["doc-1"])
@@ -110,25 +142,6 @@ class StorageTest(unittest.TestCase):
         self.assertEqual(insights.update("a@klien.co.id", "BEI Study 2026", item["insight_id"], None, "Isi baru")["insight"]["content"], "Isi baru")
         self.assertEqual(insights.delete("a@klien.co.id", "BEI Study 2026", item["insight_id"])["status"], "ok")
         self.assertEqual(insights.delete("a@klien.co.id", "BEI Study 2026", item["insight_id"])["status"], "not_found")
-
-    def test_delete_creates_tombstone_and_promotes_previous_version(self):
-        v1 = self._add("Studi CSLS 2026", "1", content_hash="h1")
-        v2 = self._add("Studi CSLS 2026", "2", previous=v1, content_hash="h2")
-        result = catalog.mark_deleted(v2, "b@klien.co.id")
-        self.assertEqual(result["promoted"], v1)
-        self.assertIsNone(catalog.get(v2))                      # tidak terlihat lagi
-        self.assertTrue(catalog.get(v1)["is_latest"])           # versi lama naik
-        self.assertIsNone(catalog.find_by_hash("h2"))           # upload ulang via chat tidak dianggap duplikat
-        self.assertEqual(len(catalog.list_documents()), 1)
-        tomb = [r for r in catalog.all_records() if r["doc_key"] == v2][0]
-        self.assertEqual(tomb["status"], "deleted")             # tombstone tetap untuk impor folder
-        self.assertIsNone(catalog.mark_deleted(v2, "x"))        # hapus dua kali aman
-
-    def test_anyone_can_update_metadata(self):
-        key = self._add("Laporan BEI", "1")
-        updated = catalog.update_metadata(key, {"title": "Laporan BEI Nasional"})
-        self.assertEqual(updated["title"], "Laporan BEI Nasional")
-        self.assertNotIn("updated_by", updated)
 
 
 if __name__ == "__main__":

@@ -19,7 +19,7 @@ import re
 from datetime import date
 from typing import Any
 
-from .config import settings
+from .config import settings, live
 
 logger = logging.getLogger(__name__)
 
@@ -154,10 +154,10 @@ def suggest(upload: dict[str, Any]) -> dict[str, Any]:
 
     from .clients import genai_client
 
-    hints = settings.doc_type_hints or "(tidak ada penjelasan tambahan)"
+    hints = live("doc_type_hints") or "(tidak ada penjelasan tambahan)"
     prompt = f"""Baca dokumen terlampir dan tentukan metadatanya untuk katalog perpustakaan perusahaan.
 
-Jenis dokumen yang tersedia: {", ".join(settings.allowed_doc_types)}.
+Jenis dokumen yang tersedia: {", ".join(live("allowed_doc_types"))}.
 Penjelasan jenis dokumen: {hints}
 Nama file (petunjuk tambahan, bisa saja tidak akurat): {upload["filename"]}
 
@@ -170,11 +170,11 @@ Aturan:
     config = types.GenerateContentConfig(
         temperature=0,
         response_mime_type="application/json",
-        response_json_schema=response_schema(settings.allowed_doc_types),
+        response_json_schema=response_schema(live("allowed_doc_types")),
     )
     response = genai_client().models.generate_content(
         model=settings.model_fast, contents=[_document_part(upload), prompt], config=config,
     )
     raw = json.loads(response.text or "{}")
     logger.info("metadata usulan untuk %s: %s", upload["filename"], raw)
-    return finalize(raw, upload["filename"], settings.allowed_doc_types)
+    return finalize(raw, upload["filename"], live("allowed_doc_types"))

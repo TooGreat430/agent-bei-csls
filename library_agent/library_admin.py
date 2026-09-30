@@ -1,4 +1,4 @@
-"""Operasi pengelolaan perpustakaan yang dipakai bersama oleh agent dan script impor."""
+"""Operasi pengelolaan perpustakaan yang dipakai agent."""
 from __future__ import annotations
 
 import logging
@@ -9,29 +9,28 @@ from . import catalog, ingest
 logger = logging.getLogger(__name__)
 
 
-def delete_document(doc_key: str, deleted_by: str) -> dict[str, Any]:
-    """Hapus dokumen dari perpustakaan.
+def delete_document(doc_key: str) -> dict[str, Any]:
+    """Hapus dokumen dari perpustakaan: file di folder dokumen, data store, dan katalog.
 
-    - Dihapus dari data store (tidak bisa ditemukan lagi saat tanya-jawab).
-    - Ditandai "deleted" di katalog (agar impor folder berikutnya tidak memasukkannya lagi).
-    - Salinan file di folder perpustakaan agent dihapus. File asli di folder sumber TIDAK dihapus.
-    - Jika yang dihapus adalah versi terbaru, versi sebelumnya otomatis menjadi terbaru.
+    Karena folder dokumen adalah sumber kebenaran, file ikut dihapus dari folder.
+    Jika yang dihapus adalah versi terbaru, versi sebelumnya otomatis menjadi terbaru.
     """
-    result = catalog.mark_deleted(doc_key, deleted_by)
-    if not result:
+    record = catalog.get(doc_key)
+    if not record:
         return {"status": "not_found"}
-    record = result["record"]
+    try:
+        ingest.delete_source_file(record.get("source_uri", ""))
+    except Exception:  # noqa: BLE001
+        logger.exception("Gagal menghapus file %s", record.get("source_uri"))
+        return {"status": "error", "message": "File di folder dokumen tidak bisa dihapus."}
     try:
         ingest.delete_from_datastore(doc_key)
     except Exception:  # noqa: BLE001
         logger.exception("Gagal menghapus %s dari data store", doc_key)
-    try:
-        ingest.delete_library_copy(record.get("gcs_uri", ""))
-    except Exception:  # noqa: BLE001
-        logger.exception("Gagal menghapus salinan file %s", record.get("gcs_uri"))
+    result = catalog.remove(doc_key) or {"record": record, "promoted": None}
     promoted = catalog.get(result["promoted"]) if result["promoted"] else None
     return {
         "status": "ok",
-        "deleted": catalog.public_view(record),
+        "deleted": catalog.public_view(result["record"]),
         "promoted_version": catalog.public_view(promoted) if promoted else None,
     }

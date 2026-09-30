@@ -10,10 +10,10 @@ from typing import Any
 
 from google.adk.tools import ToolContext
 
-from .. import catalog, ingest, insights, library_admin, metadata, search
+from .. import catalog, ingest, insights, library_admin, metadata, search, sync
 from ..callbacks import PENDING_KEY
 from ..clients import get_user_id
-from ..config import settings
+from ..config import settings, live
 
 logger = logging.getLogger(__name__)
 
@@ -35,24 +35,51 @@ def _active_summary(doc_keys: list[str]) -> list[dict[str, Any]]:
     return [catalog.public_view(meta[k]) for k in doc_keys if k in meta]
 
 
+def _prune_active(tool_context: ToolContext) -> list[str]:
+    """Buang dokumen aktif yang sudah tidak ada di katalog (mis. file dihapus dari folder)."""
+    keys = _active(tool_context)
+    valid = [k for k in keys if k in catalog.get_many(keys)]
+    if valid != keys:
+        tool_context.state[ACTIVE_KEY] = valid
+    return valid
+
+
 # ==========================================================================
 # Katalog perpustakaan
 # ==========================================================================
+def _sync() -> dict[str, Any]:
+    """Samakan katalog dengan folder dokumen. Kegagalan sinkronisasi tidak menghentikan proses."""
+    try:
+        summary = sync.sync_folder()
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("Sinkronisasi folder gagal")
+        return {"error": f"Folder dokumen tidak bisa diperiksa: {exc}"}
+    if summary.get("in_sync") and not summary["skipped"]:
+        return {"in_sync": True}
+    return summary
+
+
 def list_library(
     doc_type: str = "", keyword: str = "", include_old_versions: bool = False
 ) -> dict[str, Any]:
-    """Menampilkan katalog dokumen di perpustakaan bersama.
+    """Menampilkan katalog perpustakaan. Katalog OTOMATIS disamakan dulu dengan isi folder dokumen.
 
     Args:
         doc_type: Filter jenis dokumen, misalnya "BEI" atau "CSLS". Kosongkan untuk semua.
-        keyword: Kata kunci pada judul dokumen. Kosongkan untuk semua.
+        keyword: Kata kunci pada judul atau nama file. Kosongkan untuk semua.
         include_old_versions: True untuk ikut menampilkan versi lama.
 
     Returns:
-        Daftar dokumen beserta doc_key, judul, jenis, versi, tanggal, pengunggah, dan status.
+        folder_sync (perubahan dari folder sejak terakhir dicek) dan daftar dokumen.
     """
+    sync_result = _sync()
     docs = catalog.list_documents(doc_type, keyword, include_old_versions)
-    return {"status": "ok", "count": len(docs), "documents": docs}
+    return {"status": "ok", "folder_sync": sync_result, "count": len(docs), "documents": docs}
+
+
+def sync_library() -> dict[str, Any]:
+    """Menyamakan katalog dengan isi folder dokumen sekarang juga (mis. "cek dokumen baru di folder")."""
+    return {"status": "ok", "folder_sync": _sync()}
 
 
 # ==========================================================================
@@ -68,23 +95,25 @@ def get_active_documents(tool_context: ToolContext) -> dict[str, Any]:
 
 
 def set_active_documents(doc_keys: list[str], tool_context: ToolContext) -> dict[str, Any]:
-    """Mengganti seluruh daftar dokumen aktif di chat ini.
+    """Mengganti seluruh daftar dokumen aktif di chat ini. Katalog disamakan dulu dengan folder.
 
     Gunakan saat user memilih sekumpulan dokumen sebagai sumber utama.
 
     Args:
         doc_keys: Daftar doc_key dari katalog (lihat list_library).
     """
+    sync_result = _sync()
     keys = list(dict.fromkeys(doc_keys))
-    if len(keys) > settings.max_active_docs:
+    if len(keys) > live("max_active_docs"):
         return {"status": "error",
-                "message": f"Maksimal {settings.max_active_docs} dokumen aktif per chat."}
+                "message": f"Maksimal {live("max_active_docs")} dokumen aktif per chat."}
     meta = catalog.get_many(keys)
     missing = [k for k in keys if k not in meta]
     if missing:
-        return {"status": "error", "message": "Dokumen tidak ditemukan di katalog.", "missing": missing}
+        return {"status": "error", "folder_sync": sync_result, "missing": missing,
+                "message": "Sebagian dokumen tidak ada lagi di folder/katalog. Tampilkan katalog terbaru ke user."}
     tool_context.state[ACTIVE_KEY] = keys
-    return {"status": "ok", "active_documents": _active_summary(keys)}
+    return {"status": "ok", "folder_sync": sync_result, "active_documents": _active_summary(keys)}
 
 
 def add_active_documents(doc_keys: list[str], tool_context: ToolContext) -> dict[str, Any]:
@@ -119,7 +148,7 @@ def search_active_documents(query: str, tool_context: ToolContext) -> dict[str, 
     Returns:
         Potongan isi dokumen beserta label sitasi, misalnya "[Studi CSLS 2026, v2, hal. 12]".
     """
-    keys = _active(tool_context)
+    keys = _prune_active(tool_context)
     if not keys:
         return {"status": "no_active_documents",
                 "message": "Belum ada dokumen aktif. Minta user memilih dokumen dari katalog."}
@@ -150,29 +179,41 @@ def _find_upload(tool_context: ToolContext, upload_id: str) -> dict[str, Any] | 
 
 
 def _save_upload(tool_context: ToolContext, upload: dict[str, Any], title: str, doc_type: str,
-                 version: str, doc_date: str, previous: dict[str, Any] | None) -> dict[str, Any]:
-    """Simpan file staging ke perpustakaan: GCS library/, data store, dan katalog."""
+                 version: str, doc_date: str) -> dict[str, Any]:
+    """Simpan lampiran ke folder dokumen (ge-docs-datastore), katalog, dan data store."""
+    from google.api_core.exceptions import PreconditionFailed
+
     doc_key = catalog.new_doc_key()
-    family_id = previous["family_id"] if previous else doc_key
-    gcs_uri = ingest.promote_to_library(upload["staged_uri"], doc_type, doc_key, upload["filename"])
+    for _ in range(3):
+        dest = ingest.plan_destination(upload["filename"])
+        record = catalog.create(
+            doc_key=doc_key, title=title, doc_type=doc_type, version=version, doc_date=doc_date,
+            uploader=get_user_id(tool_context), source_uri=dest["source_uri"], file_name=dest["file_name"],
+            mime_type=upload["mime_type"], content_hash=upload["content_hash"], source_generation=None,
+        )
+        if not record:
+            continue
+        try:
+            generation = ingest.copy_staged_to(upload["staged_uri"], dest["source_uri"])
+            break
+        except PreconditionFailed:
+            catalog.remove(doc_key)
+    else:
+        raise RuntimeError("Nama file di folder dokumen bentrok, coba lagi.")
+
+    catalog.update_fields(doc_key, {"source_generation": generation})
     op_name = ingest.import_to_datastore(
-        doc_key=doc_key, gcs_uri=gcs_uri, mime_type=upload["mime_type"], title=title,
-        doc_type=doc_type, version=version, doc_date=doc_date,
+        doc_key=doc_key, gcs_uri=dest["source_uri"], mime_type=upload["mime_type"], title=record["title"],
+        doc_type=record["doc_type"], version=record["version"], doc_date=doc_date,
     )
-    record = catalog.create_version(
-        doc_key=doc_key, family_id=family_id, title=title, doc_type=doc_type,
-        version=version, doc_date=doc_date, uploader=get_user_id(tool_context),
-        gcs_uri=gcs_uri, mime_type=upload["mime_type"], content_hash=upload["content_hash"],
-        import_operation=op_name, previous_doc_key=previous["doc_key"] if previous else None,
-    )
-    tool_context.state[PENDING_KEY] = [
-        p for p in tool_context.state.get(PENDING_KEY, []) if p["upload_id"] != upload["upload_id"]
-    ]
-    return record
+    catalog.set_import_operation([doc_key], op_name)
+    _drop_pending(tool_context, upload["upload_id"])
+    return dict(record, source_generation=generation)
 
 
-SAVED_MESSAGE = ("Dokumen masuk perpustakaan dan sedang diindeks (biasanya beberapa menit). "
-                 "Selama indexing, isi file masih bisa dibaca langsung dari lampiran di chat ini.")
+SAVED_MESSAGE = ("Dokumen disimpan ke folder ge-docs-datastore, masuk perpustakaan, dan sedang diindeks "
+                 "(biasanya beberapa menit). Selama indexing, isi file masih bisa dibaca langsung dari "
+                 "lampiran di chat ini.")
 
 
 def _set_pending_field(tool_context: ToolContext, upload_id: str, key: str, value: Any) -> None:
@@ -275,12 +316,12 @@ def confirm_upload(
     final, missing = metadata.apply_corrections(
         upload["suggested"],
         {"title": title, "doc_type": doc_type, "version": version, "doc_date": doc_date},
-        settings.allowed_doc_types,
+        live("allowed_doc_types"),
     )
     if missing:
         return {"status": "needs_input", "missing_or_invalid": missing, "current": final,
                 "message": (f"Tanyakan ke user nilai untuk: {', '.join(missing)}. Jenis harus salah satu "
-                            f"dari {', '.join(settings.allowed_doc_types)}; tanggal berformat YYYY-MM-DD.")}
+                            f"dari {', '.join(live("allowed_doc_types"))}; tanggal berformat YYYY-MM-DD.")}
 
     existing = catalog.find_latest_by_title(final["title"], final["doc_type"])
     if existing and not as_new_version:
@@ -289,8 +330,8 @@ def confirm_upload(
                 "message": "Judul sudah dipakai dokumen lain. Minta user memberi judul yang berbeda."}
 
     record = _save_upload(tool_context, upload, final["title"], final["doc_type"],
-                          final["version"], final["doc_date"], previous=existing)
-    return {"status": "ok", "document": record, "message": SAVED_MESSAGE}
+                          final["version"], final["doc_date"])
+    return {"status": "ok", "document": catalog.public_view(record), "message": SAVED_MESSAGE}
 
 
 def update_document_metadata(
@@ -309,9 +350,9 @@ def update_document_metadata(
     record = catalog.get(doc_key)
     if not record:
         return {"status": "error", "message": "Dokumen tidak ditemukan."}
-    if doc_type and doc_type.strip().upper() not in settings.allowed_doc_types:
+    if doc_type and doc_type.strip().upper() not in live("allowed_doc_types"):
         return {"status": "error",
-                "message": f"Jenis dokumen harus salah satu dari: {', '.join(settings.allowed_doc_types)}"}
+                "message": f"Jenis dokumen harus salah satu dari: {', '.join(live("allowed_doc_types"))}"}
 
     updated = catalog.update_metadata(
         doc_key,
@@ -322,7 +363,7 @@ def update_document_metadata(
         return {"status": "error", "message": "Dokumen tidak ditemukan."}
     # Perbarui metadata di data store juga (impor ulang dengan ID yang sama).
     ingest.import_to_datastore(
-        doc_key=doc_key, gcs_uri=updated["gcs_uri"], mime_type=updated["mime_type"],
+        doc_key=doc_key, gcs_uri=updated["source_uri"], mime_type=updated["mime_type"],
         title=updated["title"], doc_type=updated["doc_type"], version=updated["version"],
         doc_date=updated["doc_date"], collection=updated.get("collection", "umum"),
     )
@@ -334,7 +375,7 @@ def delete_document(doc_key: str, tool_context: ToolContext, confirmed: bool = F
 
     WAJIB dua langkah: panggil dulu dengan confirmed=False untuk menampilkan dokumen yang akan
     dihapus, lalu panggil lagi dengan confirmed=True HANYA setelah user menjawab ya.
-    File asli di folder sumber tidak ikut terhapus.
+    File dokumen IKUT DIHAPUS dari folder ge-docs-datastore.
 
     Args:
         doc_key: doc_key dokumen yang akan dihapus.
@@ -345,9 +386,9 @@ def delete_document(doc_key: str, tool_context: ToolContext, confirmed: bool = F
         return {"status": "error", "message": "Dokumen tidak ditemukan."}
     if not confirmed:
         return {"status": "needs_confirmation", "document": catalog.public_view(record),
-                "message": ("Tanyakan ke user: yakin menghapus dokumen ini dari perpustakaan? "
-                            "Dokumen tidak akan bisa dipakai oleh semua user.")}
-    result = library_admin.delete_document(doc_key, get_user_id(tool_context))
+                "message": ("Tanyakan ke user: yakin menghapus dokumen ini? File-nya juga akan dihapus "
+                            "dari folder ge-docs-datastore dan tidak bisa dipakai semua user lagi.")}
+    result = library_admin.delete_document(doc_key)
     tool_context.state[ACTIVE_KEY] = [k for k in _active(tool_context) if k != doc_key]
     return result
 
@@ -363,6 +404,8 @@ def check_indexing_status(doc_key: str) -> dict[str, Any]:
         return {"status": "error", "message": "Dokumen tidak ditemukan."}
     if record.get("status") != "indexing":
         return {"status": "ok", "indexing_status": record.get("status")}
+    if not record.get("import_operation"):
+        return {"status": "ok", "indexing_status": "indexing"}
     result = ingest.check_import_operation(record["import_operation"])
     if not result["done"]:
         return {"status": "ok", "indexing_status": "indexing"}
@@ -440,6 +483,7 @@ RESEARCH_TOOLS = [
     add_active_documents,
     remove_active_documents,
     search_active_documents,
+    sync_library,
     list_pending_uploads,
     extract_upload_metadata,
     confirm_upload,

@@ -21,7 +21,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
 
-from .config import settings
+from .config import settings, live
 
 logger = logging.getLogger(__name__)
 
@@ -234,7 +234,7 @@ def html_to_pdf(html: str) -> bytes | None:
 def build_meta(template: Template, user_id: str, report_title: str) -> dict[str, Any]:
     now = datetime.now(timezone.utc)
     return {
-        "company_name": settings.company_name,
+        "company_name": live("company_name"),
         "report_title": report_title or template.manifest.get("title", template.template_id),
         "template_title": template.manifest.get("title", template.template_id),
         "generated_by": user_id,

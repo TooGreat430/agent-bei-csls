@@ -9,15 +9,67 @@ Project: `ptpl-land-dev` · App GE: lokasi `global` · Repo: `github.com/TooGrea
 | Region agent | `asia-southeast2` (Jakarta) | Agent Engine tersedia di Jakarta dan sama dengan region bucket, jadi data tidak berpindah region dan staging bucket saat deploy tidak bermasalah |
 | Model | `gemini-3.5-flash` lewat endpoint `global` | gemini-2.5 dipensiunkan 20 Oktober 2026. Kode memanggil model lewat endpoint `global` walaupun agent berjalan di Jakarta |
 | Nama perusahaan | PT Pertamina Lubricants | Nama resmi (bagian dari PT Pertamina Patra Niaga) |
-| Bucket | `ptpl-ge-bucket` (sudah ada), semua file agent di folder `agent-perpustakaan/` | Tidak mengganggu isi bucket yang sudah ada |
-| Akses laporan penguji | Izin baca hanya ke `agent-perpustakaan/reports/` | Penguji tidak bisa membaca isi bucket lainnya |
-| Dokumen yang sudah ada | Folder `gs://ptpl-ge-bucket/ge-docs-datastore/` diimpor lewat script (Tahap 5B), dapat diulang berkala | File disalin ke folder perpustakaan agent. File asli tidak pernah diubah atau dihapus |
+| Bucket | `ptpl-ge-bucket` (sudah ada), semua file agent di folder `ge-docs-agent/` | Tidak mengganggu isi bucket yang sudah ada |
+| Akses laporan penguji | Izin baca hanya ke `ge-docs-agent/reports/` | Penguji tidak bisa membaca isi bucket lainnya |
+| Folder dokumen | **Semua** dokumen hanya di `gs://ptpl-ge-bucket/ge-docs-datastore/`, baik yang ditaruh manual lewat bucket maupun di-upload lewat chat. Tidak ada salinan di folder lain | Folder adalah sumber kebenaran, katalog hanya cermin isinya |
 | Koreksi metadata dokumen | Semua user | Keputusan B1 |
 | Insight | Terlihat dan bisa dipakai semua user di workspace yang sama. Hanya pembuatnya yang bisa mengubah/menghapus | Keputusan B2 |
-| Hapus dokumen lewat chat | Semua user, dengan konfirmasi | Keputusan B3. Dokumen yang dihapus tidak akan diimpor ulang dari folder |
-| Sinkronisasi folder | Hanya lewat script oleh tim teknis | Keputusan B4 |
+| Hapus dokumen lewat chat | Semua user, dengan konfirmasi. **File ikut dihapus dari `ge-docs-datastore`** | Keputusan B3 + F1 |
+| Sinkronisasi folder ↔ katalog | **Otomatis** setiap kali user membuka katalog atau memilih dokumen: file baru ditambahkan, file yang diganti diindeks ulang, file yang dihapus dari folder hilang dari katalog | Keputusan F2 |
 | Batas dokumen aktif per chat | 10 | Keputusan B5 |
 | BEI / CSLS | BEI = Brand Equity Index, CSLS = Customer Satisfaction & Loyalty Survey | **Interpretasi**, belum dikonfirmasi klien. Hanya membantu Gemini menebak jenis dokumen, dan setiap upload tetap dikonfirmasi user. Jika kurang tepat, ubah `LIB_DOC_TYPE_HINTS` di `.env` |
+
+### Isi bucket `ptpl-ge-bucket`
+
+| Folder | Isi | Diubah oleh |
+|---|---|---|
+| `ge-docs-datastore/` | **Semua dokumen perpustakaan** (PDF, DOCX, PPTX, HTML, TXT) | User (lewat Konsol atau upload di chat) |
+| `ge-docs-agent/catalog/` | `index.json`: daftar dokumen + metadata | Agent (otomatis) |
+| `ge-docs-agent/insights/` | JSON insight per workspace | Agent |
+| `ge-docs-agent/config/` | `settings.json`: pengaturan agent | Tim teknis (lewat Konsol) |
+| `ge-docs-agent/templates/` | Template laporan (bukan dokumen perpustakaan) | Tim teknis (lewat Konsol) |
+| `ge-docs-agent/reports/` | Hasil laporan yang dibuat agent | Agent |
+| `ge-docs-agent/staging/` | Lampiran chat yang **menunggu konfirmasi**. Setelah dikonfirmasi dipindah ke `ge-docs-datastore/`. Yang tidak dikonfirmasi dihapus otomatis setelah 24 jam | Agent |
+
+Template dan laporan sengaja tidak ditaruh di `ge-docs-datastore/`, karena semua isi folder itu diperlakukan sebagai dokumen perpustakaan. Jika ditaruh di sana, agent akan membaca laporannya sendiri sebagai sumber.
+
+---
+
+## ⚡ Update cepat (agent sudah terdaftar di GE)
+
+Jika agent sudah di-deploy dan terdaftar di GE, **tidak perlu mengulang tahap apa pun**. Cukup dua langkah:
+
+**1. Laptop:** perbarui repo dengan zip terbaru (perintah di Tahap 0).
+
+**2. Cloud Shell:** satu perintah:
+
+```bash
+cd ~/agent-bei-csls && git pull && bash scripts/update_agent.sh
+```
+
+Script ini otomatis: mengambil kode terbaru, memasang dependensi, merapikan `.env`, **memindahkan isi folder lama `agent-perpustakaan/` ke `ge-docs-agent/`** (template, insight, pengaturan, laporan, termasuk izin baca laporan penguji), mengunggah template dan `settings.json` jika belum ada, menjalankan uji unit, mencari resource agent jika belum tersimpan, lalu meng-update agent. Pendaftaran di GE tetap berlaku. Katalog dibangun ulang otomatis dari isi `ge-docs-datastore/`.
+
+**Checkpoint:** buka chat baru di GE dan tulis `Dokumen apa saja yang ada di perpustakaan?` File di `ge-docs-datastore` harus muncul di katalog.
+
+---
+
+## ⚙️ Mengubah pengaturan tanpa Cloud Shell
+
+Pengaturan berikut disimpan di **`gs://ptpl-ge-bucket/ge-docs-agent/config/settings.json`** dan bisa diubah lewat **Konsol web**, tanpa Cloud Shell dan tanpa redeploy. Perubahan berlaku paling lambat **5 menit** kemudian.
+
+| Pengaturan | Isi sekarang | Contoh perubahan |
+|---|---|---|
+| `company_name` | PT Pertamina Lubricants | Nama di header laporan |
+| `allowed_doc_types` | `["BEI", "CSLS"]` | Menambah jenis dokumen baru, misalnya `["BEI", "CSLS", "AUDIT"]` |
+| `doc_type_hints` | Penjelasan BEI dan CSLS | Memperbaiki penjelasan agar Gemini lebih tepat mengenali jenis dokumen |
+| `max_active_docs` | 10 | Batas dokumen aktif per chat |
+| `source_folder` | `gs://ptpl-ge-bucket/ge-docs-datastore/` | Folder dokumen perpustakaan |
+| `folder_batch_size` | 20 | Jumlah maksimal file baru/berubah yang diproses per sekali sinkronisasi |
+| `max_file_mb` | 100 | Batas ukuran file dokumen |
+
+**Cara mengubah:** Konsol → **Cloud Storage → `ptpl-ge-bucket` → `ge-docs-agent/config/`** → klik `settings.json` → **Download** → edit dengan Notepad → **Upload files** ke folder yang sama (timpa file lama). Jika isi file rusak atau salah format, agent otomatis memakai nilai bawaan, jadi agent tidak akan error.
+
+Yang **tetap** butuh update kode (Cloud Shell): perubahan perilaku atau instruksi agent, dan fitur baru.
 
 ---
 
@@ -92,16 +144,14 @@ LIB_MODEL_FAST=gemini-3.5-flash
 LIB_MODEL_PRO=gemini-3.5-flash
 LIB_BUCKET=ptpl-ge-bucket
 LIB_REPORT_BUCKET=ptpl-ge-bucket
-LIB_LIBRARY_PREFIX=agent-perpustakaan/library
-LIB_STAGING_PREFIX=agent-perpustakaan/staging
-LIB_TEMPLATE_PREFIX=agent-perpustakaan/templates
-LIB_REPORT_PREFIX=agent-perpustakaan/reports
-LIB_CATALOG_PATH=agent-perpustakaan/catalog/index.json
-LIB_INSIGHT_PREFIX=agent-perpustakaan/insights
+LIB_INTERNAL_FOLDER=ge-docs-agent
 LIB_TEMPLATE_SOURCE=gcs
 LIB_DATASTORE_ID=perpustakaan-dokumen
 LIB_COMPANY_NAME="PT Pertamina Lubricants"
 LIB_DOC_TYPES=BEI,CSLS
+LIB_SOURCE_FOLDER=gs://ptpl-ge-bucket/ge-docs-datastore/
+LIB_FOLDER_BATCH_SIZE=20
+LIB_MAX_FILE_MB=100
 LIB_DOC_TYPE_HINTS="BEI: Brand Equity Index - laporan studi ekuitas merek pelumas (brand awareness, brand image, preferensi, brand funnel, perbandingan dengan merek pesaing); CSLS: Customer Satisfaction and Loyalty Survey - laporan survei kepuasan dan loyalitas pelanggan (indeks kepuasan, NPS, loyalitas, evaluasi produk dan layanan)"
 EOF
 ```
@@ -201,48 +251,39 @@ python scripts/upload_templates.py
 
 **Checkpoint:**
 - Konsol GE → **Data Stores**: muncul "Perpustakaan Dokumen" (lokasi `global`).
-- `gcloud storage ls gs://ptpl-ge-bucket/agent-perpustakaan/templates/laporan_studi/` menampilkan 4 file.
+- `gcloud storage ls gs://ptpl-ge-bucket/ge-docs-agent/templates/laporan_studi/` menampilkan 4 file.
 
 ---
 
-## Tahap 5B — Impor dokumen yang sudah ada di folder
+## Tahap 5B — Menambah dokumen
 
-Dokumen di `gs://ptpl-ge-bucket/ge-docs-datastore/` belum dikenal agent sampai diimpor. Script ini dijalankan dari Cloud Shell dan **tidak memerlukan redeploy agent**.
+Ada dua cara, dan keduanya menyimpan file di `ge-docs-datastore/`:
 
-### 5B.1 Pindai folder
+**Cara 1: taruh manual di bucket.** Konsol → **Cloud Storage → `ptpl-ge-bucket` → `ge-docs-datastore` → Upload files**. Setelah itu, **tidak perlu langkah apa pun**. Saat user berikutnya membuka katalog atau memilih dokumen di chat, agent otomatis menyamakan katalog dengan isi folder:
 
-```bash
-python scripts/import_folder.py scan gs://ptpl-ge-bucket/ge-docs-datastore/
-```
+> **User:** `Dokumen apa saja yang ada di perpustakaan?`
+>
+> **Agent:** Katalog diperbarui dari folder: 2 dokumen baru. Satu dokumen perlu dicek: *Ringkasan Survei* — jenisnya belum terbaca, BEI atau CSLS?
+> *(lalu menampilkan katalog)*
 
-Script membaca setiap file, Gemini mengekstrak judul/jenis/versi/tanggal, lalu hasilnya ditulis ke `import_review.csv`. Di terminal akan muncul ringkasan jumlah file yang akan diimpor dan dilewati beserta alasannya (format tidak didukung, file kembar, dan sebagainya). Durasinya sekitar beberapa detik per file.
+**Cara 2: upload di chat.** Lampirkan file → `Masukkan ke perpustakaan.` → agent menampilkan metadata → `Benar.` → file disimpan ke `ge-docs-datastore/`.
 
-### 5B.2 Periksa CSV
+**Aturan sinkronisasi:**
 
-Pilih salah satu cara:
-
-- **Di Cloud Shell:** `cloudshell edit import_review.csv`, perbaiki, lalu simpan (`Ctrl+S`).
-- **Di Google Sheets:** `cloudshell download import_review.csv` → buka Google Sheets → **File → Import** → upload file → perbaiki → **File → Download → CSV** → di Cloud Shell klik **⋮ → Upload** → lalu jalankan `mv ~/import_review*.csv ~/agent-bei-csls/import_review.csv`.
-
-Yang perlu diperiksa:
-
-| Kolom | Isi |
+| Perubahan di folder | Yang terjadi di katalog |
 |---|---|
-| `action` | `IMPORT` untuk diimpor, ubah ke `SKIP` untuk dilewati |
-| `title`, `doc_type`, `version`, `doc_date` | Hasil ekstraksi. Perbaiki jika salah. `doc_type` harus `BEI` atau `CSLS`, tanggal `YYYY-MM-DD` |
-| `note` | Baris dengan **MOHON DICEK** wajib diperiksa. Catatan "versi baru" berarti judulnya sama dengan dokumen lain |
+| File baru | Metadata diekstrak Gemini lalu ditambahkan. Field yang tidak yakin ditandai "perlu dicek" dan ditanyakan ke user |
+| File diganti (nama sama, isi baru) | Diindeks ulang, metadata diekstrak ulang. Koreksi yang pernah dibuat user tetap dipertahankan |
+| File dihapus | Dokumen hilang dari katalog dan pencarian |
+| Nama file berbeda tetapi judul dokumen sama | Dicatat sebagai versi baru, versi lama tetap tersedia |
+| Isi file sama persis dengan file lain | Dilewati dan dilaporkan |
+| Format tidak didukung / terlalu besar | Dilewati dan dilaporkan |
 
-Jangan mengubah kolom `source_uri`, `sha256`, dan `mime_type`.
-
-### 5B.3 Impor
-
-```bash
-python scripts/import_folder.py run --wait
-```
-
-**Checkpoint:** muncul daftar dokumen yang berhasil didaftarkan, lalu `Indexing: siap=<jumlah> gagal=0`. Baris yang bermasalah ditampilkan dengan alasannya dan tidak diimpor. Perbaiki di CSV, lalu jalankan `run` lagi (dokumen yang sudah masuk otomatis dilewati).
-
-> **Catatan:** jika folder ini juga dipakai oleh data store lain di app GE, dokumen akan terindeks dua kali (sekali oleh data store lama, sekali oleh perpustakaan agent). Hal ini tidak mengganggu fungsi agent, tetapi menambah biaya penyimpanan indeks.
+Catatan:
+- Dokumen yang baru masuk butuh beberapa menit untuk diindeks sebelum bisa dipakai tanya-jawab.
+- Satu kali sinkronisasi memproses maksimal 20 file baru/berubah. Sisanya diproses pada pemeriksaan berikutnya, dan agent akan memberi tahu.
+- Sebaiknya nama file **tanpa spasi**, misalnya `studi_bei_2026.pdf`.
+- Jika folder ini juga dipakai oleh data store lain di app GE, dokumen akan terindeks dua kali. Fungsi agent tidak terganggu, tetapi biaya penyimpanan indeks bertambah.
 
 ---
 
@@ -283,7 +324,7 @@ Jika Tahap 3 hasilnya `True`:
 ```bash
 gcloud storage buckets add-iam-policy-binding gs://ptpl-ge-bucket \
   --member="user:mirptpl@gmail.com" --role=roles/storage.objectViewer \
-  --condition='expression=resource.name.startsWith("projects/_/buckets/ptpl-ge-bucket/objects/agent-perpustakaan/reports/"),title=hanya-laporan-perpustakaan'
+  --condition='expression=resource.name.startsWith("projects/_/buckets/ptpl-ge-bucket/objects/ge-docs-agent/reports/"),title=hanya-laporan-perpustakaan'
 ```
 
 Jika Tahap 3 hasilnya `False`:
@@ -310,8 +351,9 @@ Jalankan skenario Tahap 8 langsung dari GE, login sebagai penguji.
 5. **Insight:** "Gunakan workspace BEI Study 2026." → "Simpan temuan ini sebagai insight."
 6. **Laporan:** "Buatkan laporan dengan template laporan studi dari semua insight. Judulnya Laporan Uji POC." → buka link.
 7. **Koreksi:** "Judul dokumen <judul> salah, harusnya <judul baru>." (semua user boleh)
-8. **Insight bersama:** login dengan akun lain, buka workspace yang sama ("Gunakan workspace BEI Study 2026"), lalu "Tampilkan insight." Insight dari user pertama harus terlihat, tetapi tidak bisa diubah oleh user kedua.
-9. **Hapus dokumen:** "Hapus dokumen <judul> dari perpustakaan." Agent meminta konfirmasi dulu, lalu menghapus. Jika dokumen itu punya versi sebelumnya, versi sebelumnya otomatis menjadi terbaru.
+8. **Sinkronisasi folder:** (a) taruh 1 PDF di `ge-docs-datastore` lewat Konsol → `Dokumen apa saja yang ada di perpustakaan?` → dokumen baru langsung muncul. (b) Hapus file itu dari folder lewat Konsol → tanyakan katalog lagi → dokumen hilang dari katalog. (c) Upload file lewat chat → cek di Konsol bahwa file muncul di `ge-docs-datastore/`.
+9. **Insight bersama:** login dengan akun lain, buka workspace yang sama ("Gunakan workspace BEI Study 2026"), lalu "Tampilkan insight." Insight dari user pertama harus terlihat, tetapi tidak bisa diubah oleh user kedua.
+10. **Hapus dokumen:** "Hapus dokumen <judul> dari perpustakaan." Agent meminta konfirmasi dulu, lalu menghapus. Cek di Konsol bahwa file juga hilang dari `ge-docs-datastore/`. Jika dokumen itu punya versi sebelumnya, versi sebelumnya otomatis menjadi terbaru.
 
 ---
 
@@ -320,11 +362,10 @@ Jalankan skenario Tahap 8 langsung dari GE, login sebagai penguji.
 | Kebutuhan | Perintah (di Cloud Shell, setelah memuat `.env`) |
 |---|---|
 | Ubah template laporan | `python scripts/upload_templates.py` |
-| Ubah kode, prompt, atau `.env` | `git pull && python -m unittest discover tests && python scripts/deploy_agent_engine.py --update $LIB_AGENT_RESOURCE` |
+| Ubah pengaturan (nama perusahaan, jenis dokumen, batas-batas) | Edit `settings.json` lewat Konsol, tanpa Cloud Shell |
+| Ubah kode atau instruksi agent | Push ke repo, lalu di Cloud Shell: `cd ~/agent-bei-csls && git pull && bash scripts/update_agent.sh` |
 | Tambah penguji | Tambahkan di GE (7.2), lalu perintah 7.3 dengan email baru |
-| Ada file baru di folder `ge-docs-datastore` | `python scripts/import_folder.py scan gs://ptpl-ge-bucket/ge-docs-datastore/` → cek CSV → `python scripts/import_folder.py run --wait`. Hanya file baru atau yang isinya berubah yang diproses |
-| Impor cepat tanpa cek CSV | `python scripts/import_folder.py auto gs://ptpl-ge-bucket/ge-docs-datastore/ --wait` |
-| Ada file yang dihapus dari folder dan ingin ikut dihapus dari perpustakaan | `python scripts/import_folder.py prune gs://ptpl-ge-bucket/ge-docs-datastore/` |
+| Menambah, mengganti, atau menghapus dokumen | Langsung di folder `ge-docs-datastore` lewat Konsol. Katalog menyesuaikan otomatis saat user membuka katalog atau memilih dokumen |
 
 ---
 
@@ -338,7 +379,8 @@ Jalankan skenario Tahap 8 langsung dari GE, login sebagai penguji.
 | Error filter `doc_key` | `python scripts/setup_datastore.py --schema-only`, tunggu beberapa menit |
 | Link laporan tidak bisa dibuka | Ulangi Tahap 7.3, pastikan login dengan akun yang diberi akses |
 | Hanya link HTML, tanpa PDF | Normal untuk POC, HTML tetap valid |
-| `scan` melewati file dengan catatan "Format tidak didukung" | Hanya PDF, DOCX, PPTX, HTML, TXT yang didukung. Simpan ulang file (mis. dari .doc atau .xlsx) ke PDF |
-| `scan` melewati file karena ukuran | Tambahkan `--max-mb 200` pada perintah `scan` |
-| `run --wait` menampilkan `gagal` | Cek log di Konsol → Logging. Biasanya file rusak atau terproteksi password |
-| Dokumen yang dihapus lewat chat tidak muncul lagi setelah impor ulang | Memang disengaja. Untuk memasukkannya kembali, upload file tersebut lewat chat |
+| Agent melaporkan file dilewati karena "Format tidak didukung" | Hanya PDF, DOCX, PPTX, HTML, TXT yang didukung. Simpan ulang file (mis. dari .doc atau .xlsx) ke PDF |
+| Agent melaporkan file dilewati karena ukuran | Ubah `max_file_mb` di `settings.json` lewat Konsol (lihat bagian Mengubah pengaturan) |
+| Dokumen hasil impor tidak pernah siap dipakai | Minta agent "cek status indexing dokumen <judul>". Jika `failed`, biasanya file rusak atau terproteksi password |
+| Agent menjawab "Folder dokumen belum dikonfigurasi" | Isi `source_folder` di `settings.json` lewat Konsol, tunggu 5 menit |
+| File sudah ditaruh di folder tetapi belum muncul di katalog | Katalog diperbarui saat user membuka katalog atau memilih dokumen. Tanyakan `Dokumen apa saja yang ada di perpustakaan?`. Jika file dilewati, agent menyebutkan alasannya |
