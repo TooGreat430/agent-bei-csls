@@ -58,6 +58,25 @@ if ! gcloud storage ls "$B/$NEW_ROOT/config/settings.json" >/dev/null 2>&1; then
   gcloud storage cp setup/settings.json "$B/$NEW_ROOT/config/settings.json" >/dev/null && echo "    settings.json diunggah"
 fi
 
+echo "    Memeriksa data store perpustakaan..."
+if ! python - <<'PY' >/dev/null 2>&1
+import sys
+sys.path.insert(0, ".")
+from google.api_core.exceptions import NotFound
+from google.cloud import discoveryengine_v1 as de
+from library_agent.clients import _discovery_client_options, datastore_path
+try:
+    de.DataStoreServiceClient(client_options=_discovery_client_options()).get_data_store(name=datastore_path())
+except NotFound:
+    sys.exit(1)
+PY
+then
+  echo "    Data store belum ada, membuat sekarang (beberapa menit)..."
+  python scripts/setup_datastore.py
+else
+  echo "    Data store sudah ada"
+fi
+
 echo "==> 5/6 Uji unit"
 python -m unittest discover tests >/dev/null 2>&1 || { python -m unittest discover tests; echo "Uji gagal, update dibatalkan."; exit 1; }
 echo "    OK"

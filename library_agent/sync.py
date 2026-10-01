@@ -6,6 +6,7 @@ selalu sama dengan isi folder:
 - File yang isinya diganti    -> metadata diekstrak ulang (koreksi user tetap dipertahankan),
                                  lalu diindeks ulang.
 - File yang dihapus dari folder -> dihapus dari katalog dan data store.
+- Dokumen yang gagal diindeks -> dicoba ulang otomatis (paling sering tiap 10 menit).
 
 Pemeriksaan folder hanya membaca daftar file (tanpa mengunduh), jadi cepat jika tidak ada
 perubahan. Hanya file baru/berubah yang dibaca Gemini.
@@ -14,6 +15,7 @@ from __future__ import annotations
 
 import logging
 from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from . import catalog, ingest, metadata
@@ -38,12 +40,13 @@ def plan_sync(files: list[dict[str, Any]], records: list[dict[str, Any]], max_mb
     """Bandingkan isi folder dengan katalog.
 
     files: [{source_uri, file_name, size_bytes, generation, content_hash}]
-    Hasil: new, changed (pasangan file+record), removed (record), skipped ({file_name, reason}).
+    Hasil: new, changed (pasangan file+record), removed (record), skipped ({file_name, reason}),
+    retry (record berstatus failed yang file-nya masih sama, untuk diindeks ulang).
     """
     by_uri = {r["source_uri"]: r for r in records if r.get("source_uri")}
     file_uris = {f["source_uri"] for f in files}
     hash_owner = {r.get("content_hash"): r for r in records if r.get("content_hash")}
-    plan: dict[str, list] = {"new": [], "changed": [], "removed": [], "skipped": []}
+    plan: dict[str, list] = {"new": [], "changed": [], "removed": [], "skipped": [], "retry": []}
     seen_hashes: dict[str, str] = {}
 
     for f in files:
@@ -62,6 +65,8 @@ def plan_sync(files: list[dict[str, Any]], records: list[dict[str, Any]], max_mb
                 continue  # sedang diproses upload lewat chat
             if record.get("source_generation") != f["generation"]:
                 plan["changed"].append({"file": item, "record": record})
+            elif record.get("status") == "failed":
+                plan["retry"].append(record)
             continue
         owner = hash_owner.get(f["content_hash"])
         if owner and owner.get("source_uri") in file_uris:
@@ -78,6 +83,19 @@ def plan_sync(files: list[dict[str, Any]], records: list[dict[str, Any]], max_mb
         if uri not in file_uris and r.get("source_generation") not in (None, "")
     ]
     return plan
+
+
+RETRY_AFTER = timedelta(minutes=10)
+
+
+def due_for_retry(record: dict[str, Any], now: datetime | None = None) -> bool:
+    last = record.get("last_import_at")
+    if not last:
+        return True
+    try:
+        return (now or datetime.now(timezone.utc)) - datetime.fromisoformat(last) >= RETRY_AFTER
+    except ValueError:
+        return True
 
 
 def order_new(extracted: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -113,7 +131,7 @@ def sync_folder() -> dict[str, Any]:
     files = ingest.list_source_files()
     plan = plan_sync(files, catalog.all_records(), live("max_file_mb"))
     summary: dict[str, Any] = {"added": [], "updated": [], "removed": [], "skipped": plan["skipped"],
-                               "remaining": 0, "in_sync": False}
+                               "retried": [], "remaining": 0, "in_sync": False}
 
     for record in plan["removed"]:
         try:
@@ -123,12 +141,28 @@ def sync_folder() -> dict[str, Any]:
         if catalog.remove(record["doc_key"]):
             summary["removed"].append({k: record.get(k) for k in ("title", "version", "file_name")})
 
+    retry = [r for r in plan["retry"] if due_for_retry(r)]
+    for start in range(0, len(retry), 100):
+        chunk = retry[start:start + 100]
+        try:
+            op_name = ingest.import_many([
+                {"doc_key": r["doc_key"], "gcs_uri": r["source_uri"], "mime_type": r["mime_type"],
+                 "title": r["title"], "doc_type": r["doc_type"], "version": r["version"], "doc_date": r["doc_date"]}
+                for r in chunk
+            ])
+            catalog.set_import_operation([r["doc_key"] for r in chunk], op_name)
+            summary["retried"].extend({k: r.get(k) for k in ("title", "version", "file_name")} for r in chunk)
+        except Exception:  # noqa: BLE001
+            logger.exception("Percobaan ulang impor gagal")
+            for r in chunk:
+                catalog.update_fields(r["doc_key"], {"last_import_at": datetime.now(timezone.utc).isoformat(timespec="seconds")})
+
     limit = live("folder_batch_size")
     work = [("changed", c["file"], c["record"]) for c in plan["changed"]] + [("new", f, None) for f in plan["new"]]
     summary["remaining"] = max(0, len(work) - limit)
     work = work[:limit]
     if not work:
-        summary["in_sync"] = not plan["removed"]
+        summary["in_sync"] = not plan["removed"] and not summary["retried"]
         return summary
 
     with ThreadPoolExecutor(max_workers=5) as pool:
@@ -172,6 +206,7 @@ def sync_folder() -> dict[str, Any]:
             catalog.set_import_operation([r["doc_key"] for r in chunk], op_name)
         except Exception:  # noqa: BLE001
             logger.exception("Impor ke data store gagal")
+            stamp = datetime.now(timezone.utc).isoformat(timespec="seconds")
             for r in chunk:
-                catalog.update_status(r["doc_key"], "failed")
+                catalog.update_fields(r["doc_key"], {"status": "failed", "last_import_at": stamp})
     return summary

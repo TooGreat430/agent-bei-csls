@@ -54,6 +54,23 @@ class PlanSyncTest(unittest.TestCase):
         plan = sync.plan_sync([], [rec("sedang_upload.pdf", gen=None)], max_mb=100)
         self.assertEqual(plan["removed"], [])
 
+    def test_failed_records_are_retried(self):
+        failed = dict(rec("a.pdf"), status="failed")
+        plan = sync.plan_sync([f("a.pdf")], [failed], max_mb=100)
+        self.assertEqual([r["file_name"] for r in plan["retry"]], ["a.pdf"])
+        changed = sync.plan_sync([f("a.pdf", gen="2")], [failed], max_mb=100)
+        self.assertEqual(changed["retry"], [])          # file berubah -> diproses sebagai 'changed'
+        self.assertEqual(len(changed["changed"]), 1)
+
+    def test_retry_throttle(self):
+        from datetime import datetime, timedelta, timezone
+        now = datetime(2026, 10, 1, 10, 0, tzinfo=timezone.utc)
+        self.assertTrue(sync.due_for_retry({}, now))
+        recent = {"last_import_at": (now - timedelta(minutes=3)).isoformat()}
+        old = {"last_import_at": (now - timedelta(minutes=11)).isoformat()}
+        self.assertFalse(sync.due_for_retry(recent, now))
+        self.assertTrue(sync.due_for_retry(old, now))
+
     def test_in_sync(self):
         plan = sync.plan_sync([f("a.pdf")], [rec("a.pdf")], max_mb=100)
         self.assertEqual((plan["new"], plan["changed"], plan["removed"], plan["skipped"]), ([], [], [], []))

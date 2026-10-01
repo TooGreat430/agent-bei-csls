@@ -71,6 +71,17 @@ class FinalizeTest(unittest.TestCase):
         final, missing = metadata.apply_corrections(suggested, {"doc_type": "bei"}, TYPES)
         self.assertEqual((final["doc_type"], missing), ("BEI", []))
 
+    def test_clean_version_prefixes(self):
+        cases = {"Version 1": "1", "Versi 2": "2", "v3": "3", "Ver. 4": "4", "V 5": "5",
+                 "Rev 2": "2", "2026-Q1": "2026-Q1", "1.2": "1.2", "Vol 2": "Vol 2"}
+        for raw, expected in cases.items():
+            self.assertEqual(metadata.clean_version(raw), expected, raw)
+
+    def test_finalize_version_one(self):
+        raw = {"title": "Studi", "title_confident": True, "doc_type": "BEI", "doc_type_confident": True,
+               "version": "Version 1", "doc_date": "2026-06", "summary": ""}
+        self.assertEqual(metadata.finalize(raw, "f.pdf", TYPES)["metadata"]["version"], "1")
+
     def test_next_version(self):
         self.assertEqual(metadata.next_version("2"), "3")
         self.assertEqual(metadata.next_version("1.4"), "1.5")

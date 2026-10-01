@@ -47,6 +47,14 @@ def response_schema(allowed_types: tuple[str, ...]) -> dict[str, Any]:
     }
 
 
+_VERSION_PREFIX = re.compile(r"^(?:version|versi|ver|rev|edisi|v)(?=[\s\d.:#-]|$)[\s.:#-]*", re.IGNORECASE)
+
+
+def clean_version(value: str) -> str:
+    """'Version 1' -> '1', 'Versi 2' -> '2', 'v3' -> '3', 'Ver. 4' -> '4'. Lainnya dibiarkan."""
+    return _VERSION_PREFIX.sub("", (value or "").strip()).strip()
+
+
 def finalize(raw: dict[str, Any], filename: str, allowed_types: tuple[str, ...],
              today: str | None = None) -> dict[str, Any]:
     """Rapikan hasil Gemini: isi default dan tentukan field mana yang perlu dikonfirmasi user."""
@@ -65,7 +73,7 @@ def finalize(raw: dict[str, Any], filename: str, allowed_types: tuple[str, ...],
         doc_type = doc_type if doc_type in allowed_types else ""
 
     version = (raw.get("version") or "").strip()
-    version = re.sub(r"^(versi|version|ver\.?|v)\s*", "", version, flags=re.IGNORECASE)
+    version = clean_version(version)
     if not version:
         version = "1"
         defaults.append("version")

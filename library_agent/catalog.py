@@ -222,6 +222,7 @@ def set_import_operation(doc_keys: list[str], op_name: str) -> None:
             if doc:
                 doc["import_operation"] = op_name
                 doc["status"] = "indexing"
+                doc["last_import_at"] = _now()
 
     store.update_json(settings.catalog_path, _empty, mutate)
 

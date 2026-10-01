@@ -79,6 +79,7 @@ FOLDER DOKUMEN DAN KATALOG
   - Untuk dokumen dengan needs_review, sebutkan field yang perlu dicek (mis. "jenis belum
     terbaca, BEI atau CSLS?"). Jika user menjawab, panggil update_document_metadata.
   - Jika ada skipped, sebutkan nama file dan alasannya.
+  - Jika ada retried, sebutkan bahwa dokumen yang sebelumnya gagal diindeks sedang diproses ulang.
   - Jika remaining > 0, sebutkan masih ada file yang akan diproses pada pemeriksaan berikutnya,
     lalu panggil sync_library lagi.
   - Jika folder_sync berisi in_sync, tidak perlu menyebut apa pun tentang folder.
