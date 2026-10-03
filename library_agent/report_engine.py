@@ -158,8 +158,17 @@ def validate_content(content: dict[str, Any], schema: dict[str, Any]) -> list[st
 # ==========================================================================
 def build_prompt(template: Template, insight_items: list[dict[str, Any]],
                  excerpts: list[dict[str, Any]], extra_instructions: str) -> str:
+    def table_csv(table: dict[str, Any] | None) -> str:
+        if not table or not table.get("rows"):
+            return ""
+        lines = [", ".join(str(c) for c in table.get("columns") or [])]
+        lines += [", ".join("" if v is None else str(v) for v in row) for row in table["rows"][:60]]
+        question = f"Pertanyaan data: {table.get('question')}\n" if table.get("question") else ""
+        return f"\nTabel data BigQuery pendukung:\n{question}" + "\n".join(lines)
+
     insight_text = "\n\n".join(
-        f"### Insight {i + 1}: {it['title']}\n{it['content']}\nSitasi: {', '.join(it.get('citations', [])) or '-'}"
+        f"### Insight {i + 1} (sumber: {it.get('source', 'dokumen')}): {it['title']}\n{it['content']}\n"
+        f"Sitasi: {', '.join(it.get('citations', [])) or '-'}{table_csv(it.get('data'))}"
         for i, it in enumerate(insight_items)
     ) or "(tidak ada insight)"
     excerpt_text = "\n\n".join(
@@ -170,7 +179,9 @@ def build_prompt(template: Template, insight_items: list[dict[str, Any]],
 
 ATURAN WAJIB
 1. Landasan utama adalah INSIGHT di bawah. Kutipan dokumen hanya untuk memperkuat dan memberi sitasi.
-2. Jangan menambahkan fakta, angka, atau klaim yang tidak ada di insight atau kutipan.
+2. Jangan menambahkan fakta, angka, atau klaim yang tidak ada di insight, tabel data, atau kutipan.
+   Untuk field "nilai" (KPI, matriks, grafik): salin angka PERSIS dari tabel data/insight. Jangan menghitung
+   angka baru, jangan merata-rata sendiri. Jika data untuk suatu bagian tidak ada, kosongkan bagian itu.
    Jika informasi untuk suatu bagian tidak tersedia, tulis "Data tidak tersedia pada sumber yang dipilih."
 3. Setiap temuan wajib menyertakan label sitasi persis seperti yang tertulis di sumber, misalnya "[Judul, v2, hal. 12]".
 4. Output HANYA JSON yang sesuai skema. Jangan menulis HTML, markdown, atau teks lain.
@@ -217,8 +228,12 @@ def _generate_json(prompt: str, schema: dict[str, Any]) -> dict[str, Any]:
 def compose_content(template: Template, insight_items: list[dict[str, Any]],
                     excerpts: list[dict[str, Any]], extra_instructions: str = "",
                     max_attempts: int = 2) -> dict[str, Any]:
+    from . import grounding
+
     prompt = build_prompt(template, insight_items, excerpts, extra_instructions)
+    nums = grounding.source_numbers(insight_items, excerpts) if template.manifest.get("grounding") else None
     last_errors: list[str] = []
+    last_valid: dict[str, Any] | None = None
     for attempt in range(max_attempts):
         attempt_prompt = prompt
         if last_errors:
@@ -231,9 +246,19 @@ def compose_content(template: Template, insight_items: list[dict[str, Any]],
             last_errors = [f"Output bukan JSON valid: {exc}"]
             continue
         last_errors = validate_content(content, template.schema)
+        if not last_errors and nums is not None:
+            last_valid = content
+            issues = grounding.check(content, nums)
+            if issues:
+                last_errors = ["Angka berikut tidak ditemukan di tabel data/insight. Salin angka persis dari data "
+                               "atau kosongkan: " + "; ".join(issues[:25])]
         if not last_errors:
             return content
         logger.warning("Konten tidak valid (percobaan %d): %s", attempt + 1, last_errors)
+    if last_valid is not None:
+        fixed, removed = grounding.strip_ungrounded(last_valid, nums or [])
+        logger.warning("Menghapus %d nilai yang tidak terverifikasi dari laporan", removed)
+        return fixed
     raise ValueError("Konten laporan tidak sesuai skema template: " + "; ".join(last_errors))
 
 

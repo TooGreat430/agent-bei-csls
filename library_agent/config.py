@@ -66,6 +66,14 @@ class Settings:
     catalog_path: str = field(default_factory=lambda: _env("LIB_CATALOG_PATH") or _internal("catalog/index.json"))
     insight_prefix: str = field(default_factory=lambda: _env("LIB_INSIGHT_PREFIX") or _internal("insights"))
 
+    # --- Data Agent BigQuery (Conversational Analytics) -----------------------
+    data_agent: str = field(default_factory=lambda: _env(
+        "LIB_DATA_AGENT",
+        "projects/ptpl-land-dev/locations/global/dataAgents/agent_4df3074b-9d7e-4f9f-993b-b3969b8a2095"))
+    data_agent_billing_project: str = field(default_factory=lambda: _env(
+        "LIB_DATA_AGENT_BILLING_PROJECT") or _env("LIB_PROJECT_ID") or _env("GOOGLE_CLOUD_PROJECT", ""))
+    data_agent_location: str = field(default_factory=lambda: _env("LIB_DATA_AGENT_LOCATION", "global"))
+
     # --- Model ------------------------------------------------------------------
     model_fast: str = field(default_factory=lambda: _env("LIB_MODEL_FAST", "gemini-3.5-flash"))
     model_pro: str = field(default_factory=lambda: _env("LIB_MODEL_PRO", "gemini-3.5-flash"))

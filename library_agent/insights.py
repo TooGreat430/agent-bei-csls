@@ -40,15 +40,20 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
-def _view(insight_id: str, data: dict[str, Any]) -> dict[str, Any]:
-    return {
+def _view(insight_id: str, data: dict[str, Any], full: bool = False) -> dict[str, Any]:
+    view = {
         "insight_id": insight_id,
         "owner": data.get("owner"),
         "title": data.get("title"),
         "content": data.get("content"),
         "citations": data.get("citations", []),
         "doc_keys": data.get("doc_keys", []),
+        "source": data.get("source", "dokumen"),
+        "has_data_table": bool(data.get("data")),
     }
+    if full:
+        view["data"] = data.get("data")
+    return view
 
 
 def _load(workspace: str) -> dict[str, dict[str, Any]]:
@@ -56,7 +61,9 @@ def _load(workspace: str) -> dict[str, dict[str, Any]]:
 
 
 def save(owner: str, workspace: str, title: str, content: str,
-         citations: list[str], doc_keys: list[str]) -> dict[str, Any]:
+         citations: list[str], doc_keys: list[str], source: str = "dokumen",
+         data_table: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Simpan insight. `source`: "dokumen" atau "bigquery". `data_table`: hasil query BQ pendukung."""
     insight_id = f"ins-{uuid.uuid4().hex[:10]}"
     data = {
         "owner": owner,
@@ -64,6 +71,8 @@ def save(owner: str, workspace: str, title: str, content: str,
         "content": content.strip(),
         "citations": citations,
         "doc_keys": doc_keys,
+        "source": source,
+        "data": data_table,
         "created_at": _now(),
         "updated_at": _now(),
     }
@@ -80,9 +89,15 @@ def list_for(workspace: str) -> list[dict[str, Any]]:
     return [_view(i, d) for i, d in items]
 
 
-def get_many(workspace: str, insight_ids: list[str]) -> list[dict[str, Any]]:
+def get_many(workspace: str, insight_ids: list[str], full: bool = False) -> list[dict[str, Any]]:
     all_items = _load(workspace)
-    return [_view(i, all_items[i]) for i in insight_ids if i in all_items]
+    return [_view(i, all_items[i], full) for i in insight_ids if i in all_items]
+
+
+def list_full(workspace: str) -> list[dict[str, Any]]:
+    """Semua insight beserta tabel datanya (untuk penyusunan laporan)."""
+    items = sorted(_load(workspace).items(), key=lambda it: it[1].get("created_at", ""))
+    return [_view(i, d, full=True) for i, d in items]
 
 
 def update(user: str, workspace: str, insight_id: str,

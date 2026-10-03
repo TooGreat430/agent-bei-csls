@@ -18,4 +18,5 @@ report_agent = LlmAgent(
     instruction=REPORT_INSTRUCTION,
     tools=[*REPORT_TOOLS, list_insights, set_workspace, get_active_documents],
     before_agent_callback=capture_uploads,
+    disallow_transfer_to_parent=True,
 )

@@ -65,8 +65,8 @@ def generate_report(
         return {"status": "error", "available_formats": template.outputs,
                 "message": f"Template ini tidak mendukung format {fmt}."}
 
-    items = (insights.get_many(workspace, insight_ids) if insight_ids
-             else insights.list_for(workspace))
+    items = (insights.get_many(workspace, insight_ids, full=True) if insight_ids
+             else insights.list_full(workspace))
     if not items:
         return {"status": "error",
                 "message": "Belum ada insight yang bisa dijadikan landasan. Simpan insight terlebih dahulu."}
@@ -75,7 +75,7 @@ def generate_report(
     active = list(tool_context.state.get(ACTIVE_KEY, []))
     if use_document_excerpts and active:
         seen = set()
-        for item in items[:8]:
+        for item in [i for i in items if i.get("source", "dokumen") == "dokumen"][:8]:
             try:
                 for ex in search.search_documents(item["title"], active, max_results=3):
                     key = (ex["doc_key"], ex["page"], ex["content"][:80])

@@ -46,6 +46,18 @@ class FilterTest(unittest.TestCase):
         self.assertEqual(search._doc_id_from_chunk_name(name), "doc-123")
 
 
+class DatastoreSchemaTest(unittest.TestCase):
+    def test_datastore_schema_rules(self):
+        with open(os.path.join(ROOT, "setup", "datastore_schema.json"), encoding="utf-8") as fh:
+            schema = json.load(fh)
+        self.assertEqual(schema["$schema"], "https://json-schema.org/draft/2020-12/schema")
+        for name, prop in schema["properties"].items():
+            if "keyPropertyMapping" in prop:
+                self.assertNotIn("searchable", prop, name)
+                self.assertNotIn("indexable", prop, name)
+        self.assertTrue(schema["properties"]["doc_key"]["indexable"])  # dipakai untuk filter dokumen aktif
+
+
 class IngestHelperTest(unittest.TestCase):
     def test_safe_filename(self):
         self.assertEqual(safe_filename("Laporan BEI (final).pdf", "application/pdf"), "Laporan_BEI_final_.pdf")

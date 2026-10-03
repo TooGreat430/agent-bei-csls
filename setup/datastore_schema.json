@@ -1,12 +1,36 @@
 {
-  "$schema": "https://json-schema.org/draft-07/schema#",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
   "type": "object",
   "properties": {
-    "doc_key":    {"type": "string", "retrievable": true, "indexable": true},
-    "title":      {"type": "string", "retrievable": true, "searchable": true, "keyPropertyMapping": "title"},
-    "doc_type":   {"type": "string", "retrievable": true, "indexable": true},
-    "version":    {"type": "string", "retrievable": true, "indexable": true},
-    "doc_date":   {"type": "string", "retrievable": true, "indexable": true},
-    "collection": {"type": "string", "retrievable": true, "indexable": true}
+    "doc_key": {
+      "type": "string",
+      "retrievable": true,
+      "indexable": true
+    },
+    "title": {
+      "type": "string",
+      "retrievable": true,
+      "keyPropertyMapping": "title"
+    },
+    "doc_type": {
+      "type": "string",
+      "retrievable": true,
+      "indexable": true
+    },
+    "version": {
+      "type": "string",
+      "retrievable": true,
+      "indexable": true
+    },
+    "doc_date": {
+      "type": "string",
+      "retrievable": true,
+      "indexable": true
+    },
+    "collection": {
+      "type": "string",
+      "retrievable": true,
+      "indexable": true
+    }
   }
 }

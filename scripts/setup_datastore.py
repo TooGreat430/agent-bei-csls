@@ -57,9 +57,9 @@ def apply_schema() -> None:
     with open(os.path.join(ROOT, "setup", "datastore_schema.json"), encoding="utf-8") as fh:
         schema_json = json.load(fh)
     schema = de.Schema(name=f"{datastore_path()}/schemas/default_schema", json_schema=json.dumps(schema_json))
-    op = client.update_schema(schema=schema, allow_missing=True)
+    op = client.update_schema(request=de.UpdateSchemaRequest(schema=schema, allow_missing=True))
     print("Menerapkan skema...", op.operation.name)
-    op.result(timeout=600)
+    op.result(timeout=900)
     print("Skema diterapkan. Field doc_key bisa dipakai untuk filter.")
 
 

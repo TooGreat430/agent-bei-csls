@@ -8,6 +8,10 @@ dari schema), sehingga isi dan urutan bagian identik di semua format:
     bullets   : daftar poin                     {"field", "title", "lead"?}
     text      : paragraf                        {"field", "title"}
     cards     : kartu (maks 4 per baris)        {"field", "title", "card_title", "card_body"}
+    kpi_cards : kartu KPI berwarna              {"field", "title"}  item: judul, subjudul?, metrik[{label,nilai,arah}], catatan?
+    status_table : matriks dengan status & warna tanda  {"field", "title"}  value: {kolom[{nama,arah_baik}], baris[{label,jenis,nilai[]}], catatan?}
+    charts    : grafik batang/garis              {"field", "title"}  item: judul, jenis(bar|line), satuan, kategori[], seri[{nama,nilai[]}], catatan?
+    insight_cards : kartu insight bernada warna  {"field", "title"}  item: kategori, judul, uraian, tingkat(positif|perhatian|kritis)
     findings  : satu halaman per temuan         {"field"}  item: judul, pesan_utama?, poin|uraian, tabel?, sitasi
     table     : tabel dari daftar objek         {"field", "title", "columns":[{key,label,style?}], "widths"?}
     closing   : halaman penutup (otomatis)
@@ -34,7 +38,8 @@ DEFAULT_THEME = {
 PRIORITY_KEYS = {"tinggi": "high", "sedang": "mid", "rendah": "low", "high": "high", "medium": "mid", "low": "low"}
 
 # Karakter yang sering muncul dari model tetapi tidak perlu/aneh di dokumen.
-_CHAR_MAP = {"\u2264": "<=", "\u2265": ">=", "\u2192": "->", "\u00a0": " ", "\u200b": ""}
+_CHAR_MAP = {"\u2264": "<=", "\u2265": ">=", "\u2192": "->", "\u00a0": " ", "\u200b": "",
+             "\u25b8": "\u203a", "\u25b6": "\u203a", "\u25ba": "\u203a", "\u2605": "*"}
 
 
 # ==========================================================================
@@ -186,6 +191,173 @@ def weights(columns: list[dict[str, Any]], block: dict[str, Any], n: int) -> lis
     return [1 / n] * n
 
 
+# --------------------------------------------------------------------------
+# Angka, warna status, dan grafik (logika murni)
+# --------------------------------------------------------------------------
+STATUS_TONE = {"AMAN": "low", "OK": "low", "BAIK": "low", "WATCH": "mid", "TIPIS": "mid", "WASPADA": "mid",
+               "KRITIS": "high", "MAHAL": "high"}
+LEVEL_TONE = {"positif": "low", "perhatian": "mid", "kritis": "high"}
+SERIES_KEYS = ("primary", "accent", "mid", "low", "high", "highlight")
+_NUM_RE = re.compile(r"[-−–+]?\s*(?:rp\.?\s*)?[-−–+]?\d[\d.,]*", re.IGNORECASE)
+
+
+def parse_number(value: Any) -> float | None:
+    """'−9.390/L' -> -9390, 'Rp 10.596/L' -> 10596, '1,3' -> 1.3, '16.5' -> 16.5, 'NA' -> None."""
+    if isinstance(value, bool) or value is None:
+        return None
+    if isinstance(value, (int, float)):
+        return None if (isinstance(value, float) and (math.isnan(value) or math.isinf(value))) else float(value)
+    match = _NUM_RE.search(str(value))
+    if not match:
+        return None
+    raw = match.group(0)
+    negative = bool(re.search(r"[-−–]", raw))
+    digits = re.sub(r"[^\d.,]", "", raw)
+    if "." in digits and "," in digits:
+        digits = digits.replace(".", "").replace(",", ".")
+    elif "." in digits:
+        parts = digits.split(".")
+        if len(parts) > 2 or (len(parts) == 2 and len(parts[1]) == 3):
+            digits = digits.replace(".", "")
+    elif "," in digits:
+        parts = digits.split(",")
+        digits = digits.replace(",", "") if len(parts) > 2 else digits.replace(",", ".")
+    try:
+        number = float(digits)
+    except ValueError:
+        return None
+    return -number if negative else number
+
+
+def value_tone(value: Any, good_direction: str) -> str | None:
+    """Warna angka: arah_baik 'negatif' -> negatif hijau/positif merah; 'positif' kebalikannya."""
+    number = parse_number(value)
+    if number is None or number == 0 or good_direction not in ("negatif", "positif"):
+        return None
+    good = number < 0 if good_direction == "negatif" else number > 0
+    return "low" if good else "high"
+
+
+def status_tone(value: Any) -> str | None:
+    return STATUS_TONE.get(clean(value).upper())
+
+
+def fmt_id(number: float | None) -> str:
+    """Format angka Indonesia: 9390 -> '9.390', -1.25 -> '−1,3'."""
+    if number is None:
+        return "–"
+    sign = "−" if number < 0 else ""
+    number = abs(number)
+    if number >= 100 or float(number).is_integer():
+        text = f"{number:,.0f}".replace(",", ".")
+    else:
+        text = f"{number:,.1f}".replace(",", "X").replace(".", ",").replace("X", ".")
+    return sign + text
+
+
+def clean_charts(value: Any) -> list[dict[str, Any]]:
+    """Validasi grafik: kategori & seri harus sejajar; nilai diubah ke angka (None jika kosong)."""
+    out = []
+    for chart in value or []:
+        if not isinstance(chart, dict):
+            continue
+        cats = [clean(c) for c in chart.get("kategori") or []]
+        series = []
+        for s in chart.get("seri") or []:
+            vals = [parse_number(v) for v in (s.get("nilai") or [])]
+            if len(vals) == len(cats) and any(v is not None for v in vals):
+                series.append({"nama": clean(s.get("nama")), "nilai": vals})
+        if cats and series:
+            out.append({"judul": clean(chart.get("judul")), "jenis": "line" if chart.get("jenis") == "line" else "bar",
+                        "satuan": clean(chart.get("satuan")), "kategori": cats, "seri": series[:6],
+                        "catatan": clean(chart.get("catatan"))})
+    return out
+
+
+def nice_ticks(vmin: float, vmax: float, count: int = 5) -> list[float]:
+    if vmin == vmax:
+        vmax = vmin + 1
+    span = vmax - vmin
+    raw = span / max(count - 1, 1)
+    mag = 10 ** math.floor(math.log10(raw))
+    step = next(m * mag for m in (1, 2, 2.5, 5, 10) if m * mag >= raw)
+    start = math.floor(vmin / step) * step
+    ticks, t = [], start
+    while t <= vmax + step * 0.5:
+        ticks.append(round(t, 10))
+        t += step
+    return ticks
+
+
+def status_rows(value: Any) -> tuple[list[dict[str, Any]], list[dict[str, Any]], str]:
+    """(kolom, baris, catatan) dari blok status_table yang sudah dirapikan."""
+    if not isinstance(value, dict):
+        return [], [], ""
+    cols = [{"nama": clean(c.get("nama")), "arah_baik": c.get("arah_baik", "netral")}
+            for c in value.get("kolom") or [] if isinstance(c, dict)]
+    rows = []
+    for r in value.get("baris") or []:
+        vals = [clean(v) for v in r.get("nilai") or []]
+        vals = (vals + [""] * len(cols))[:len(cols)]
+        rows.append({"label": clean(r.get("label")), "jenis": r.get("jenis", "biasa"), "nilai": vals})
+    return cols, rows, clean(value.get("catatan"))
+
+
+def svg_chart(chart: dict[str, Any], theme: dict[str, str], width: int = 640, height: int = 330) -> str:
+    """Grafik batang berkelompok / garis sebagai SVG mandiri (tanpa library eksternal)."""
+    cats, series = chart["kategori"], chart["seri"]
+    vals = [v for s in series for v in s["nilai"] if v is not None]
+    ticks = nice_ticks(min(0.0, min(vals)), max(0.0, max(vals)))
+    lo, hi = ticks[0], ticks[-1]
+    left, right, top, bottom = 74, 14, 14, 78
+    pw, ph = width - left - right, height - top - bottom
+
+    def y(v: float) -> float:
+        return top + ph - (v - lo) / (hi - lo) * ph
+
+    colors = ["#" + theme[k] for k in SERIES_KEYS]
+    parts = [f'<svg viewBox="0 0 {width} {height}" xmlns="http://www.w3.org/2000/svg" role="img" '
+             f'aria-label="{_html.escape(chart["judul"])}" style="width:100%;height:auto;font-family:Arial,sans-serif">']
+    for t in ticks:
+        parts.append(f'<line x1="{left}" x2="{left + pw}" y1="{y(t):.1f}" y2="{y(t):.1f}" stroke="#{theme["line"]}" '
+                     f'stroke-width="{1.4 if t == 0 else 0.6}"/>'
+                     f'<text x="{left - 8}" y="{y(t) + 4:.1f}" text-anchor="end" font-size="11" fill="#{theme["muted"]}">{fmt_id(t)}</text>')
+    group = pw / len(cats)
+    if chart["jenis"] == "bar":
+        bw = group * 0.78 / len(series)
+        for si, s in enumerate(series):
+            for ci, v in enumerate(s["nilai"]):
+                if v is None:
+                    continue
+                x = left + ci * group + group * 0.11 + si * bw
+                y0, y1 = sorted((y(0), y(v)))
+                parts.append(f'<rect x="{x:.1f}" y="{y0:.1f}" width="{bw * 0.92:.1f}" height="{max(y1 - y0, 0.8):.1f}" '
+                             f'fill="{colors[si % len(colors)]}"><title>{_html.escape(s["nama"])} · '
+                             f'{_html.escape(cats[ci])}: {fmt_id(v)}</title></rect>')
+                if len(cats) * len(series) <= 24:
+                    ty = y(v) - 4 if v >= 0 else y(v) + 12
+                    parts.append(f'<text x="{x + bw * 0.46:.1f}" y="{ty:.1f}" text-anchor="middle" font-size="9.5" '
+                                 f'fill="#{theme["text"]}">{fmt_id(v)}</text>')
+    else:
+        for si, s in enumerate(series):
+            pts = [(left + ci * group + group / 2, y(v)) for ci, v in enumerate(s["nilai"]) if v is not None]
+            color = colors[si % len(colors)]
+            parts.append(f'<polyline fill="none" stroke="{color}" stroke-width="2.4" points="'
+                         + " ".join(f"{px:.1f},{py:.1f}" for px, py in pts) + '"/>')
+            parts += [f'<circle cx="{px:.1f}" cy="{py:.1f}" r="3.6" fill="{color}"/>' for px, py in pts]
+    for ci, c in enumerate(cats):
+        label = c if len(c) <= 18 else c[:17] + "…"
+        parts.append(f'<text x="{left + ci * group + group / 2:.1f}" y="{top + ph + 16}" text-anchor="middle" '
+                     f'font-size="11" fill="#{theme["text"]}">{_html.escape(label)}</text>')
+    lx = left
+    for si, s in enumerate(series):
+        parts.append(f'<rect x="{lx}" y="{height - 22}" width="11" height="11" fill="{colors[si % len(colors)]}"/>'
+                     f'<text x="{lx + 16}" y="{height - 12.5}" font-size="11" fill="#{theme["text"]}">{_html.escape(s["nama"])}</text>')
+        lx += 30 + 6.5 * len(s["nama"])
+    parts.append("</svg>")
+    return "".join(parts)
+
+
 # ==========================================================================
 # HTML
 # ==========================================================================
@@ -195,7 +367,7 @@ _HTML_CSS = """
 *{box-sizing:border-box}
 body{margin:0;background:#E9ECF1;color:var(--text);font:15px/1.5 "Barlow","Segoe UI",Arial,sans-serif}
 .deck{max-width:1100px;margin:0 auto;padding:24px 16px}
-.slide{background:#fff;aspect-ratio:16/9;margin:0 0 24px;padding:4.5%% 5%% 5.5%%;position:relative;
+.slide{background:#fff;min-height:calc(1068px * 9 / 16);margin:0 0 24px;padding:4.5%% 5%% 5.5%%;position:relative;
 box-shadow:0 1px 3px rgba(0,0,0,.12);overflow:hidden;display:flex;flex-direction:column}
 .dark{background:var(--primary);color:#fff;justify-content:center}
 .tag{position:absolute;top:3.5%%;right:4%%;background:var(--accent);color:#fff;font-weight:700;padding:.25em .9em;border-radius:4px;font-size:.85em}
@@ -214,6 +386,23 @@ td{padding:.4em .6em;border-bottom:1px solid var(--line);vertical-align:top}
 tr:nth-child(even) td{background:var(--light)}
 .p-high{color:var(--high);font-weight:700}.p-mid{color:var(--mid);font-weight:700}.p-low{color:var(--low);font-weight:700}
 .cite{margin-top:auto;padding-top:.8em;font-size:.78em;color:var(--muted)}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:1em}
+.kpi{background:var(--light);border-top:4px solid var(--accent);padding:.9em 1em;border-radius:4px}
+.kpi h3{margin:0;font-size:1em;color:var(--primary)}.kpi small{color:var(--muted)}
+.kpi dl{display:grid;grid-template-columns:1fr auto;gap:.25em .8em;margin:.6em 0 0;font-size:.88em}
+.kpi dd{margin:0;font-weight:700;text-align:right}.kpi p{font-size:.8em;color:var(--muted);margin:.6em 0 0}
+.t-low{color:var(--low)}.t-mid{color:var(--mid)}.t-high{color:var(--high)}
+.badge{display:inline-block;padding:.1em .5em;border-radius:3px;color:#fff;font-weight:700;font-size:.85em}
+.b-low{background:var(--low)}.b-mid{background:var(--mid)}.b-high{background:var(--high)}
+.st td{text-align:right}.st td:first-child{text-align:left}.st tr.grup td{background:var(--light);font-weight:700;color:var(--primary)}
+.st tr.hero td{background:#FFF6D6}.st tr:nth-child(even):not(.grup):not(.hero) td{background:#fff}
+.tablewrap{overflow-x:auto}
+.charts{display:grid;grid-template-columns:repeat(auto-fit,minmax(380px,1fr));gap:1.2em}
+.chart h3{margin:0 0 .4em;font-size:1em;color:var(--primary)}.chart p{font-size:.8em;color:var(--muted);margin:.3em 0 0}
+.insights{display:grid;gap:.8em}
+.ins{border-left:5px solid var(--accent);background:var(--light);padding:.8em 1em}
+.ins.low{border-color:var(--low)}.ins.mid{border-color:var(--mid)}.ins.high{border-color:var(--high)}
+.ins small{font-weight:700;color:var(--muted);letter-spacing:.02em}.ins b{display:block;color:var(--primary);margin:.2em 0}
 .foot{position:absolute;left:5%%;right:5%%;bottom:3%%;display:flex;justify-content:space-between;font-size:.7em;color:var(--muted)}
 .dark .foot{color:rgba(255,255,255,.7)}
 @media print{body{background:#fff}.deck{padding:0;max-width:none}.slide{box-shadow:none;margin:0;page-break-after:always}}
@@ -269,6 +458,45 @@ def render_html(manifest: dict[str, Any], schema: dict[str, Any], content: dict[
                 lead = f'<p class="lead">{_e(item.get("pesan_utama"))}</p>' if item.get("pesan_utama") else ""
                 cite = f'<div class="cite">Sumber: {_e("; ".join(item.get("sitasi") or []))}</div>' if item.get("sitasi") else ""
                 slide(f"<h2>{_e(item.get('judul'))}</h2>{lead}{body}{cite}")
+        elif kind == "kpi_cards" and value:
+            cards = ""
+            for card in value[:4]:
+                rows = "".join(
+                    f"<dt>{_e(m.get('label'))}</dt><dd class=\"t-{ {'baik': 'low', 'buruk': 'high'}.get(m.get('arah'), '') }\">"
+                    f"{_e(m.get('nilai'))}</dd>" for m in card.get("metrik") or [])
+                note = f"<p>{_e(card.get('catatan'))}</p>" if card.get("catatan") else ""
+                cards += (f'<div class="kpi"><h3>{_e(card.get("judul"))}</h3><small>{_e(card.get("subjudul", ""))}</small>'
+                          f"<dl>{rows}</dl>{note}</div>")
+            slide(f'<h2>{title}</h2><div class="kpis">{cards}</div>')
+        elif kind == "status_table" and value:
+            cols, rows, note = status_rows(value)
+            head = "<th></th>" + "".join(f"<th>{_e(c['nama'])}</th>" for c in cols)
+            body = ""
+            for r in rows:
+                cells = ""
+                for c, v in zip(cols, r["nilai"]):
+                    st_tone = status_tone(v)
+                    if st_tone:
+                        cells += f'<td><span class="badge b-{st_tone}">{_e(v)}</span></td>'
+                    else:
+                        tone = value_tone(v, c["arah_baik"])
+                        cells += f'<td class="t-{tone}">{_e(v)}</td>' if tone else f"<td>{_e(v)}</td>"
+                body += f'<tr class="{_e(r["jenis"])}"><td>{_e(r["label"])}</td>{cells}</tr>'
+            cite = f'<div class="cite">{_e(note)}</div>' if note else ""
+            slide(f'<h2>{title}</h2><div class="tablewrap"><table class="st"><tr>{head}</tr>{body}</table></div>{cite}')
+        elif kind == "charts" and value:
+            charts = clean_charts(value)
+            for start in range(0, len(charts), 2):
+                inner = "".join(
+                    f'<div class="chart"><h3>{_e(c["judul"])}{(" (" + _e(c["satuan"]) + ")") if c["satuan"] else ""}</h3>'
+                    f'{svg_chart(c, theme)}{("<p>" + _e(c["catatan"]) + "</p>") if c["catatan"] else ""}</div>'
+                    for c in charts[start:start + 2])
+                slide(f'<h2>{title}</h2><div class="charts">{inner}</div>')
+        elif kind == "insight_cards" and value:
+            cards = "".join(
+                f'<div class="ins {LEVEL_TONE.get(i.get("tingkat"), "")}"><small>{_e(i.get("kategori"))}</small>'
+                f'<b>{_e(i.get("judul"))}</b>{_e(i.get("uraian"))}</div>' for i in value[:4])
+            slide(f'<h2>{title}</h2><div class="insights">{cards}</div>')
         elif kind == "table" and value:
             cols = block.get("columns") or []
             head = "".join(f"<th>{_e(c['label'])}</th>" for c in cols)
@@ -451,6 +679,61 @@ def render_pdf(manifest: dict[str, Any], schema: dict[str, Any], content: dict[s
     def bullets(items: list[str]) -> list[Paragraph]:
         return [Paragraph(esc(i), st["bullet"], bulletText="\u2022") for i in items]
 
+    def chart_drawing(chart: dict[str, Any], width: float, height: float):
+        from reportlab.graphics.charts.barcharts import VerticalBarChart
+        from reportlab.graphics.charts.legends import Legend
+        from reportlab.graphics.charts.linecharts import HorizontalLineChart
+        from reportlab.graphics.shapes import Drawing
+
+        series_colors = [theme[k] for k in SERIES_KEYS]
+        drawing = Drawing(width, height)
+        plot = VerticalBarChart() if chart["jenis"] == "bar" else HorizontalLineChart()
+        plot.x, plot.y, plot.width, plot.height = 64, 58, width - 80, height - 74
+        vals = [v for s_ in chart["seri"] for v in s_["nilai"] if v is not None]
+        ticks = nice_ticks(min(0.0, min(vals)), max(0.0, max(vals)))
+        plot.data = [tuple(v if v is not None else (0 if chart["jenis"] == "bar" else None) for v in s_["nilai"])
+                     for s_ in chart["seri"]]
+        plot.valueAxis.valueMin, plot.valueAxis.valueMax = ticks[0], ticks[-1]
+        plot.valueAxis.valueStep = ticks[1] - ticks[0] if len(ticks) > 1 else None
+        plot.valueAxis.labelTextFormat = lambda v: fmt_id(v)
+        plot.valueAxis.labels.fontName, plot.valueAxis.labels.fontSize = regular, 8
+        plot.valueAxis.visibleGrid, plot.valueAxis.gridStrokeColor = 1, theme["line"]
+        plot.valueAxis.gridStrokeWidth = 0.4
+        plot.categoryAxis.categoryNames = [c if len(c) <= 18 else c[:17] + "…" for c in chart["kategori"]]
+        plot.categoryAxis.labels.fontName, plot.categoryAxis.labels.fontSize = regular, 8
+        plot.categoryAxis.labels.boxAnchor = "n"
+        plot.categoryAxis.labelAxisMode = "low"
+        for i in range(len(chart["seri"])):
+            color = series_colors[i % len(series_colors)]
+            if chart["jenis"] == "bar":
+                plot.bars[i].fillColor, plot.bars[i].strokeColor = color, None
+            else:
+                from reportlab.graphics.widgets.markers import makeMarker
+
+                plot.lines[i].strokeColor, plot.lines[i].strokeWidth = color, 2
+                plot.lines[i].symbol = makeMarker("FilledCircle", size=5, fillColor=color, strokeColor=color)
+        if chart["jenis"] == "bar":
+            plot.groupSpacing, plot.barSpacing = 8, 1
+            if len(chart["kategori"]) * len(chart["seri"]) <= 24:
+                plot.barLabelFormat = lambda v: fmt_id(v)
+                plot.barLabels.fontName, plot.barLabels.fontSize = regular, 7
+                plot.barLabels.nudge = 6
+        drawing.add(plot)
+        legend = Legend()
+        legend.x, legend.y = 64, 14
+        legend.fontName, legend.fontSize = regular, 8.5
+        legend.alignment, legend.columnMaximum = "right", 1
+        legend.deltax, legend.dxTextSpace = 90, 4
+        legend.colorNamePairs = [(series_colors[i % len(series_colors)], s_["nama"]) for i, s_ in enumerate(chart["seri"])]
+        drawing.add(legend)
+        return drawing
+
+    def tone_style(base: ParagraphStyle, tone: str | None, bold_text: bool = False) -> ParagraphStyle:
+        if not tone and not bold_text:
+            return base
+        return ParagraphStyle(f"{base.name}-{tone}-{bold_text}", parent=base, textColor=theme[tone] if tone else base.textColor,
+                              fontName=bold if (tone or bold_text) else base.fontName)
+
     story: list[Any] = [Spacer(1, 1)]  # halaman 1 = sampul (digambar oleh on_cover)
     content_width = W - 2 * M
 
@@ -466,7 +749,9 @@ def render_pdf(manifest: dict[str, Any], schema: dict[str, Any], content: dict[s
         if kind == "section":
             dark_page(clean(block.get("title", "")))
             continue
-        if kind in ("bullets", "text", "cards", "table") and not value:
+        if kind in ("bullets", "text", "cards", "table", "kpi_cards", "status_table", "charts", "insight_cards") and not value:
+            continue
+        if kind == "charts" and not clean_charts(value):
             continue
         if kind == "findings":
             for item in value or []:
@@ -519,6 +804,91 @@ def render_pdf(manifest: dict[str, Any], schema: dict[str, Any], content: dict[s
                 ("LEFTPADDING", (0, 0), (-1, -1), 12), ("RIGHTPADDING", (0, 0), (-1, -1), 12),
             ]))
             story.append(t)
+        elif kind == "kpi_cards":
+            story.append(Spacer(1, 10))
+            cards = value[:4]
+            cw = content_width / len(cards)
+            cells = []
+            for card in cards:
+                parts = [Paragraph(esc(card.get("judul")), st["card_t"])]
+                if card.get("subjudul"):
+                    parts.append(Paragraph(esc(card["subjudul"]), st["cite"]))
+                rows = [[Paragraph(esc(m.get("label")), st["card_b"]),
+                         Paragraph(esc(m.get("nilai")), tone_style(st["card_b"], {"baik": "low", "buruk": "high"}.get(m.get("arah")), True))]
+                        for m in card.get("metrik") or []]
+                if rows:
+                    mt = Table(rows, colWidths=[cw * 0.58 - 14, cw * 0.42 - 14])
+                    mt.setStyle(TableStyle([("LEFTPADDING", (0, 0), (-1, -1), 0), ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+                                            ("ALIGN", (1, 0), (1, -1), "RIGHT"), ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                                            ("TOPPADDING", (0, 0), (-1, -1), 2), ("BOTTOMPADDING", (0, 0), (-1, -1), 2)]))
+                    parts.append(mt)
+                if card.get("catatan"):
+                    parts.append(Paragraph(esc(card["catatan"]), st["cite"]))
+                cells.append(parts)
+            t = Table([cells], colWidths=[cw] * len(cards))
+            t.setStyle(TableStyle([
+                ("BACKGROUND", (0, 0), (-1, -1), theme["light"]), ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                ("LINEABOVE", (0, 0), (-1, 0), 4, theme["accent"]), ("LINEAFTER", (0, 0), (-2, -1), 6, colors.white),
+                ("TOPPADDING", (0, 0), (-1, -1), 10), ("BOTTOMPADDING", (0, 0), (-1, -1), 10),
+                ("LEFTPADDING", (0, 0), (-1, -1), 10), ("RIGHTPADDING", (0, 0), (-1, -1), 10),
+            ]))
+            story.append(t)
+        elif kind == "status_table":
+            cols, rows, note = status_rows(value)
+            if cols and rows:
+                story.append(Spacer(1, 6))
+                small_td = ParagraphStyle("std", parent=st["td"], fontSize=8.5, leading=11)
+                small_th = ParagraphStyle("sth", parent=st["th"], fontSize=8.5, leading=11)
+                data = [[Paragraph("", small_th)] + [Paragraph(esc(c["nama"]), small_th) for c in cols]]
+                cmds = [("BACKGROUND", (0, 0), (-1, 0), theme["primary"]), ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                        ("LINEBELOW", (0, 1), (-1, -1), 0.4, theme["line"]),
+                        ("TOPPADDING", (0, 0), (-1, -1), 3), ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+                        ("LEFTPADDING", (0, 0), (-1, -1), 4), ("RIGHTPADDING", (0, 0), (-1, -1), 4),
+                        ("ALIGN", (1, 1), (-1, -1), "RIGHT")]
+                for ri, r in enumerate(rows, start=1):
+                    line = [Paragraph(esc(r["label"]), tone_style(small_td, None, r["jenis"] == "grup"))]
+                    for ci, (c, v) in enumerate(zip(cols, r["nilai"]), start=1):
+                        st_tone = status_tone(v)
+                        if st_tone:
+                            line.append(Paragraph(esc(v), ParagraphStyle(f"b{ri}{ci}", parent=small_td, fontName=bold,
+                                                                         textColor=colors.white, alignment=1)))
+                            cmds.append(("BACKGROUND", (ci, ri), (ci, ri), theme[st_tone]))
+                        else:
+                            line.append(Paragraph(esc(v), ParagraphStyle(f"v{ri}{ci}", parent=tone_style(small_td, value_tone(v, c["arah_baik"])), alignment=2)))
+                    data.append(line)
+                    if r["jenis"] == "grup":
+                        cmds.append(("BACKGROUND", (0, ri), (-1, ri), theme["light"]))
+                    elif r["jenis"] == "hero":
+                        cmds.append(("BACKGROUND", (0, ri), (0, ri), colors.HexColor("#FFF6D6")))
+                first = content_width * 0.26
+                t = Table(data, colWidths=[first] + [(content_width - first) / len(cols)] * len(cols), repeatRows=1)
+                t.setStyle(TableStyle(cmds))
+                story.append(t)
+                if note:
+                    story.append(Paragraph(esc(note), st["cite"]))
+        elif kind == "charts":
+            charts = clean_charts(value)
+            for i, chart in enumerate(charts):
+                if i:
+                    new_page()
+                    story.append(Paragraph(title, st["h"]))
+                story.append(Paragraph(esc(chart["judul"]) + (f" ({esc(chart['satuan'])})" if chart["satuan"] else ""),
+                                       st["card_t"]))
+                story.append(chart_drawing(chart, content_width, 330))
+                if chart["catatan"]:
+                    story.append(Paragraph(esc(chart["catatan"]), st["cite"]))
+        elif kind == "insight_cards":
+            story.append(Spacer(1, 8))
+            for item in value[:4]:
+                tone = LEVEL_TONE.get(item.get("tingkat"), "accent")
+                cell = [Paragraph(esc(item.get("kategori")), st["cite"]), Paragraph(esc(item.get("judul")), st["card_t"]),
+                        Paragraph(esc(item.get("uraian")), st["card_b"])]
+                t = Table([[cell]], colWidths=[content_width])
+                t.setStyle(TableStyle([("BACKGROUND", (0, 0), (-1, -1), theme["light"]),
+                                       ("LINEBEFORE", (0, 0), (0, -1), 5, theme[tone]),
+                                       ("TOPPADDING", (0, 0), (-1, -1), 8), ("BOTTOMPADDING", (0, 0), (-1, -1), 8),
+                                       ("LEFTPADDING", (0, 0), (-1, -1), 12)]))
+                story.extend([t, Spacer(1, 8)])
         elif kind == "table":
             story.append(Spacer(1, 8))
             cols = block.get("columns") or []
@@ -635,9 +1005,9 @@ def render_pptx(manifest: dict[str, Any], schema: dict[str, Any], content: dict[
         return int(width_in * 72 / (size * 0.5))
 
     def add_table(s, x, y, w, header: list[str], rows: list[list[str]], fractions: list[float],
-                  size=11, priority_col: int | None = None):
+                  size=11, priority_col: int | None = None, cell_style=None, row_h: float = 0.35):
         tbl = s.shapes.add_table(len(rows) + 1, len(header), Inches(x), Inches(y), Inches(w),
-                                 Inches(0.35 * (len(rows) + 1))).table
+                                 Inches(row_h * (len(rows) + 1))).table
         for i, f in enumerate(fractions):
             tbl.columns[i].width = Inches(w * f)
         for r, values in enumerate([header] + rows):
@@ -654,8 +1024,18 @@ def render_pptx(manifest: dict[str, Any], schema: dict[str, Any], content: dict[
                     key = PRIORITY_KEYS.get(clean(value).lower())
                     if key:
                         color, bold = rgb[key], True
+                align = None
+                if r > 0 and cell_style:
+                    custom = cell_style(r - 1, c, value) or {}
+                    if custom.get("fill"):
+                        cell.fill.fore_color.rgb = custom["fill"]
+                    color = custom.get("color", color)
+                    bold = custom.get("bold", bold)
+                    align = custom.get("align")
                 p = tf.paragraphs[0]
                 _runs(p, clean(value), size, color, bold=bold)
+                if align:
+                    p.alignment = align
 
     body_top_default = 1.45
     body_bottom = SH - 0.75
@@ -758,6 +1138,155 @@ def render_pptx(manifest: dict[str, Any], schema: dict[str, Any], content: dict[
                         text(s, M, t, SW - 2 * M, body_bottom - cite_h - t, chunk, 16, rgb["text"], bullet=True, space_after=10)
                         if cite:
                             text(s, M, body_bottom - cite_h + 0.05, SW - 2 * M, cite_h, [cite], 10, rgb["muted"], italic=True)
+        elif kind == "kpi_cards":
+            cards = value[:4]
+            s = new_slide()
+            t = heading(s, title)
+            gap = 0.25
+            w = (SW - 2 * M - gap * (len(cards) - 1)) / len(cards)
+            card_h = body_bottom - t - 0.2
+            for i, card in enumerate(cards):
+                x = M + i * (w + gap)
+                box = s.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(x), Inches(t + 0.1), Inches(w), Inches(card_h))
+                box.fill.solid()
+                box.fill.fore_color.rgb = rgb["light"]
+                box.line.fill.background()
+                box.shadow.inherit = False
+                top_bar = s.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(x), Inches(t + 0.1), Inches(w), Inches(0.07))
+                top_bar.fill.solid()
+                top_bar.fill.fore_color.rgb = rgb["accent"]
+                top_bar.line.fill.background()
+                text(s, x + 0.18, t + 0.3, w - 0.36, 0.45, [clean(card.get("judul"))], 14, rgb["primary"], bold=True)
+                if card.get("subjudul"):
+                    text(s, x + 0.18, t + 0.72, w - 0.36, 0.3, [clean(card["subjudul"])], 10, rgb["muted"])
+                box_t = s.shapes.add_textbox(Inches(x + 0.18), Inches(t + 1.1), Inches(w - 0.36), Inches(card_h - 1.2))
+                tf = box_t.text_frame
+                tf.word_wrap = True
+                tf.margin_left = tf.margin_right = tf.margin_top = tf.margin_bottom = 0
+                first = True
+                for m in card.get("metrik") or []:
+                    p = tf.paragraphs[0] if first else tf.add_paragraph()
+                    first = False
+                    _runs(p, clean(m.get("label")), 11, rgb["text"])
+                    p2 = tf.add_paragraph()
+                    tone = {"baik": "low", "buruk": "high"}.get(m.get("arah"))
+                    _runs(p2, clean(m.get("nilai")), 15, rgb[tone] if tone else rgb["text"], bold=True)
+                    p2.space_after = Pt(8)
+                if card.get("catatan"):
+                    p = tf.paragraphs[0] if first else tf.add_paragraph()
+                    _runs(p, clean(card["catatan"]), 10, rgb["muted"], italic=True)
+        elif kind == "status_table":
+            cols, rows, note = status_rows(value)
+            if cols and rows:
+                grid = [[r["label"]] + r["nilai"] for r in rows]
+                first = 0.26
+                fr = [first] + [(1 - first) / len(cols)] * len(cols)
+                size = 10 if len(cols) <= 8 else 9
+                chunks = chunk_rows(grid, [cpl((SW - 2 * M) * f - 0.16, size) for f in fr],
+                                    int((body_bottom - 1.9) * 72 / (size * 1.75)) - 1)
+                offset = 0
+                for ci_, chunk in enumerate(chunks):
+                    s = new_slide()
+                    t = heading(s, title + (" (lanjutan)" if ci_ else ""))
+                    base = offset
+
+                    def style(r, c, v, base=base):
+                        row = rows[base + r]
+                        out = {}
+                        if row["jenis"] == "grup":
+                            out.update(fill=rgb["light"], bold=True, color=rgb["primary"])
+                        elif row["jenis"] == "hero" and c == 0:
+                            out.update(fill=RGBColor(0xFF, 0xF6, 0xD6))
+                        if c > 0:
+                            out["align"] = PP_ALIGN.RIGHT
+                            stt = status_tone(v)
+                            if stt:
+                                out.update(fill=rgb[stt], color=white, bold=True, align=PP_ALIGN.CENTER)
+                            else:
+                                tone = value_tone(v, cols[c - 1]["arah_baik"])
+                                if tone:
+                                    out.update(color=rgb[tone], bold=True)
+                        return out
+
+                    add_table(s, M, t, SW - 2 * M, [""] + [c["nama"] for c in cols], chunk, fr, size=size,
+                              cell_style=style, row_h=0.3)
+                    offset += len(chunk)
+                    if note and ci_ == len(chunks) - 1:
+                        text(s, M, body_bottom - 0.3, SW - 2 * M, 0.3, [note], 9.5, rgb["muted"], italic=True)
+        elif kind == "charts":
+            from pptx.chart.data import CategoryChartData
+            from pptx.enum.chart import XL_CHART_TYPE, XL_LEGEND_POSITION
+
+            for chart in clean_charts(value):
+                s = new_slide()
+                t = heading(s, title, chart["judul"] + (f" ({chart['satuan']})" if chart["satuan"] else ""))
+                data = CategoryChartData()
+                data.categories = chart["kategori"]
+                for ser in chart["seri"]:
+                    data.add_series(ser["nama"], ser["nilai"])
+                kind_ = XL_CHART_TYPE.COLUMN_CLUSTERED if chart["jenis"] == "bar" else XL_CHART_TYPE.LINE_MARKERS
+                note_h = 0.35 if chart["catatan"] else 0
+                gframe = s.shapes.add_chart(kind_, Inches(M), Inches(t), Inches(SW - 2 * M),
+                                            Inches(body_bottom - t - note_h), data)
+                ch = gframe.chart
+                ch.has_title = False
+                ch.has_legend = True
+                ch.legend.position = XL_LEGEND_POSITION.BOTTOM
+                ch.legend.include_in_layout = False
+                ch.legend.font.size, ch.legend.font.name = Pt(11), FONT
+                ch.font.size, ch.font.name = Pt(11), FONT
+                ch.value_axis.tick_labels.number_format = '#,##0'
+                ch.value_axis.tick_labels.number_format_is_linked = False
+                ch.value_axis.has_major_gridlines = True
+                ch.value_axis.major_gridlines.format.line.color.rgb = rgb["line"]
+                ch.value_axis.format.line.fill.background()
+                ch.category_axis.tick_labels.font.size = Pt(10)
+                from pptx.enum.chart import XL_TICK_LABEL_POSITION
+                ch.category_axis.tick_label_position = XL_TICK_LABEL_POSITION.LOW
+                plot = ch.plots[0]
+                if chart["jenis"] == "bar":
+                    plot.gap_width, plot.overlap = 60, -10
+                    if len(chart["kategori"]) * len(chart["seri"]) <= 24:
+                        plot.has_data_labels = True
+                        plot.data_labels.number_format = '#,##0'
+                        plot.data_labels.number_format_is_linked = False
+                        plot.data_labels.font.size = Pt(9)
+                for i, ser in enumerate(plot.series):
+                    color = rgb[SERIES_KEYS[i % len(SERIES_KEYS)]]
+                    if chart["jenis"] == "bar":
+                        ser.format.fill.solid()
+                        ser.format.fill.fore_color.rgb = color
+                        ser.invert_if_negative = False
+                    else:
+                        ser.format.line.color.rgb = color
+                        ser.format.line.width = Pt(2.5)
+                        ser.smooth = False
+                if chart["catatan"]:
+                    text(s, M, body_bottom - note_h + 0.05, SW - 2 * M, note_h, [chart["catatan"]], 10, rgb["muted"], italic=True)
+        elif kind == "insight_cards":
+            items = value[:4]
+            for start in range(0, len(items), 3):
+                s = new_slide()
+                t = heading(s, title + (" (lanjutan)" if start else ""))
+                group = items[start:start + 3]
+                gap = 0.2
+                h = (body_bottom - t - gap * (len(group) - 1)) / len(group)
+                for i, item in enumerate(group):
+                    y = t + i * (h + gap)
+                    tone = LEVEL_TONE.get(item.get("tingkat"), "accent")
+                    box = s.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(M), Inches(y), Inches(SW - 2 * M), Inches(h))
+                    box.fill.solid()
+                    box.fill.fore_color.rgb = rgb["light"]
+                    box.line.fill.background()
+                    box.shadow.inherit = False
+                    edge = s.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(M), Inches(y), Inches(0.08), Inches(h))
+                    edge.fill.solid()
+                    edge.fill.fore_color.rgb = rgb[tone]
+                    edge.line.fill.background()
+                    text(s, M + 0.3, y + 0.12, SW - 2 * M - 0.5, 0.3, [clean(item.get("kategori"))], 10, rgb["muted"], bold=True)
+                    text(s, M + 0.3, y + 0.42, SW - 2 * M - 0.5, 0.4, [clean(item.get("judul"))], 15, rgb["primary"], bold=True)
+                    body_size = 12 if len(clean(item.get("uraian"))) < cpl(SW - 2 * M - 0.5, 12) * max(1, int((h - 0.95) * 72 / 16)) else 10.5
+                    text(s, M + 0.3, y + 0.85, SW - 2 * M - 0.5, h - 0.95, [clean(item.get("uraian"))], body_size, rgb["text"])
         elif kind == "table":
             cols = block.get("columns") or []
             fr = weights(cols, block, len(cols))
