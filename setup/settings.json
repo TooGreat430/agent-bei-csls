@@ -10,6 +10,6 @@
   "source_folder": "gs://ptpl-ge-bucket/ge-docs-datastore/",
   "folder_batch_size": 20,
   "max_file_mb": 100,
-  "data_auth_mode": "user",
+  "data_auth_mode": "service_account",
   "data_auth_id": "mia-bigquery"
 }

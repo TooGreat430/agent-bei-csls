@@ -1,4 +1,6 @@
-# Panduan — Data BigQuery atas Nama User (OAuth)
+# Panduan — Data BigQuery atas Nama User (OAuth) — OPSIONAL
+
+> Saat ini agent memakai **service account** (`data_auth_mode = service_account`). Ikuti panduan ini hanya jika ingin beralih ke otorisasi per user, lalu set `"data_auth_mode": "user"` di `gs://ptpl-ge-bucket/ge-docs-agent/config/settings.json`.
 
 Marketing Insight Assistant mengambil data BigQuery dengan **akun user yang login**, sama seperti Data Agent *Marketing Intelligence* di Gemini Enterprise. Fitur dokumen, insight, dan laporan tetap memakai service account agent (izinnya sudah lengkap).
 
@@ -44,10 +46,15 @@ Kenapa perlu: agent custom wajib memakai OAuth client milik project, dan Konsol 
 3. **Audience:** pilih **External**
    (kedua akun pengguna berada di luar organisasi project).
 4. **Contact information:** email Anda → centang persetujuan → **Create**.
-5. Buka menu **Audience** → klik **Publish app** → **Confirm**.
-   Status menjadi **In production**: otorisasi tidak kedaluwarsa tiap 7 hari dan tidak perlu mendaftarkan test user.
+5. Buka menu **Audience** → biarkan status **Testing** → bagian **Test users** → **+ Add users** →
+   masukkan `mirptpl@gmail.com` dan `jason.kusuma@mii.co.id` → **Save**.
 
-Jika consent screen ternyata sudah pernah dibuat, pastikan saja **Audience = External** dan status **In production**.
+| Status | Kapan dipakai | Catatan |
+|---|---|---|
+| **Testing** + test users (dipakai sekarang) | Uji coba / POC | Otorisasi kedaluwarsa tiap **7 hari** (user klik Authorize lagi). Hanya akun di daftar test users yang bisa otorisasi (maks. 100) |
+| **In production** (nanti) | Pemakaian rutin | Klik **Publish app** setelah mengisi **homepage URL**, **privacy policy URL**, dan domainnya di menu **Branding** (mis. situs dan kebijakan privasi PT Pertamina Lubricants). Tidak perlu ubah kode atau deploy |
+
+Jika consent screen ternyata sudah pernah dibuat, pastikan saja **Audience = External**, lalu tambahkan test users seperti poin 5.
 
 ---
 
@@ -135,12 +142,13 @@ Tunggu sampai muncul `Selesai.` (5–10 menit). Jangan tekan `Ctrl+C`.
 | Agent meminta otorisasi | Token belum diterima agent | Buka chat baru dan klik Authorize. Jika tetap, cek bahwa ID Authorization adalah `mia-bigquery` (sama dengan `data_auth_id` di `settings.json`) |
 | *"Akun Anda belum memiliki akses ke Data Agent atau tabel BigQuery"* | Akun user butuh izin API chat | Berikan **Gemini Data Analytics Stateless Chat User** (`roles/geminidataanalytics.dataAgentStatelessUser`) ke **akun user** di project `ptpl-land-dev` (IAM & Admin → IAM → Grant access). Tunggu 2–3 menit, coba lagi |
 | Masih ditolak setelah itu | Izin lain akun user | Kirim pesan error dan jam kejadian ke tim teknis |
-| *"Otorisasi akun Anda sudah kedaluwarsa"* | Token habis | Buka chat baru dan klik Authorize lagi |
+| *"Otorisasi akun Anda sudah kedaluwarsa"* | Token habis (status Testing: tiap 7 hari) | Buka chat baru dan klik Authorize lagi |
+| Halaman otorisasi menolak akun (*access blocked / not a test user*) | Akun belum terdaftar sebagai test user | Tambahkan akun di **Google Auth Platform → Audience → Test users** |
 
 ---
 
 ## Catatan
 
-- **Pengguna baru:** cukup bagikan agent ke akunnya di Gemini Enterprise. Saat pertama memakai data BigQuery, ia akan diminta Authorize. Akses datanya mengikuti akses akun tersebut.
+- **Pengguna baru:** selama status Testing, tambahkan dulu akunnya di **Test users**, lalu bagikan agent ke akunnya di Gemini Enterprise. Saat pertama memakai data BigQuery, ia akan diminta Authorize. Akses datanya mengikuti akses akun tersebut.
 - **Kembali ke service account** (tanpa deploy): ubah `"data_auth_mode": "service_account"` di `gs://ptpl-ge-bucket/ge-docs-agent/config/settings.json`, lalu berikan role service account di `PANDUAN_SETUP.md` bagian 2.4.
 - **Mengganti OAuth client** (mis. secret bocor): buat client baru (langkah 2), lalu jalankan ulang langkah 3. Authorization `mia-bigquery` akan diperbarui.

@@ -31,7 +31,7 @@ def ask_marketing_intelligence(question: str, tool_context: ToolContext) -> dict
         answer (teks dari Data Agent), tables (tabel markdown hasil query), source.
     """
     history = list(tool_context.state.get(HISTORY_KEY, []))
-    mode = (live("data_auth_mode") or "user").strip().lower()
+    mode = (live("data_auth_mode") or "service_account").strip().lower()
     token = None
     if mode == "user":
         token = data_agent.find_user_token(tool_context.state, live("data_auth_id") or "mia-bigquery")

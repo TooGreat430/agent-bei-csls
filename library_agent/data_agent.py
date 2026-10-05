@@ -6,9 +6,9 @@ ke Data Agent (stateless chat dengan referensi data agent), lalu jawaban teks da
 query dikembalikan untuk ditampilkan, disimpan sebagai insight, dan dipakai di laporan.
 
 Identitas pemanggil (data_auth_mode):
-- "user" (default): token OAuth user dari Gemini Enterprise (Authorization pada pendaftaran agent).
+- "service_account" (default): identitas service account agent; butuh role Data Agent & BigQuery untuk SA.
+- "user": token OAuth user dari Gemini Enterprise (Authorization pada pendaftaran agent).
   Query berjalan dengan akses user sendiri, sama seperti Data Agent di GE.
-- "service_account": identitas service account agent; butuh role Data Agent & BigQuery untuk SA.
 """
 from __future__ import annotations
 

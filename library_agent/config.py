@@ -75,7 +75,7 @@ class Settings:
     data_agent_location: str = field(default_factory=lambda: _env("LIB_DATA_AGENT_LOCATION", "global"))
     # Data BigQuery dipanggil atas nama user (OAuth Gemini Enterprise) atau service account agent.
     # data_auth_mode: "user" | "service_account". data_auth_id: ID Authorization di GE.
-    data_auth_mode: str = field(default_factory=lambda: _env("LIB_DATA_AUTH_MODE", "user"))
+    data_auth_mode: str = field(default_factory=lambda: _env("LIB_DATA_AUTH_MODE", "service_account"))
     data_auth_id: str = field(default_factory=lambda: _env("LIB_DATA_AUTH_ID", "mia-bigquery"))
 
     # --- Model ------------------------------------------------------------------

@@ -74,7 +74,7 @@ done
 ```
 **Status:** `discoveryengine.editor` sudah diberikan.
 
-### 2.4 Izin untuk data BigQuery lewat service account — **cadangan, tidak dipakai** (lihat 2.5)
+### 2.4 Izin untuk data BigQuery lewat service account — **cara yang dipakai**
 
 Marketing Insight Assistant memanggil Data Agent `agent_4df3074b-9d7e-4f9f-993b-b3969b8a2095` (project `ptpl-land-dev`). Query BigQuery dijalankan dengan identitas service account agent, jadi service account ini butuh izin ke Data Agent **dan** ke dua tabel sumbernya yang berada di project lain.
 
@@ -109,9 +109,9 @@ Catatan akses: semua user Marketing Insight Assistant melihat data BigQuery yang
 
 ---
 
-### 2.5 Data BigQuery atas nama user (OAuth) — **cara yang dipakai** (panduan lengkap: `PANDUAN_OAUTH_BIGQUERY.md`)
+### 2.5 Data BigQuery atas nama user (OAuth) — **opsional, tidak dipakai saat ini** (panduan: `PANDUAN_OAUTH_BIGQUERY.md`)
 
-Data BigQuery diambil dengan **akun user yang login**, persis seperti Data Agent Marketing Intelligence di GE. Service account agent **tidak** perlu role BigQuery/Data Agent (bagian 2.4 tidak dipakai). Fitur dokumen, insight, dan laporan tetap memakai service account.
+Alternatif dari 2.4. Untuk mengaktifkannya: ikuti `PANDUAN_OAUTH_BIGQUERY.md`, lalu set `"data_auth_mode": "user"` di `settings.json`. Data BigQuery kemudian diambil dengan **akun user yang login**. Fitur dokumen, insight, dan laporan tetap memakai service account.
 
 **Kenapa perlu OAuth client sendiri?** Data Agent bawaan Google memakai OAuth client milik Google. Agent custom (ADK) wajib memakai OAuth client milik project, dan Konsol mewajibkan consent screen dikonfigurasi sebelum OAuth client bisa dibuat.
 
@@ -167,7 +167,7 @@ cd ~/agent-bei-csls && git pull && bash scripts/update_agent.sh
 | Agent meminta otorisasi | Token belum diterima. Buka chat baru dan klik Authorize. Jika tetap, cek ID Authorization = `data_auth_id` di `settings.json` (default `mia-bigquery`) |
 | "Akun Anda belum memiliki akses ke Data Agent atau tabel BigQuery" | Akun user butuh role **Gemini Data Analytics Stateless Chat User** di project `ptpl-land-dev` (beri ke akun user, bukan service account) |
 
-Beralih kembali ke service account kapan saja (tanpa deploy): set `"data_auth_mode": "service_account"` di `settings.json` dan berikan role bagian 2.4.
+Beralih antara kedua cara kapan saja tanpa deploy: ubah `data_auth_mode` di `settings.json` (`service_account` atau `user`).
 
 ---
 
@@ -364,7 +364,7 @@ File `gs://ptpl-ge-bucket/ge-docs-agent/config/settings.json` — ubah lewat Kon
 | Pengaturan | Isi sekarang |
 |---|---|
 | `agent_name` | Marketing Insight Assistant |
-| `data_auth_mode` | `user` (data BigQuery atas nama user) atau `service_account` |
+| `data_auth_mode` | `service_account` (dipakai) atau `user` (OAuth) |
 | `data_auth_id` | `mia-bigquery` (ID Authorization di GE) |
 | `company_name` | PT Pertamina Lubricants |
 | `allowed_doc_types` | `["BEI", "CSLS"]` |
