@@ -1,7 +1,7 @@
 """Report sub-agent: membuat laporan dari template resmi berdasarkan insight tersimpan."""
 from google.adk.agents import LlmAgent
 
-from ..callbacks import capture_uploads
+from ..callbacks import capture_uploads, ensure_reply
 from ..config import settings
 from ..llm import make_model
 from ..prompts import REPORT_INSTRUCTION, with_agent_name
@@ -18,5 +18,6 @@ report_agent = LlmAgent(
     instruction=with_agent_name(REPORT_INSTRUCTION),
     tools=[*REPORT_TOOLS, list_insights, set_workspace, get_active_documents],
     before_agent_callback=capture_uploads,
+    after_agent_callback=ensure_reply,
     disallow_transfer_to_parent=True,
 )

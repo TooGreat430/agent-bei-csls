@@ -50,9 +50,11 @@ def _view(insight_id: str, data: dict[str, Any], full: bool = False) -> dict[str
         "doc_keys": data.get("doc_keys", []),
         "source": data.get("source", "dokumen"),
         "has_data_table": bool(data.get("data")),
+        "has_chart": bool(data.get("chart")),
     }
     if full:
         view["data"] = data.get("data")
+        view["chart"] = data.get("chart")
     return view
 
 
@@ -62,7 +64,7 @@ def _load(workspace: str) -> dict[str, dict[str, Any]]:
 
 def save(owner: str, workspace: str, title: str, content: str,
          citations: list[str], doc_keys: list[str], source: str = "dokumen",
-         data_table: dict[str, Any] | None = None) -> dict[str, Any]:
+         data_table: dict[str, Any] | None = None, chart: dict[str, Any] | None = None) -> dict[str, Any]:
     """Simpan insight. `source`: "dokumen" atau "bigquery". `data_table`: hasil query BQ pendukung."""
     insight_id = f"ins-{uuid.uuid4().hex[:10]}"
     data = {
@@ -73,6 +75,7 @@ def save(owner: str, workspace: str, title: str, content: str,
         "doc_keys": doc_keys,
         "source": source,
         "data": data_table,
+        "chart": chart,
         "created_at": _now(),
         "updated_at": _now(),
     }

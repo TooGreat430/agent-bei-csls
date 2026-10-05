@@ -1,7 +1,7 @@
 """Data sub-agent: pertanyaan data BigQuery lewat Data Agent Marketing Intelligence."""
 from google.adk.agents import LlmAgent
 
-from ..callbacks import capture_uploads
+from ..callbacks import capture_uploads, data_after_agent
 from ..config import settings
 from ..llm import make_model
 from ..prompts import DATA_INSTRUCTION, with_agent_name
@@ -20,5 +20,6 @@ data_agent = LlmAgent(
     instruction=with_agent_name(DATA_INSTRUCTION),
     tools=[*DATA_TOOLS, set_workspace, list_insights, save_insight, get_active_documents, search_active_documents],
     before_agent_callback=capture_uploads,
+    after_agent_callback=data_after_agent,
     disallow_transfer_to_parent=True,
 )

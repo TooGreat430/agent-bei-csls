@@ -21,7 +21,7 @@ from google.adk.agents.callback_context import CallbackContext
 from google.genai import types
 
 from . import ingest
-from .clients import get_session_id
+from .clients import storage_client, get_session_id
 from .config import SUPPORTED_MIME_TYPES
 
 logger = logging.getLogger(__name__)
@@ -105,3 +105,69 @@ def capture_uploads(callback_context: CallbackContext) -> Optional[types.Content
     if rejected:
         callback_context.state["temp:rejected_uploads"] = rejected
     return None
+
+
+# ==========================================================================
+# Setelah sub-agent selesai: jawaban tidak boleh kosong + grafik di chat
+# ==========================================================================
+def summarize_result(resp: dict) -> str:
+    """Teks pengganti dari hasil tool terakhir jika model tidak menulis jawaban."""
+    if not isinstance(resp, dict):
+        return ""
+    if resp.get("status") == "ok" and resp.get("url"):
+        title = resp.get("report_title") or "Laporan"
+        return f"{title} sudah siap: {resp['url']}"
+    if resp.get("message"):
+        return str(resp["message"])
+    if resp.get("status") == "ok":
+        return "Permintaan sudah diproses."
+    return ""
+
+
+def _invocation_events(callback_context: CallbackContext) -> list:
+    ctx = getattr(callback_context, "_invocation_context", None)
+    if ctx is None or getattr(ctx, "session", None) is None:
+        return []
+    return [e for e in ctx.session.events if getattr(e, "invocation_id", None) == ctx.invocation_id]
+
+
+def fallback_reply(events: list, agent_name: str) -> str:
+    """Jika agent tidak menulis teks apa pun di giliran ini, ambil pesan dari hasil tool terakhir."""
+    last_response = None
+    for event in events:
+        content = getattr(event, "content", None)
+        for part in (getattr(content, "parts", None) or []):
+            if getattr(event, "author", "") == agent_name and getattr(part, "text", None) \
+                    and not getattr(part, "thought", False) and part.text.strip():
+                return ""
+            fr = getattr(part, "function_response", None)
+            if fr is not None and getattr(fr, "response", None):
+                last_response = fr.response
+    return summarize_result(last_response) if last_response else ""
+
+
+def ensure_reply(callback_context: CallbackContext) -> Optional[types.Content]:
+    """after_agent_callback: pastikan user selalu menerima jawaban."""
+    try:
+        text = fallback_reply(_invocation_events(callback_context), callback_context.agent_name)
+    except Exception:  # noqa: BLE001
+        logger.exception("Pemeriksaan jawaban kosong gagal")
+        return None
+    return types.Content(role="model", parts=[types.Part(text=text)]) if text else None
+
+
+def data_after_agent(callback_context: CallbackContext) -> Optional[types.Content]:
+    """after_agent_callback agent data: jawaban tidak kosong + tampilkan grafik PNG di chat."""
+    parts: list = []
+    reply = ensure_reply(callback_context)
+    if reply:
+        parts.extend(reply.parts)
+    pending = callback_context.state.get("bq_pending_chart")
+    if pending:
+        callback_context.state["bq_pending_chart"] = None
+        try:
+            png = storage_client().bucket(pending["bucket"]).blob(pending["path"]).download_as_bytes()
+            parts.append(types.Part.from_bytes(data=png, mime_type="image/png"))
+        except Exception:  # noqa: BLE001
+            logger.exception("Grafik tidak bisa ditampilkan di chat")
+    return types.Content(role="model", parts=parts) if parts else None

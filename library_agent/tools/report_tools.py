@@ -30,6 +30,7 @@ def generate_report(
     report_title: str = "",
     extra_instructions: str = "",
     use_document_excerpts: bool = True,
+    include_charts: bool = True,
 ) -> dict[str, Any]:
     """Membuat laporan dari insight tersimpan, mengikuti template resmi perusahaan.
 
@@ -45,6 +46,8 @@ def generate_report(
         report_title: Judul laporan, misalnya "Laporan Studi CSLS Q3 2026".
         extra_instructions: Instruksi tambahan dari user, misalnya fokus atau periode.
         use_document_excerpts: True untuk menambah kutipan dari dokumen aktif sebagai sitasi pendukung.
+        include_charts: False jika user meminta laporan TANPA grafik. Jika True, grafik yang sudah
+            dibuat di chat (tersimpan bersama insight) dipakai apa adanya di laporan.
 
     Returns:
         Link laporan HTML (dan PDF jika tersedia).
@@ -93,6 +96,7 @@ def generate_report(
 
     try:
         content = report_engine.compose_content(template, items, excerpts, extra_instructions)
+        content = report_engine.apply_insight_charts(template, content, items, include_charts)
     except ValueError as exc:
         return {"status": "error", "message": str(exc)}
 
@@ -106,6 +110,7 @@ def generate_report(
         user_id, template_id, meta["report_title"], data, ext, ctype,
         record={"workspace": workspace, "insight_ids": [i["insight_id"] for i in items], "doc_keys": active},
     )
+    logger.info("Laporan dibuat: %s (%s)", meta["report_title"], fmt)
     return {"status": "ok", "report_title": meta["report_title"], **links}
 
 

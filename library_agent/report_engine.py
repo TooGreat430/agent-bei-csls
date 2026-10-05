@@ -133,6 +133,28 @@ def source_requirement_problem(template: Template, items: list[dict[str, Any]]) 
             f"{', '.join(found)}.")
 
 
+def chart_fields(template: Template) -> list[str]:
+    return [b.get("field") for b in template.manifest.get("layout") or [] if b.get("type") == "charts" and b.get("field")]
+
+
+def apply_insight_charts(template: Template, content: dict[str, Any], items: list[dict[str, Any]],
+                         include_charts: bool = True) -> dict[str, Any]:
+    """Grafik laporan: kosongkan jika tidak diminta; pakai grafik dari insight (yang dilihat user di chat)
+    jika ada, karena angkanya diambil langsung dari tabel query."""
+    fields = chart_fields(template)
+    if not fields:
+        return content
+    out = dict(content)
+    if not include_charts:
+        for f in fields:
+            out[f] = []
+        return out
+    saved = [{k: v for k, v in i["chart"].items() if k != "question"} for i in items if i.get("chart")]
+    if saved:
+        out[fields[0]] = saved[:4]
+    return out
+
+
 def load_sample(template_id: str) -> dict[str, Any] | None:
     raw = _reader()(template_id, "sample.json")
     return json.loads(raw) if raw else None
