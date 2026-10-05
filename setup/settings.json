@@ -11,5 +11,23 @@
   "folder_batch_size": 20,
   "max_file_mb": 100,
   "data_auth_mode": "service_account",
-  "data_auth_id": "mia-bigquery"
+  "data_auth_id": "mia-bigquery",
+  "hero_products": [
+    "PERTAMINA ENDURO MATIC-S 0.8 LITER",
+    "PERTAMINA ENDURO 4T RACING 0.8 LITER",
+    "PERTAMINA ENDURO MATIC-G 0.8 LITER",
+    "PERTAMINA ENDURO 4T 1 LITER",
+    "PERTAMINA MESRANIA 2T SUPER 1 LITER",
+    "PERTAMINA FASTRON ECOGREEN 0W-20 3.5 LITER",
+    "PERTAMINA FASTRON ECOGREEN 5W-30 3.5 LITER",
+    "PERTAMINA FASTRON TECHNO 10W-40 4 LITER",
+    "PERTAMINA FASTRON TECHNO 15W-40 4 LITER",
+    "PERTAMINA PRIMA XP 20W-50 4 LITER",
+    "RORED EPA 90 4 LITER",
+    "PERTAMINA MEDITRAN SC DIESEL 15W-40 5 LITER",
+    "PERTAMINA MEDITRAN S 40 5 LITER"
+  ],
+  "status_aman_below": -5000,
+  "status_kritis_above": 0,
+  "price_table": "ptpl-curated-prd.DATAMART.SURVEY_PRODUCTS"
 }

@@ -78,6 +78,22 @@ class Settings:
     data_auth_mode: str = field(default_factory=lambda: _env("LIB_DATA_AUTH_MODE", "service_account"))
     data_auth_id: str = field(default_factory=lambda: _env("LIB_DATA_AUTH_ID", "mia-bigquery"))
 
+    # --- Dashboard daya saing harga (query BigQuery langsung) -------------------
+    price_table: str = field(default_factory=lambda: _env(
+        "LIB_PRICE_TABLE", "ptpl-curated-prd.DATAMART.SURVEY_PRODUCTS"))
+    hero_products: tuple = field(default_factory=lambda: tuple(
+        p.strip().upper() for p in _env("LIB_HERO_PRODUCTS", ",".join([
+            "PERTAMINA ENDURO MATIC-S 0.8 LITER", "PERTAMINA ENDURO 4T RACING 0.8 LITER",
+            "PERTAMINA ENDURO MATIC-G 0.8 LITER", "PERTAMINA ENDURO 4T 1 LITER",
+            "PERTAMINA MESRANIA 2T SUPER 1 LITER", "PERTAMINA FASTRON ECOGREEN 0W-20 3.5 LITER",
+            "PERTAMINA FASTRON ECOGREEN 5W-30 3.5 LITER", "PERTAMINA FASTRON TECHNO 10W-40 4 LITER",
+            "PERTAMINA FASTRON TECHNO 15W-40 4 LITER", "PERTAMINA PRIMA XP 20W-50 4 LITER",
+            "RORED EPA 90 4 LITER", "PERTAMINA MEDITRAN SC DIESEL 15W-40 5 LITER",
+            "PERTAMINA MEDITRAN S 40 5 LITER"])).split(",") if p.strip()))
+    # Status gap (Rp/L): AMAN jika gap < status_aman_below; KRITIS jika gap > status_kritis_above; selain itu WATCH.
+    status_aman_below: float = field(default_factory=lambda: float(_env("LIB_STATUS_AMAN_BELOW", "-5000")))
+    status_kritis_above: float = field(default_factory=lambda: float(_env("LIB_STATUS_KRITIS_ABOVE", "0")))
+
     # --- Model ------------------------------------------------------------------
     model_fast: str = field(default_factory=lambda: _env("LIB_MODEL_FAST", "gemini-3.5-flash"))
     model_pro: str = field(default_factory=lambda: _env("LIB_MODEL_PRO", "gemini-3.5-flash"))
@@ -123,6 +139,10 @@ logger = logging.getLogger(__name__)
 
 RUNTIME_KEYS: dict[str, type] = {
     "agent_name": str,
+    "hero_products": list,
+    "status_aman_below": float,
+    "status_kritis_above": float,
+    "price_table": str,
     "data_auth_mode": str,
     "data_auth_id": str,
     "allowed_doc_types": list,

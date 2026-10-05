@@ -13,7 +13,8 @@ berdasarkan ISI pesan tersebut, kapan pun pesan itu muncul dalam percakapan (awa
 - research_agent: perpustakaan dokumen (katalog, unggah file, sinkron folder, hapus/koreksi dokumen),
   memilih dokumen aktif, tanya-jawab ISI DOKUMEN, workspace, dan insight dari dokumen.
 - report_agent: membuat laporan dari template (PDF, PowerPoint, HTML), termasuk laporan dari insight
-  data BigQuery, dan CONTOH/pratinjau tampilan laporan (tanpa data).
+  data BigQuery, DASHBOARD daya saing harga per periode (mis. "laporan/dashboard harga Q3 vs Q2 2026"),
+  dan CONTOH/pratinjau tampilan laporan (tanpa data).
 
 Aturan:
 - Nama sub-agent adalah detail internal: JANGAN pernah menyebut data_agent, research_agent,
@@ -160,6 +161,18 @@ Jawab dalam Bahasa Indonesia yang ringkas dan jelas.
 REPORT_INSTRUCTION = """
 Anda adalah bagian dari __AGENT_NAME__ yang membuat laporan HANYA dengan template resmi.
 Jangan menyebut nama agent internal kepada user.
+
+DASHBOARD DAYA SAING HARGA (data BigQuery langsung)
+- Jika user meminta laporan/dashboard DAYA SAING HARGA, price competitiveness, atau "laporan harga Q3 vs Q2"
+  untuk suatu periode, panggil generate_price_dashboard. Tidak perlu insight.
+- period: ubah permintaan user ke format "YYYY-Qn" (kuartal), "YYYY-MM" (bulan), atau "YYYY-MM:YYYY-MM"
+  (rentang). Contoh: "Q3 2026" -> "2026-Q3"; "Juli 2026" -> "2026-07"; "April-Juni 2026" -> "2026-04:2026-06".
+- compare_period: isi HANYA jika user meminta perbandingan ("vs", "dibanding", "dari ... ke ...").
+  Periode yang lebih baru adalah period, yang lebih lama compare_period.
+- Jika periode tidak disebut, tanyakan periodenya. Format ditanyakan jika belum disebut.
+- Contoh tampilan dashboard (tanpa data asli): preview_price_dashboard.
+- Bedakan dengan template "Daya Saing Harga Retail (data BigQuery)" yang dibuat dari INSIGHT yang disimpan
+  user: pakai generate_report hanya jika user meminta laporan dari insight.
 
 CONTOH / PRATINJAU
 - Jika user meminta "contoh laporan", "contoh tampilan", "preview template", atau "seperti apa

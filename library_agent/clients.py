@@ -26,6 +26,14 @@ def storage_client():
 
 
 @functools.lru_cache(maxsize=1)
+def bigquery_client():
+    from google.cloud import bigquery
+
+    project = settings.data_agent_billing_project or settings.project_id
+    return bigquery.Client(project=project)
+
+
+@functools.lru_cache(maxsize=1)
 def search_client():
     from google.cloud import discoveryengine_v1 as de
 

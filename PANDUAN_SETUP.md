@@ -357,6 +357,18 @@ User meminta format di chat: *"…dalam format PDF / PowerPoint / HTML"*. Hanya 
 
 ---
 
+## 9B. Dashboard daya saing harga
+
+Dibuat langsung dari BigQuery (tanpa insight) dengan prompt seperti *"Buatkan dashboard daya saing harga Q3 2026 vs Q2 2026 dalam PDF"*.
+
+| Bagian | Isi |
+|---|---|
+| Executive Summary | Kartu per zona, matriks gap HJ & margin per zona dengan status, 2 grafik, insight strategis |
+| Per zona (Nasional, Zona 1–3) | Halaman konsumen (HET vs harga jual) dan halaman outlet (HTO & margin): KPI + chip status, tabel viskositas & Hero, grafik per segmen, anomali, kompetitor yang gapnya menyempit |
+| Format | HTML dengan tombol tab · PDF satu halaman per bagian · PowerPoint satu slide per bagian |
+
+Semua angka dihitung kode dari query (aturan sama dengan Data Agent: filter wajib, per liter, pasangan KIMAP, zona). Gemini hanya menulis narasi; kalimat yang memuat angka di luar data dibuang. Periode mengikuti permintaan user (kuartal, bulan, atau rentang; pembanding opsional). Izin yang dipakai sama dengan agent data (BigQuery Job User + Data Viewer tabel survei).
+
 ## 10. Pengaturan tanpa deploy
 
 File `gs://ptpl-ge-bucket/ge-docs-agent/config/settings.json` — ubah lewat Konsol (Download → edit → Upload, timpa). Berlaku maks. 5 menit kemudian.
@@ -364,6 +376,9 @@ File `gs://ptpl-ge-bucket/ge-docs-agent/config/settings.json` — ubah lewat Kon
 | Pengaturan | Isi sekarang |
 |---|---|
 | `agent_name` | Marketing Insight Assistant |
+| `hero_products` | Daftar Product Hero untuk dashboard (samakan dengan Data Agent bila berubah) |
+| `status_aman_below` / `status_kritis_above` | Ambang status gap: AMAN < −5.000/L, KRITIS > 0, selain itu WATCH |
+| `price_table` | Tabel survei untuk dashboard (`ptpl-curated-prd.DATAMART.SURVEY_PRODUCTS`) |
 | `data_auth_mode` | `service_account` (dipakai) atau `user` (OAuth) |
 | `data_auth_id` | `mia-bigquery` (ID Authorization di GE) |
 | `company_name` | PT Pertamina Lubricants |

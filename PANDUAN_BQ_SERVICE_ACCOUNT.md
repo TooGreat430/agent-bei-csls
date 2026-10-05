@@ -71,6 +71,12 @@ Jika `settings.json` di bucket pernah diberi `"data_auth_mode": "user"`, ubah me
 | 7 | `Buatkan lagi dalam PowerPoint tanpa grafik.` | PPTX tanpa halaman grafik |
 | 8 | `Tampilkan grafiknya sebagai garis per zona.` (setelah pertanyaan data per zona/periode) | Grafik baru dengan pilihan kolom/jenis berbeda |
 
+| 9 | `Buatkan contoh dashboard daya saing harga dalam HTML.` | HTML contoh bertanda ILUSTRASI, tombol tab di kanan atas |
+| 10 | `Buatkan dashboard daya saing harga Q3 2026 vs Q2 2026 dalam PDF.` | PDF 9 halaman: Executive Summary + 4 zona × (konsumen, outlet), angka dari data asli |
+| 11 | `Sekarang dalam HTML.` | HTML dengan tab Executive Summary, Nasional, Zona 1–3 |
+| 12 | `Buatkan dashboard harga Juli 2026 saja dalam PowerPoint.` | 9 slide tanpa kolom tren (tanpa pembanding) |
+| 13 | Cocokkan beberapa angka gap Hero di dashboard dengan jawaban Data Agent untuk pertanyaan yang sama | Sama (pembulatan boleh beda ±1) |
+
 Skenario lanjutan: `PANDUAN_TESTING.md` Bagian 8–9.
 
 ---

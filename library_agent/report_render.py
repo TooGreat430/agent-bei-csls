@@ -287,8 +287,10 @@ def nice_ticks(vmin: float, vmax: float, count: int = 5) -> list[float]:
     step = next(m * mag for m in (1, 2, 2.5, 5, 10) if m * mag >= raw)
     start = math.floor(vmin / step) * step
     ticks, t = [], start
-    while t <= vmax + step * 0.5:
+    while True:
         ticks.append(round(t, 10))
+        if t >= vmax - 1e-9 or len(ticks) > 50:
+            break
         t += step
     return ticks
 

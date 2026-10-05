@@ -13,10 +13,14 @@ from .library_tools import ACTIVE_KEY, DEFAULT_WORKSPACE, WORKSPACE_KEY
 logger = logging.getLogger(__name__)
 
 
+def _with_dashboard(items: list) -> list:
+    return list(items) + [DASHBOARD_INFO]
+
+
 def list_report_templates() -> dict[str, Any]:
     """Menampilkan template laporan resmi yang tersedia beserta bagian-bagiannya."""
     try:
-        return {"status": "ok", "templates": report_engine.list_templates()}
+        return {"status": "ok", "templates": _with_dashboard(report_engine.list_templates())}
     except Exception as exc:  # noqa: BLE001
         logger.exception("list template gagal")
         return {"status": "error", "message": str(exc)}
@@ -152,4 +156,107 @@ def preview_report_template(template_id: str, tool_context: ToolContext, output_
             "message": "Ini contoh tampilan dengan angka ilustrasi bawaan template, bukan hasil data atau insight."}
 
 
-REPORT_TOOLS = [list_report_templates, generate_report, preview_report_template]
+DASHBOARD_ID = "dashboard_daya_saing_harga"
+DASHBOARD_INFO = {
+    "template_id": DASHBOARD_ID,
+    "title": "Dashboard Daya Saing Harga Retail (langsung dari BigQuery)",
+    "description": ("Dashboard eksekutif lengkap: Executive Summary multizona, lalu per zona (Nasional, Zona 1-3) "
+                    "halaman konsumen (HET vs harga jual) dan outlet (HTO & margin bengkel), dengan KPI, tabel SKU, "
+                    "grafik per segmen, anomali, dan kompetitor yang perlu diwaspadai. Data diambil langsung dari "
+                    "BigQuery untuk periode yang diminta (bisa dibandingkan dengan periode lain); tidak butuh insight."),
+    "formats": ["html", "pdf", "pptx"],
+}
+CONTENT_TYPES = {"html": "text/html; charset=utf-8", "pdf": "application/pdf",
+                 "pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation"}
+
+
+def _render_dashboard(pages: list, meta: dict, fmt: str) -> bytes:
+    from .. import dashboard_render as dr
+
+    return {"html": dr.render_html, "pdf": dr.render_pdf, "pptx": dr.render_pptx}[fmt](pages, meta)
+
+
+def generate_price_dashboard(period: str, tool_context: ToolContext, compare_period: str = "",
+                             output_format: str = "", title: str = "") -> dict[str, Any]:
+    """Membuat DASHBOARD daya saing harga retail lengkap langsung dari data BigQuery.
+
+    Gunakan saat user meminta laporan/dashboard daya saing harga (price competitiveness) untuk suatu
+    periode, mis. "laporan daya saing harga Q3 2026 vs Q2 2026". Tidak memerlukan insight.
+
+    Args:
+        period: Periode utama. Format: "2026-Q3", "2026-07", atau rentang "2026-04:2026-06".
+        compare_period: Periode pembanding (opsional, HANYA jika user meminta perbandingan), format sama.
+        output_format: "pdf", "pptx" (PowerPoint), atau "html". Kosongkan jika user belum menyebut.
+        title: Judul laporan (opsional).
+    """
+    from .. import price_dashboard, price_data
+    from ..config import live, settings
+
+    fmt = report_engine.normalize_format(output_format)
+    if not fmt:
+        return {"status": "needs_input", "available_formats": DASHBOARD_INFO["formats"],
+                "message": "Tanyakan ke user format yang diinginkan: PDF, PowerPoint, atau HTML (dengan tab)."}
+    try:
+        pa = price_data.parse_period(period)
+        pb = price_data.parse_period(compare_period) if compare_period.strip() else None
+    except ValueError as exc:
+        return {"status": "error", "message": str(exc)}
+    heroes = list(live("hero_products") or settings.hero_products)
+    try:
+        agg, monthly = price_data.fetch(pa, pb, heroes, live("price_table") or settings.price_table)
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("Query dashboard gagal")
+        hint = " Service account agent belum punya akses ke tabel BigQuery." if "403" in str(exc) or "Access Denied" in str(exc) else ""
+        return {"status": "error", "message": f"Data BigQuery tidak bisa diambil.{hint}", "detail": str(exc)[:300]}
+    dataset = price_data.build_dataset(agg, monthly, heroes, pa, pb, live("status_aman_below"), live("status_kritis_above"))
+    if not dataset["has_data"]:
+        return {"status": "error", "message": f"Tidak ada data survei untuk periode {pa['label']}. Coba periode lain."}
+    has_b = any(r["PERIOD"] == "B" for r in agg)
+    company = live("company_name")
+    narrative = price_dashboard.generate_narrative(dataset, company)
+    pages = price_dashboard.build_pages(dataset, narrative, company)
+    periode = f"{pb['label']} vs {pa['label']}" if pb else pa["label"]
+    title = title.strip() or f"Dashboard Daya Saing Harga Retail {periode}"
+    meta = {"report_title": title, "period_text": f"{periode} · Standardized per liter (IDR/L)", "company": company}
+    try:
+        data = _render_dashboard(pages, meta, fmt)
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("Render dashboard gagal")
+        return {"status": "error", "message": f"Dashboard gagal dibuat: {exc}"}
+    links = report_engine.save_output(get_user_id(tool_context), DASHBOARD_ID, title, data, fmt, CONTENT_TYPES[fmt],
+                                      record={"source": "bigquery", "periode": pa["label"],
+                                              "pembanding": pb["label"] if pb else None})
+    note = "" if not pb or has_b else f" Data periode pembanding {pb['label']} tidak ditemukan, jadi kolom tren kosong."
+    logger.info("Dashboard dibuat: %s (%s)", title, fmt)
+    return {"status": "ok", "report_title": title, **links, "message": f"Dashboard siap.{note}"}
+
+
+def preview_price_dashboard(tool_context: ToolContext, output_format: str = "") -> dict[str, Any]:
+    """Contoh tampilan dashboard daya saing harga dengan DATA ILUSTRASI (bukan data asli).
+
+    Args:
+        output_format: "pdf", "pptx", atau "html". Kosongkan jika user belum menyebut.
+    """
+    from .. import price_dashboard, price_data, sample_price
+
+    fmt = report_engine.normalize_format(output_format)
+    if not fmt:
+        return {"status": "needs_input", "available_formats": DASHBOARD_INFO["formats"],
+                "message": "Tanyakan ke user format contoh yang diinginkan (PDF, PowerPoint, atau HTML)."}
+    agg, monthly = sample_price.make()
+    pa, pb = price_data.parse_period("2026-Q3"), price_data.parse_period("2026-Q2")
+    dataset = price_data.build_dataset(agg, monthly, sample_price.HEROES, pa, pb)
+    pages = price_dashboard.build_pages(dataset, {"ringkasan": [], "insight_eksekutif": [], "zona": {}}, "PT Pertamina Lubricants")
+    for p in pages:
+        p["footer"] = "CONTOH TAMPILAN — angka ilustrasi, bukan data asli · " + p["footer"]
+    title = "CONTOH TAMPILAN - Dashboard Daya Saing Harga Retail"
+    meta = {"report_title": title, "period_text": "Q2 2026 vs Q3 2026 · ILUSTRASI", "company": "PT Pertamina Lubricants"}
+    data = _render_dashboard(pages, meta, fmt)
+    links = report_engine.save_output(get_user_id(tool_context), DASHBOARD_ID, title, data, fmt, CONTENT_TYPES[fmt],
+                                      record={"preview": True})
+    return {"status": "ok", "report_title": title, **links,
+            "message": "Ini contoh tampilan dengan angka ilustrasi, bukan data asli."}
+
+
+REPORT_TOOLS = [list_report_templates, generate_report, preview_report_template,
+                generate_price_dashboard, preview_price_dashboard]
