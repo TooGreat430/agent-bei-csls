@@ -3,7 +3,8 @@
 Pemakaian:
     python scripts/upload_templates.py                  # semua template (menimpa)
     python scripts/upload_templates.py laporan_studi    # satu template (menimpa)
-    python scripts/upload_templates.py --missing-only   # hanya template yang belum ada di bucket
+    python scripts/upload_templates.py --missing-only   # hanya FILE yang belum ada di bucket (tidak menimpa),
+                                                        # kecuali manifest.json dengan "version" lebih tinggi
 """
 import os
 import sys
@@ -16,7 +17,7 @@ from library_agent.config import settings  # noqa: E402
 REQUIRED = ("manifest.json", "schema.json")
 
 
-def upload(template_id: str) -> None:
+def upload(template_id: str, missing_only: bool = False) -> None:
     folder = os.path.join(settings.local_template_dir, template_id)
     missing = [f for f in REQUIRED if not os.path.exists(os.path.join(folder, f))]
     if missing:
@@ -27,8 +28,31 @@ def upload(template_id: str) -> None:
         path = os.path.join(folder, name)
         if os.path.isfile(path):
             blob = bucket.blob(f"{settings.template_prefix}/{template_id}/{name}")
+            if missing_only and blob.exists():
+                if name != "manifest.json" or not _newer_manifest(path, blob):
+                    continue
             blob.upload_from_filename(path)
-            print("  ->", f"gs://{settings.bucket}/{blob.name}")
+            print(f"  {template_id}/{name} diunggah")
+
+
+def _version(value) -> tuple:
+    try:
+        return tuple(int(x) for x in str(value).split("."))
+    except ValueError:
+        return (0,)
+
+
+def _newer_manifest(local_path: str, blob) -> bool:
+    """True jika manifest di repo punya 'version' lebih tinggi daripada di bucket."""
+    import json
+
+    try:
+        remote = json.loads(blob.download_as_text())
+    except Exception:  # noqa: BLE001
+        return False
+    with open(local_path, encoding="utf-8") as fh:
+        local = json.load(fh)
+    return _version(local.get("version", "0")) > _version(remote.get("version", "0"))
 
 
 def exists_in_bucket(template_id: str) -> bool:
@@ -43,7 +67,6 @@ if __name__ == "__main__":
     for tid in ids:
         if not os.path.isdir(os.path.join(settings.local_template_dir, tid)):
             continue
-        if missing_only and exists_in_bucket(tid):
-            continue
-        print("Template:", tid)
-        upload(tid)
+        if not missing_only:
+            print("Template:", tid)
+        upload(tid, missing_only=missing_only)

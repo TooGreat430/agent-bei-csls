@@ -8,6 +8,7 @@ from google.adk.tools import ToolContext
 
 from .. import data_agent, insights
 from ..clients import get_user_id
+from ..config import live
 from .library_tools import ACTIVE_KEY, DEFAULT_WORKSPACE, WORKSPACE_KEY
 
 logger = logging.getLogger(__name__)
@@ -30,14 +31,28 @@ def ask_marketing_intelligence(question: str, tool_context: ToolContext) -> dict
         answer (teks dari Data Agent), tables (tabel markdown hasil query), source.
     """
     history = list(tool_context.state.get(HISTORY_KEY, []))
+    mode = (live("data_auth_mode") or "user").strip().lower()
+    token = None
+    if mode == "user":
+        token = data_agent.find_user_token(tool_context.state, live("data_auth_id") or "mia-bigquery")
+        if not token:
+            return {"status": "needs_authorization",
+                    "message": ("Untuk mengambil data BigQuery, akun Anda perlu diotorisasi terlebih dahulu. "
+                                "Klik tombol Authorize/Otorisasi yang muncul di Gemini Enterprise untuk agent ini, "
+                                "lalu kirim ulang pertanyaan. Jika tombol tidak muncul, buka chat baru.")}
     try:
-        result = data_agent.ask(question, history)
+        result = data_agent.ask(question, history, access_token=token)
     except Exception as exc:  # noqa: BLE001
         logger.exception("Data Agent gagal")
         text = str(exc)
+        kind = data_agent.classify_error(text)
+        if kind == "token" and mode == "user":
+            return {"status": "needs_authorization",
+                    "message": "Otorisasi akun Anda sudah kedaluwarsa. Buka chat baru dan klik Authorize/Otorisasi lagi."}
         hint = ""
-        if "403" in text or "Permission" in text or "denied" in text.lower():
-            hint = " Service account agent belum memiliki izin ke Data Agent atau tabel BigQuery-nya."
+        if kind == "permission":
+            hint = (" Akun Anda belum memiliki akses ke Data Agent atau tabel BigQuery-nya." if mode == "user"
+                    else " Service account agent belum memiliki izin ke Data Agent atau tabel BigQuery-nya.")
         return {"status": "error", "message": f"Data tidak bisa diambil saat ini.{hint}", "detail": text[:300]}
 
     if result["errors"] and not result["answer"]:

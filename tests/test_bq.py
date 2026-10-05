@@ -53,6 +53,19 @@ class DataAgentParseTest(unittest.TestCase):
         self.assertEqual(out["answer"], "")
 
 
+class UserAuthTest(unittest.TestCase):
+    def test_token_lookup_plain_and_temp(self):
+        self.assertEqual(data_agent.find_user_token({"mia-bigquery": "tok1"}, "mia-bigquery"), "tok1")
+        self.assertEqual(data_agent.find_user_token({"temp:mia-bigquery": "tok2"}, "mia-bigquery"), "tok2")
+        self.assertIsNone(data_agent.find_user_token({}, "mia-bigquery"))
+        self.assertIsNone(data_agent.find_user_token({"mia-bigquery": ""}, "mia-bigquery"))
+
+    def test_error_classification(self):
+        self.assertEqual(data_agent.classify_error("401 Request had invalid authentication"), "token")
+        self.assertEqual(data_agent.classify_error("403 Permission denied on table"), "permission")
+        self.assertEqual(data_agent.classify_error("500 internal"), "other")
+
+
 class NumbersTest(unittest.TestCase):
     def test_parse_number_formats(self):
         cases = {"−9.390/L": -9390, "Rp 10.596/L": 10596, "+666/L": 666, "1,3": 1.3, "16.5": 16.5,
@@ -125,6 +138,44 @@ class TemplateTest(unittest.TestCase):
         prs = Presentation(io.BytesIO(data))
         charts = [sh for s in prs.slides for sh in s.shapes if getattr(sh, "has_chart", False) and sh.has_chart]
         self.assertEqual(len(charts), 2)
+
+
+class SourceRequirementTest(unittest.TestCase):
+    def test_bq_template_rejects_document_only_insights(self):
+        t = report_engine.load_template("daya_saing_harga_bq")
+        doc_only = [{"source": "dokumen", "content": "x"}]
+        self.assertIn("data BigQuery", report_engine.source_requirement_problem(t, doc_only))
+        mixed = doc_only + [{"source": "bigquery", "content": "y"}]
+        self.assertIsNone(report_engine.source_requirement_problem(t, mixed))
+
+    def test_document_templates_accept_any_source(self):
+        t = report_engine.load_template("studi_bei_nps")
+        self.assertIsNone(report_engine.source_requirement_problem(t, [{"source": "bigquery"}]))
+
+    def test_literal_newlines_become_paragraphs(self):
+        self.assertEqual(rr.paragraphs("Satu.\\n\\nDua."), ["Satu.", "Dua."])
+
+
+class PreviewTest(unittest.TestCase):
+    def test_every_template_has_sample(self):
+        for tid in report_engine.list_template_ids():
+            self.assertIsNotNone(report_engine.load_sample(tid), tid)
+
+    @unittest.skipUnless(HAS_RENDER, "library render belum terpasang")
+    def test_preview_is_marked(self):
+        t = report_engine.load_template("daya_saing_harga_bq")
+        meta = report_engine.preview_meta(t, "u")
+        html, _, _ = report_engine.render(t, report_engine.load_sample("daya_saing_harga_bq"), meta, "html")
+        self.assertIn("CONTOH TAMPILAN".encode(), html)
+
+    def test_manifest_version_compare(self):
+        sys.path.insert(0, os.path.join(ROOT, "scripts"))
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("ut", os.path.join(ROOT, "scripts", "upload_templates.py"))
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        self.assertGreater(mod._version("2"), mod._version("1"))
+        self.assertGreater(mod._version("1.10"), mod._version("1.9"))
 
 
 class RoutingTest(unittest.TestCase):

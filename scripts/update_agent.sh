@@ -81,13 +81,13 @@ echo "==> 5/6 Uji unit"
 python -m unittest discover tests >/dev/null 2>&1 || { python -m unittest discover tests; echo "Uji gagal, update dibatalkan."; exit 1; }
 echo "    OK"
 if [ -z "${LIB_AGENT_RESOURCE:-}" ]; then
-  echo "    Mencari resource agent '${LIB_AGENT_DISPLAY_NAME:-document-insight-agent}'..."
+  echo "    Mencari resource agent '${LIB_AGENT_DISPLAY_NAME:-marketing-insight-assistant}'..."
   RES=$(python - <<'PY'
 import os, vertexai
 from vertexai import agent_engines
 vertexai.init(project=os.environ["LIB_PROJECT_ID"], location=os.environ["LIB_AGENT_ENGINE_REGION"])
-name = os.environ.get("LIB_AGENT_DISPLAY_NAME", "document-insight-agent")
-found = [e.resource_name for e in agent_engines.list() if e.display_name in (name, "asisten-perpustakaan")]
+name = os.environ.get("LIB_AGENT_DISPLAY_NAME", "marketing-insight-assistant")
+found = [e.resource_name for e in agent_engines.list() if e.display_name in (name, "document-insight-agent", "asisten-perpustakaan")]
 print(found[0] if len(found) == 1 else "")
 PY
 )

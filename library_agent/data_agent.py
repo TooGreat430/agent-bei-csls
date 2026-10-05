@@ -1,14 +1,14 @@
-"""Memanggil Data Agent BigQuery (Conversational Analytics API) dari Document Insight Agent.
+"""Memanggil Data Agent BigQuery (Conversational Analytics API) dari Marketing Insight Assistant.
 
 Data Agent "Marketing Intelligence" sudah berisi aturan bisnis, glossary, Product Hero, dan
 verified queries. Agent ini TIDAK menduplikasi aturan itu: setiap pertanyaan data diteruskan
 ke Data Agent (stateless chat dengan referensi data agent), lalu jawaban teks dan tabel hasil
 query dikembalikan untuk ditampilkan, disimpan sebagai insight, dan dipakai di laporan.
 
-Query BigQuery dijalankan dengan identitas service account agent. Izin yang dibutuhkan:
-- roles/geminidataanalytics.dataAgentUser dan roles/geminidataanalytics.dataAgentStatelessUser
-- roles/bigquery.jobUser di project penagihan (LIB_DATA_AGENT_BILLING_PROJECT)
-- roles/bigquery.dataViewer pada tabel/dataset sumber Data Agent
+Identitas pemanggil (data_auth_mode):
+- "user" (default): token OAuth user dari Gemini Enterprise (Authorization pada pendaftaran agent).
+  Query berjalan dengan akses user sendiri, sama seperti Data Agent di GE.
+- "service_account": identitas service account agent; butuh role Data Agent & BigQuery untuk SA.
 """
 from __future__ import annotations
 
@@ -99,8 +99,33 @@ def _to_dict(message: Any) -> dict[str, Any]:
         return type(message).to_dict(message)
 
 
-def ask(question: str, history: list[dict[str, str]] | None = None) -> dict[str, Any]:
-    """Kirim pertanyaan ke Data Agent. `history`: [{"question", "answer"}] untuk konteks lanjutan."""
+def find_user_token(state: Any, auth_id: str) -> str | None:
+    """Token OAuth user dari Gemini Enterprise di session state (kunci = ID Authorization)."""
+    for key in (auth_id, f"temp:{auth_id}"):
+        try:
+            value = state.get(key)
+        except Exception:  # noqa: BLE001
+            value = None
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return None
+
+
+def classify_error(text: str) -> str:
+    low = text.lower()
+    if "401" in text or "unauthenticated" in low or "invalid_grant" in low or "expired" in low:
+        return "token"
+    if "403" in text or "permission" in low or "denied" in low:
+        return "permission"
+    return "other"
+
+
+def ask(question: str, history: list[dict[str, str]] | None = None,
+        access_token: str | None = None) -> dict[str, Any]:
+    """Kirim pertanyaan ke Data Agent. `history`: [{"question", "answer"}] untuk konteks lanjutan.
+
+    `access_token`: token OAuth user; jika diisi, Data Agent dipanggil atas nama user tersebut.
+    """
     from google.cloud import geminidataanalytics as gda
 
     if not settings.data_agent:
@@ -118,5 +143,11 @@ def ask(question: str, history: list[dict[str, str]] | None = None) -> dict[str,
         messages=messages,
         data_agent_context=gda.DataAgentContext(data_agent=settings.data_agent),
     )
-    stream = gda.DataChatServiceClient().chat(request=request, timeout=240)
+    if access_token:
+        from google.oauth2.credentials import Credentials
+
+        client = gda.DataChatServiceClient(credentials=Credentials(token=access_token))
+    else:
+        client = gda.DataChatServiceClient()
+    stream = client.chat(request=request, timeout=240)
     return parse_stream([_to_dict(m) for m in stream])

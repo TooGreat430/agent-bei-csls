@@ -73,6 +73,10 @@ class Settings:
     data_agent_billing_project: str = field(default_factory=lambda: _env(
         "LIB_DATA_AGENT_BILLING_PROJECT") or _env("LIB_PROJECT_ID") or _env("GOOGLE_CLOUD_PROJECT", ""))
     data_agent_location: str = field(default_factory=lambda: _env("LIB_DATA_AGENT_LOCATION", "global"))
+    # Data BigQuery dipanggil atas nama user (OAuth Gemini Enterprise) atau service account agent.
+    # data_auth_mode: "user" | "service_account". data_auth_id: ID Authorization di GE.
+    data_auth_mode: str = field(default_factory=lambda: _env("LIB_DATA_AUTH_MODE", "user"))
+    data_auth_id: str = field(default_factory=lambda: _env("LIB_DATA_AUTH_ID", "mia-bigquery"))
 
     # --- Model ------------------------------------------------------------------
     model_fast: str = field(default_factory=lambda: _env("LIB_MODEL_FAST", "gemini-3.5-flash"))
@@ -93,6 +97,8 @@ class Settings:
     max_file_mb: float = field(default_factory=lambda: float(_env("LIB_MAX_FILE_MB", "100")))
     max_active_docs: int = field(default_factory=lambda: int(_env("LIB_MAX_ACTIVE_DOCS", "10")))
     company_name: str = field(default_factory=lambda: _env("LIB_COMPANY_NAME", "Nama Perusahaan"))
+    # Nama agent yang dipakai saat memperkenalkan diri (bisa diubah lewat settings.json tanpa deploy).
+    agent_name: str = field(default_factory=lambda: _env("LIB_AGENT_NAME", "Marketing Insight Assistant"))
 
 
 SUPPORTED_MIME_TYPES = {
@@ -116,6 +122,9 @@ settings = Settings()
 logger = logging.getLogger(__name__)
 
 RUNTIME_KEYS: dict[str, type] = {
+    "agent_name": str,
+    "data_auth_mode": str,
+    "data_auth_id": str,
     "allowed_doc_types": list,
     "doc_type_hints": str,
     "company_name": str,

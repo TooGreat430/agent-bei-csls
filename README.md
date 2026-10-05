@@ -1,4 +1,4 @@
-# Document Insight Agent — Gemini Enterprise (ADK)
+# Marketing Insight Assistant — Gemini Enterprise (ADK)
 
 Agent ADK yang menjadikan Gemini Enterprise (GE) sebagai **perpustakaan dokumen bersama**, dengan semua pekerjaan dilakukan dalam **satu chat**.
 
@@ -23,7 +23,7 @@ Agent ADK yang menjadikan Gemini Enterprise (GE) sebagai **perpustakaan dokumen 
 ```
                      Gemini Enterprise — 1 chat
                                │
-                 ┌──── document_insight_agent (root) ────┐
+                 ┌──── marketing_insight_assistant (root) ────┐
                  │  before_agent_callback: capture_uploads
       ┌──────────┴───────────┐           ┌─────────────┴──────────┐
       │ research_agent       │           │ report_agent           │

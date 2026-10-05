@@ -2,8 +2,12 @@
   "id": "daya_saing_harga_bq",
   "title": "Daya Saing Harga Retail (data BigQuery)",
   "description": "Laporan eksekutif dari data BigQuery Marketing Intelligence: ringkasan, kartu KPI per zona, matriks gap harga & margin dengan status, grafik perbandingan per zona/periode, dan insight strategis. Untuk insight bersumber BigQuery.",
-  "outputs": ["html", "pdf", "pptx"],
-  "version": "1",
+  "outputs": [
+    "html",
+    "pdf",
+    "pptx"
+  ],
+  "version": "2",
   "grounding": true,
   "theme": {
     "primary": "0F2347",
@@ -17,14 +21,47 @@
     "mid": "B7791F",
     "low": "1E7B4F"
   },
-  "cover": {"title_field": "judul_utama", "subtitle_fields": ["cakupan", "periode"], "tag_field": "cakupan"},
+  "cover": {
+    "title_field": "judul_utama",
+    "subtitle_fields": [
+      "cakupan",
+      "periode"
+    ],
+    "tag_field": "cakupan"
+  },
   "footer": "{company} | {report_title} | {date} | Confidential · Executive Decision Support",
   "layout": [
-    {"type": "bullets", "field": "ringkasan_eksekutif", "title": "Executive Summary", "lead": "Poin utama untuk pimpinan"},
-    {"type": "kpi_cards", "field": "kpi_zona", "title": "Ringkasan per Wilayah"},
-    {"type": "status_table", "field": "matriks", "title": "Matriks Harga & Margin"},
-    {"type": "charts", "field": "grafik", "title": "Visualisasi"},
-    {"type": "insight_cards", "field": "insight_strategis", "title": "Strategic Actionable Insights"},
-    {"type": "text", "field": "sumber_data", "title": "Sumber Data & Catatan"}
-  ]
+    {
+      "type": "bullets",
+      "field": "ringkasan_eksekutif",
+      "title": "Executive Summary",
+      "lead": "Poin utama untuk pimpinan"
+    },
+    {
+      "type": "kpi_cards",
+      "field": "kpi_zona",
+      "title": "Ringkasan per Wilayah"
+    },
+    {
+      "type": "status_table",
+      "field": "matriks",
+      "title": "Matriks Harga & Margin"
+    },
+    {
+      "type": "charts",
+      "field": "grafik",
+      "title": "Visualisasi"
+    },
+    {
+      "type": "insight_cards",
+      "field": "insight_strategis",
+      "title": "Strategic Actionable Insights"
+    },
+    {
+      "type": "text",
+      "field": "sumber_data",
+      "title": "Sumber Data & Catatan"
+    }
+  ],
+  "requires_source": "bigquery"
 }

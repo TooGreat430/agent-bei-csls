@@ -1,4 +1,4 @@
-# Panduan Testing — Document Insight Agent (POC)
+# Panduan Testing — Marketing Insight Assistant (POC)
 
 ## A. Persiapan
 
@@ -27,7 +27,7 @@ Gunakan **satu chat baru** sampai Bagian 6.
 
 | No | Prompt / aksi | Yang diharapkan |
 |---|---|---|
-| 1 | `Halo, apa saja yang bisa kamu bantu?` | Memperkenalkan diri sebagai Document Insight Agent; menyebut laporan PDF/PowerPoint/HTML; tidak menyebut "Research Agent"/"Report Agent" |
+| 1 | `Halo, apa saja yang bisa kamu bantu?` | Memperkenalkan diri sebagai Marketing Insight Assistant; menyebut laporan PDF/PowerPoint/HTML; tidak menyebut "Research Agent"/"Report Agent" |
 | 2 | `Dokumen apa saja yang ada di perpustakaan?` | 1 dokumen dari folder: judul *Monitoring Performa dan Potensi di Market melalui Studi BEI dan NPS 2026*, jenis **BEI**, versi **1**, status **sedang diindeks** (bukan gagal) |
 | 3 | Upload `uji_catatan_bei.docx`, `uji_tabel.csv`, `bei_black_treasure_copy.pdf` ke `ge-docs-datastore/` lewat Konsol → ulangi no. 2 | DOCX ditambahkan; CSV dilewati (format tidak didukung); copy PDF dilewati (isi sama) |
 | 4 | Jika ada field "perlu dicek", jawab mis. `Jenisnya BEI.` | Metadata diperbarui |

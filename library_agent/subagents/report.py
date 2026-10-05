@@ -4,7 +4,7 @@ from google.adk.agents import LlmAgent
 from ..callbacks import capture_uploads
 from ..config import settings
 from ..llm import make_model
-from ..prompts import REPORT_INSTRUCTION
+from ..prompts import REPORT_INSTRUCTION, with_agent_name
 from ..tools.library_tools import get_active_documents, list_insights, set_workspace
 from ..tools.report_tools import REPORT_TOOLS
 
@@ -15,7 +15,7 @@ report_agent = LlmAgent(
         "Membuat laporan resmi dari template perusahaan berdasarkan insight tersimpan, "
         "lalu mengirim link laporan HTML/PDF."
     ),
-    instruction=REPORT_INSTRUCTION,
+    instruction=with_agent_name(REPORT_INSTRUCTION),
     tools=[*REPORT_TOOLS, list_insights, set_workspace, get_active_documents],
     before_agent_callback=capture_uploads,
     disallow_transfer_to_parent=True,

@@ -1,4 +1,4 @@
-# Panduan Setup — Document Insight Agent (POC)
+# Panduan Setup — Marketing Insight Assistant (POC)
 
 | Item | Nilai |
 |---|---|
@@ -7,8 +7,8 @@
 | Region agent (Agent Runtime) | `asia-southeast2` (Jakarta) |
 | Bucket | `gs://ptpl-ge-bucket` (Jakarta) |
 | Repo | `https://github.com/TooGreat430/agent-bei-csls` |
-| Agent di Agent Runtime | `document-insight-agent` — `projects/37078813825/locations/asia-southeast2/reasoningEngines/5516874359156768768` |
-| Nama di Gemini Enterprise | Document Insight Agent |
+| Agent di Agent Runtime | `marketing-insight-assistant` (nama internal; sebelumnya `document-insight-agent`) — `projects/37078813825/locations/asia-southeast2/reasoningEngines/5516874359156768768` |
+| Nama di Gemini Enterprise | Marketing Insight Assistant |
 
 ---
 
@@ -74,9 +74,9 @@ done
 ```
 **Status:** `discoveryengine.editor` sudah diberikan.
 
-### 2.4 Izin untuk data BigQuery (Data Agent "Marketing Intelligence") — harus admin
+### 2.4 Izin untuk data BigQuery lewat service account — **cadangan, tidak dipakai** (lihat 2.5)
 
-Document Insight Agent memanggil Data Agent `agent_4df3074b-9d7e-4f9f-993b-b3969b8a2095` (project `ptpl-land-dev`). Query BigQuery dijalankan dengan identitas service account agent, jadi service account ini butuh izin ke Data Agent **dan** ke dua tabel sumbernya yang berada di project lain.
+Marketing Insight Assistant memanggil Data Agent `agent_4df3074b-9d7e-4f9f-993b-b3969b8a2095` (project `ptpl-land-dev`). Query BigQuery dijalankan dengan identitas service account agent, jadi service account ini butuh izin ke Data Agent **dan** ke dua tabel sumbernya yang berada di project lain.
 
 | Role | Di mana | Fungsi |
 |---|---|---|
@@ -105,7 +105,69 @@ gcloud projects get-iam-policy ptpl-land-dev --flatten="bindings[].members" \
   --format="value(bindings.role)"
 ```
 
-Catatan akses: semua user Document Insight Agent melihat data BigQuery yang sama (lewat service account agent). Ini sudah disetujui karena akses GE dibatasi pada pengguna berlisensi.
+Catatan akses: semua user Marketing Insight Assistant melihat data BigQuery yang sama (lewat service account agent). Ini sudah disetujui karena akses GE dibatasi pada pengguna berlisensi.
+
+---
+
+### 2.5 Data BigQuery atas nama user (OAuth) — **cara yang dipakai** (panduan lengkap: `PANDUAN_OAUTH_BIGQUERY.md`)
+
+Data BigQuery diambil dengan **akun user yang login**, persis seperti Data Agent Marketing Intelligence di GE. Service account agent **tidak** perlu role BigQuery/Data Agent (bagian 2.4 tidak dipakai). Fitur dokumen, insight, dan laporan tetap memakai service account.
+
+**Kenapa perlu OAuth client sendiri?** Data Agent bawaan Google memakai OAuth client milik Google. Agent custom (ADK) wajib memakai OAuth client milik project, dan Konsol mewajibkan consent screen dikonfigurasi sebelum OAuth client bisa dibuat.
+
+**Langkah 1 — Consent screen (sekali saja, Konsol project `ptpl-land-dev`)**
+1. Buka **Google Auth Platform** (atau **APIs & Services → OAuth consent screen**) → **Get started**.
+2. **App name:** `Marketing Insight Assistant` · **User support email:** email Anda.
+3. **Audience:** pilih **External** (akun `mirptpl@gmail.com` dan `jason.kusuma@mii.co.id` berada di luar organisasi project).
+4. **Contact information:** email Anda → setujui kebijakan → **Create**.
+5. Menu **Audience** → klik **Publish app** → konfirmasi. Status menjadi **In production**, sehingga otorisasi tidak kedaluwarsa tiap 7 hari dan tidak perlu mendaftarkan test user.
+
+Catatan: karena aplikasi belum diverifikasi Google, saat otorisasi pertama user akan melihat peringatan *"Google hasn't verified this app"*. Klik **Advanced → Go to Marketing Insight Assistant** → **Continue**. Ini normal untuk aplikasi internal (batas 100 user tanpa verifikasi).
+
+**Langkah 2 — OAuth client (Konsol)**
+1. **APIs & Services → Credentials → Create credentials → OAuth client ID**.
+2. **Application type:** Web application · **Name:** `Marketing Insight Assistant GE`.
+3. **Authorized redirect URIs** → tambahkan keduanya:
+   - `https://vertexaisearch.cloud.google.com/oauth-redirect`
+   - `https://vertexaisearch.cloud.google.com/static/oauth/oauth.html`
+4. **Create** → pada panel *OAuth client created* klik **Download JSON**.
+5. Di Cloud Shell: menu **⋮ → Upload** → pilih file JSON tadi (tersimpan di folder home, nama berawalan `client_secret_`).
+
+**Langkah 3 — Pasang Authorization ke agent (Cloud Shell)**
+```bash
+cd ~/agent-bei-csls && source .venv/bin/activate && set -a && source .env && set +a
+python scripts/enable_user_auth.py ~/client_secret_*.json
+```
+Yang diharapkan:
+```
+1/3 Membuat Authorization 'mia-bigquery' (200)
+2/3 Pendaftaran ditemukan: 'Marketing Insight Assistant' di app <id-app>
+3/3 Authorization terpasang pada pendaftaran agent.
+```
+**Rencana B** — jika langkah 3/3 GAGAL (pendaftaran lama tidak bisa diubah lewat API):
+```bash
+python scripts/enable_user_auth.py ~/client_secret_*.json --register-new
+```
+Lalu di Konsol (**Gemini Enterprise → app → Agents**): bagikan agent baru ke `mirptpl@gmail.com` dan `jason.kusuma@mii.co.id`, kemudian hapus pendaftaran lama (yang tanpa Authorization).
+
+Setelah berhasil, hapus file rahasia: `rm ~/client_secret_*.json`
+
+**Langkah 4 — Update kode agent**
+```bash
+cd ~/agent-bei-csls && git pull && bash scripts/update_agent.sh
+```
+
+**Langkah 5 — Uji**
+1. Buka **chat baru** di Marketing Insight Assistant → klik **Authorize** saat diminta → pilih akun → lanjutkan melewati peringatan verifikasi → **Continue**.
+2. Tanyakan: `Hitung rata-rata per liter pricelist, harga survei, dan gap produk Hero PTPL dibanding kompetitor Shell pada Juli 2026.`
+
+| Hasil | Arti / tindakan |
+|---|---|
+| Angka dan tabel muncul | ✅ Selesai |
+| Agent meminta otorisasi | Token belum diterima. Buka chat baru dan klik Authorize. Jika tetap, cek ID Authorization = `data_auth_id` di `settings.json` (default `mia-bigquery`) |
+| "Akun Anda belum memiliki akses ke Data Agent atau tabel BigQuery" | Akun user butuh role **Gemini Data Analytics Stateless Chat User** di project `ptpl-land-dev` (beri ke akun user, bukan service account) |
+
+Beralih kembali ke service account kapan saja (tanpa deploy): set `"data_auth_mode": "service_account"` di `settings.json` dan berikan role bagian 2.4.
 
 ---
 
@@ -156,7 +218,7 @@ LIB_FOLDER_BATCH_SIZE=20
 LIB_MAX_FILE_MB=100
 LIB_TEMPLATE_SOURCE=gcs
 LIB_DATASTORE_ID=perpustakaan-dokumen
-LIB_AGENT_DISPLAY_NAME=document-insight-agent
+LIB_AGENT_DISPLAY_NAME=marketing-insight-assistant
 LIB_COMPANY_NAME="PT Pertamina Lubricants"
 LIB_DOC_TYPES=BEI,CSLS
 LIB_DOC_TYPE_HINTS="BEI: Brand Equity Index - laporan studi ekuitas merek pelumas (brand awareness, brand image, preferensi, brand funnel, perbandingan dengan merek pesaing); CSLS: Customer Satisfaction and Loyalty Survey - laporan survei kepuasan dan loyalitas pelanggan (indeks kepuasan, NPS, loyalitas, evaluasi produk dan layanan)"
@@ -210,14 +272,22 @@ Konsol → **Gemini Enterprise** → app GE → **Agents** → **Add agent** →
 
 | Isian | Nilai |
 |---|---|
-| Agent resource | `document-insight-agent` (asia-southeast2), atau resource name di `.env` |
-| Agent name | `Document Insight Agent` |
-| Agent description | `Perpustakaan dokumen BEI dan CSLS PT Pertamina Lubricants. Unggah dokumen ke perpustakaan bersama, pilih dokumen yang ingin dipakai, ajukan pertanyaan dengan jawaban bersitasi, simpan insight penting, dan buat laporan otomatis sesuai template resmi perusahaan.` |
+| Agent resource | `marketing-insight-assistant` (asia-southeast2), atau resource name di `.env` |
+| Agent name | `Marketing Insight Assistant` |
+| Agent description | `Asisten marketing PT Pertamina Lubricants: analisis data pasar dari BigQuery (harga, gap, margin, Product Hero per zona), perpustakaan dokumen BEI & CSLS dengan tanya-jawab bersitasi, penyimpanan insight, dan laporan otomatis PDF/PowerPoint/HTML sesuai template perusahaan.` |
 | Otorisasi / OAuth | Kosongkan |
 
 Lalu atur user yang boleh memakai agent (mis. `mirptpl@gmail.com`).
 
 ---
+
+### 6.1 Mengganti nama agent di Gemini Enterprise (tanpa deploy)
+
+Konsol → **Gemini Enterprise** → app GE → **Agents** → klik agent → **Edit**, lalu ganti:
+- **Agent name:** `Marketing Insight Assistant`
+- **Agent description:** teks di tabel bagian 6
+
+Nama yang dipakai agent saat memperkenalkan diri diatur oleh `agent_name` di `settings.json` (bagian 10).
 
 ## 7. Akses penguji ke link laporan
 
@@ -293,6 +363,9 @@ File `gs://ptpl-ge-bucket/ge-docs-agent/config/settings.json` — ubah lewat Kon
 
 | Pengaturan | Isi sekarang |
 |---|---|
+| `agent_name` | Marketing Insight Assistant |
+| `data_auth_mode` | `user` (data BigQuery atas nama user) atau `service_account` |
+| `data_auth_id` | `mia-bigquery` (ID Authorization di GE) |
 | `company_name` | PT Pertamina Lubricants |
 | `allowed_doc_types` | `["BEI", "CSLS"]` |
 | `doc_type_hints` | Penjelasan BEI dan CSLS untuk Gemini |

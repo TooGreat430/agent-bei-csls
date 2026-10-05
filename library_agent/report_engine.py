@@ -10,6 +10,7 @@ Struktur satu template (lokal: ./templates/<id>/, produksi: gs://<bucket>/<inter
     template.html      (opsional) template Jinja2 khusus untuk output HTML
     template.pptx      (opsional) file PowerPoint klien: master/tema-nya dipakai untuk output PPTX
     style_examples.md  (opsional) potongan laporan lama sebagai acuan gaya bahasa
+    sample.json        (opsional) isi contoh untuk pratinjau template ("buatkan contoh laporannya")
 
 Satu isi laporan (JSON) bisa dirender ke HTML, PDF, atau PPTX. User cukup menyebut
 format yang diinginkan, dan hanya format itu yang dibuat.
@@ -116,6 +117,33 @@ def load_template(template_id: str) -> Template:
     )
 
 
+SOURCE_LABELS = {"bigquery": "data BigQuery", "dokumen": "dokumen"}
+
+
+def source_requirement_problem(template: Template, items: list[dict[str, Any]]) -> str | None:
+    """Pesan jika template butuh insight dari sumber tertentu (mis. BigQuery) tetapi tidak ada."""
+    required = template.manifest.get("requires_source")
+    if not required:
+        return None
+    if any(i.get("source", "dokumen") == required for i in items):
+        return None
+    found = sorted({SOURCE_LABELS.get(i.get("source", "dokumen"), i.get("source")) for i in items}) or ["tidak ada"]
+    return (f"Template '{template.manifest.get('title', template.template_id)}' membutuhkan insight dari "
+            f"{SOURCE_LABELS.get(required, required)}, sedangkan insight yang tersedia bersumber dari: "
+            f"{', '.join(found)}.")
+
+
+def load_sample(template_id: str) -> dict[str, Any] | None:
+    raw = _reader()(template_id, "sample.json")
+    return json.loads(raw) if raw else None
+
+
+def preview_meta(template: Template, user_id: str) -> dict[str, Any]:
+    meta = build_meta(template, user_id, f"CONTOH TAMPILAN - {template.manifest.get('title', template.template_id)}")
+    meta["is_preview"] = True
+    return meta
+
+
 def list_templates() -> list[dict[str, Any]]:
     out = []
     for template_id in list_template_ids():
@@ -126,6 +154,8 @@ def list_templates() -> list[dict[str, Any]]:
                 "title": t.manifest.get("title", template_id),
                 "description": t.manifest.get("description", ""),
                 "formats": t.outputs,
+                "requires_insight_source": SOURCE_LABELS.get(t.manifest.get("requires_source"), "dokumen atau data"),
+                "has_preview_sample": load_sample(template_id) is not None,
                 "sections": list(t.schema.get("properties", {}).keys()),
             })
         except Exception:  # noqa: BLE001

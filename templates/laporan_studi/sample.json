@@ -1,0 +1,19 @@
+{
+  "periode": "Q3 2026",
+  "ringkasan_eksekutif": "Kepuasan pelanggan pada segmen ritel modern relatif stabil, dengan perbaikan terbesar pada ketersediaan produk.\n\nKecepatan layanan purna jual masih menjadi area yang perlu mendapat perhatian manajemen.",
+  "latar_belakang": "Studi ini disusun untuk memetakan tingkat kepuasan dan loyalitas pelanggan pada kanal ritel modern dan tradisional.",
+  "temuan_utama": [
+    {"judul": "Ketersediaan produk membaik", "uraian": "Sebanyak 62% responden menilai ketersediaan produk baik atau sangat baik, naik dari 54% pada periode sebelumnya.", "sitasi": ["[Studi CSLS 2026, v2, hal. 8]"]},
+    {"judul": "Layanan purna jual tertinggal", "uraian": "Waktu tanggap keluhan dinilai paling rendah di antara seluruh atribut layanan.", "sitasi": ["[Studi CSLS 2026, v2, hal. 14]", "[Laporan BEI Q3 2026, v1, hal. 5]"]}
+  ],
+  "implikasi": ["Perbaikan distribusi mulai berdampak pada persepsi pelanggan.", "Risiko perpindahan pelanggan meningkat jika layanan purna jual tidak diperbaiki."],
+  "rekomendasi": [
+    {"rekomendasi": "Tetapkan target waktu tanggap keluhan maksimal 2x24 jam.", "prioritas": "Tinggi", "alasan": "Atribut dengan skor terendah (Temuan 2)."},
+    {"rekomendasi": "Pertahankan pola distribusi wilayah Jawa Barat.", "prioritas": "Sedang", "alasan": "Terbukti menaikkan skor ketersediaan (Temuan 1)."}
+  ],
+  "keterbatasan": "Studi hanya mencakup kanal ritel modern dan tradisional di Pulau Jawa.",
+  "daftar_sumber": [
+    {"judul_dokumen": "Studi CSLS 2026", "versi": "2"},
+    {"judul_dokumen": "Laporan BEI Q3 2026", "versi": "1"}
+  ]
+}

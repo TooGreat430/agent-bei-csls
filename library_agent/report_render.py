@@ -47,6 +47,7 @@ _CHAR_MAP = {"\u2264": "<=", "\u2265": ">=", "\u2192": "->", "\u00a0": " ", "\u2
 # ==========================================================================
 def clean(text: Any) -> str:
     s = "" if text is None else str(text)
+    s = s.replace("\\r\\n", "\n").replace("\\n", "\n")
     for k, v in _CHAR_MAP.items():
         s = s.replace(k, v)
     return s.strip()
@@ -116,8 +117,11 @@ def cover_info(manifest: dict[str, Any], content: dict[str, Any], meta: dict[str
 
 def footer_text(manifest: dict[str, Any], meta: dict[str, Any]) -> str:
     pattern = manifest.get("footer") or "{company} | {report_title} | {date} | Confidential"
-    return pattern.format(company=clean(meta.get("company_name")), report_title=clean(meta.get("report_title")),
+    text = pattern.format(company=clean(meta.get("company_name")), report_title=clean(meta.get("report_title")),
                           date=clean(meta.get("generated_date")))
+    if meta.get("is_preview"):
+        text = "CONTOH TAMPILAN - angka hanya ilustrasi, bukan hasil data | " + text
+    return text
 
 
 def estimate_lines(text: str, chars_per_line: int) -> int:

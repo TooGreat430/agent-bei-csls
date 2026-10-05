@@ -46,5 +46,29 @@ class RuntimeConfigTest(unittest.TestCase):
             self.assertEqual(config.runtime_config_path(), "ge-docs-agent/config/settings.json")
 
 
+class AgentNameTest(unittest.TestCase):
+    def setUp(self):
+        config._runtime_cache.update(loaded_at=0.0, data={})
+
+    def test_instruction_uses_live_name(self):
+        from library_agent import prompts
+
+        provider = prompts.with_agent_name(prompts.ROOT_INSTRUCTION)
+        with mock.patch.object(config, "_read_runtime_file", return_value={}):
+            text = provider(None)
+        self.assertIn("Marketing Insight Assistant", text)
+        self.assertNotIn("__AGENT_NAME__", text)
+        self.assertNotIn("Document Insight Agent", text)
+        config._runtime_cache.update(loaded_at=0.0, data={})
+        with mock.patch.object(config, "_read_runtime_file", return_value={"agent_name": "Asisten Marketing PTPL"}):
+            self.assertIn("Asisten Marketing PTPL", provider(None))
+
+    def test_all_instructions_have_no_leftover_old_name(self):
+        from library_agent import prompts
+
+        for const in ("ROOT_INSTRUCTION", "RESEARCH_INSTRUCTION", "DATA_INSTRUCTION", "REPORT_INSTRUCTION"):
+            self.assertNotIn("Document Insight Agent", getattr(prompts, const))
+
+
 if __name__ == "__main__":
     unittest.main()
