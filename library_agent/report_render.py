@@ -99,6 +99,17 @@ def resolve_layout(manifest: dict[str, Any], schema: dict[str, Any]) -> list[dic
     return manifest.get("layout") or default_layout(schema)
 
 
+def logo_bytes() -> bytes | None:
+    """Logo perusahaan (library_agent/assets/logo_ptpl.png) untuk sampul laporan."""
+    import os
+
+    path = os.path.join(os.path.dirname(__file__), "assets", "logo_ptpl.png")
+    if os.path.exists(path):
+        with open(path, "rb") as fh:
+            return fh.read()
+    return None
+
+
 def cover_info(manifest: dict[str, Any], content: dict[str, Any], meta: dict[str, Any]) -> dict[str, Any]:
     cover = manifest.get("cover") or {}
     title = clean(content.get(cover.get("title_field", "judul_utama"))) or clean(meta.get("report_title"))
@@ -434,7 +445,14 @@ def render_html(manifest: dict[str, Any], schema: dict[str, Any], content: dict[
         slides.append(f'<section class="{cls}">{tag if with_tag else ""}{inner}'
                       f'<div class="foot"><span>{foot}</span><span>{n}</span></div></section>')
 
-    slide(f'<h1>{_e(info["title"])}</h1><p class="sub">{_e(info["subtitle"])}</p>'
+    _logo = logo_bytes()
+    logo_html = ""
+    if _logo:
+        import base64 as _b64
+
+        logo_html = (f'<div style="display:inline-block;background:#fff;border-radius:8px;padding:8px 14px;margin-bottom:28px">'
+                     f'<img src="data:image/png;base64,{_b64.b64encode(_logo).decode()}" alt="logo" style="height:46px;display:block"/></div>')
+    slide(f'{logo_html}<h1>{_e(info["title"])}</h1><p class="sub">{_e(info["subtitle"])}</p>'
           f'<p class="sub">{_e(info["company"])}</p><p class="sub">{_e(info["date"])}</p>', dark=True, with_tag=False)
 
     for block in resolve_layout(manifest, schema):
@@ -618,10 +636,20 @@ def render_pdf(manifest: dict[str, Any], schema: dict[str, Any], content: dict[s
         canv.circle(W - 40, 40, 150, stroke=0, fill=1)
         canv.setFillColor(theme["accent"])
         canv.circle(W - 150, H + 30, 190, stroke=0, fill=1)
+        logo = logo_bytes()
+        top_offset = 70
+        if logo:
+            from reportlab.lib.utils import ImageReader
+
+            canv.setFillColor(colors.white)
+            canv.roundRect(56, H - 92, 168, 56, 6, stroke=0, fill=1)
+            canv.drawImage(ImageReader(io.BytesIO(logo)), 66, H - 86, width=148, height=44,
+                           preserveAspectRatio=True, mask="auto")
+            top_offset = 120
         title_style = ParagraphStyle("ct", fontName=bold, fontSize=34, leading=38, textColor=colors.white)
         p = Paragraph(esc(info["title"]).upper(), title_style)
         _, ph = p.wrap(560, 260)
-        p.drawOn(canv, 56, H - 70 - ph)
+        p.drawOn(canv, 56, H - top_offset - ph)
         canv.setFillColor(colors.white)
         y = 150
         for line, size in ((info["subtitle"], 15), (info["company"], 13), (info["date"], 12)):
@@ -1056,7 +1084,17 @@ def render_pptx(manifest: dict[str, Any], schema: dict[str, Any], content: dict[
     circle2.fill.solid()
     circle2.fill.fore_color.rgb = rgb["accent"]
     circle2.line.fill.background()
-    text(s, 0.8, 0.9, 7.6, 3.2, [info["title"].upper()], 36, white, bold=True, space_after=0)
+    _logo = logo_bytes()
+    title_top = 0.9
+    if _logo:
+        box = s.shapes.add_shape(MSO_SHAPE.ROUNDED_RECTANGLE, Inches(0.8), Inches(0.55), Inches(2.4), Inches(0.8))
+        box.fill.solid()
+        box.fill.fore_color.rgb = white
+        box.line.fill.background()
+        box.shadow.inherit = False
+        s.shapes.add_picture(io.BytesIO(_logo), Inches(0.95), Inches(0.64), height=Inches(0.62))
+        title_top = 1.6
+    text(s, 0.8, title_top, 7.6, 3.2, [info["title"].upper()], 36, white, bold=True, space_after=0)
     sub = [x for x in (info["subtitle"], info["company"], info["date"]) if x]
     text(s, 0.8, 4.6, 7.0, 1.6, sub, 16, white, space_after=6)
 

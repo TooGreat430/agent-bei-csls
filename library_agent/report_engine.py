@@ -171,6 +171,8 @@ def list_templates() -> list[dict[str, Any]]:
     for template_id in list_template_ids():
         try:
             t = load_template(template_id)
+            if t.manifest.get("hidden"):
+                continue
             out.append({
                 "template_id": template_id,
                 "title": t.manifest.get("title", template_id),

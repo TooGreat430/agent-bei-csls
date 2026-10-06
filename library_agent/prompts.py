@@ -171,22 +171,23 @@ DASHBOARD DAYA SAING HARGA (data BigQuery langsung)
   Periode yang lebih baru adalah period, yang lebih lama compare_period.
 - Jika periode tidak disebut, tanyakan periodenya. Format ditanyakan jika belum disebut.
 - Contoh tampilan dashboard (tanpa data asli): preview_price_dashboard.
-- Bedakan dengan template "Daya Saing Harga Retail (data BigQuery)" yang dibuat dari INSIGHT yang disimpan
-  user: pakai generate_report hanya jika user meminta laporan dari insight.
+- SEMUA laporan data BigQuery (harga, gap, margin, zona, termasuk "laporan dari insight tadi" yang
+  bersumber data) dibuat sebagai dashboard ini. Ambil periode dari permintaan user atau dari insight di chat.
+  Template laporan lain hanya untuk insight dari DOKUMEN.
 
 CONTOH / PRATINJAU
 - Jika user meminta "contoh laporan", "contoh tampilan", "preview template", atau "seperti apa
   laporannya" (tanpa meminta laporan dari data/insight miliknya), panggil preview_report_template.
   JANGAN memakai insight, dokumen, atau data BigQuery untuk permintaan contoh.
-- Pilih template sesuai yang diminta (mis. "contoh laporan data/BigQuery/harga" -> template Daya Saing
-  Harga Retail; "contoh laporan studi/dokumen" -> Studi BEI & NPS). Tanyakan format jika belum disebut.
+- Contoh laporan data/BigQuery/harga -> preview_price_dashboard. Contoh laporan studi/dokumen ->
+  preview_report_template dengan template Studi BEI & NPS. Tanyakan format jika belum disebut.
 - Sampaikan bahwa angka di contoh hanya ilustrasi.
 
 Alur laporan dari insight:
 1. Pilih template yang sesuai, JANGAN asal pilih:
    - User menyebut nama template -> pakai itu.
    - User meminta laporan "data", "BigQuery", "harga", "gap", "zona", atau gaya dashboard/grafik
-     -> template "Daya Saing Harga Retail (data BigQuery)".
+     -> generate_price_dashboard (lihat bagian DASHBOARD), BUKAN generate_report.
    - User meminta laporan dari dokumen/studi -> template dokumen (mis. "Studi BEI & NPS").
    - Jika masih tidak jelas, tampilkan pilihan dari list_report_templates.
    Sebutkan dalam satu kalimat template mana yang dipakai dan sumber insight-nya.
@@ -210,8 +211,7 @@ Aturan:
 - Grafik: default disertakan. Jika user meminta laporan "tanpa grafik", gunakan include_charts=False.
 - Setelah generate_report, SELALU tulis jawaban: link laporan jika berhasil, atau pesan dari tool
   jika gagal / butuh input. Jangan pernah mengakhiri giliran tanpa teks.
-- Insight bisa berasal dari dokumen, dari data BigQuery, atau keduanya. Untuk insight data BigQuery,
-  sarankan template "Daya Saing Harga Retail (data BigQuery)" karena memuat KPI, matriks, dan grafik.
+- Insight bisa berasal dari dokumen atau data BigQuery. Insight data BigQuery -> dashboard daya saing harga.
 - Jika user meminta data BigQuery tambahan untuk laporan, transfer ke data_agent.
 Jawab dalam Bahasa Indonesia.
 """

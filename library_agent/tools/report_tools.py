@@ -92,6 +92,8 @@ def generate_report(
     if not items:
         return {"status": "error",
                 "message": "Belum ada insight di chat ini. Tanyakan data atau isi dokumen, simpan temuannya sebagai insight, lalu minta laporan lagi."}
+    if template.manifest.get("requires_source") == "bigquery" or template.manifest.get("hidden"):
+        return _dashboard_from_insights(items, tool_context, output_format, report_title)
     problem = report_engine.source_requirement_problem(template, items)
     if problem:
         return {"status": "needs_input", "message": problem + (
@@ -148,6 +150,8 @@ def preview_report_template(template_id: str, tool_context: ToolContext, output_
         template = report_engine.load_template(template_id)
     except Exception as exc:  # noqa: BLE001
         return {"status": "error", "message": str(exc)}
+    if template.manifest.get("hidden") or template.manifest.get("requires_source") == "bigquery":
+        return preview_price_dashboard(tool_context, output_format)
     fmt = report_engine.normalize_format(output_format)
     if not fmt:
         return {"status": "needs_input", "available_formats": template.outputs,
@@ -229,6 +233,10 @@ def generate_price_dashboard(period: str, tool_context: ToolContext, compare_per
     has_b = any(r["PERIOD"] == "B" for r in agg)
     company = live("company_name")
     narrative = price_dashboard.generate_narrative(dataset, company)
+    chat_cards = [{"kategori": "INSIGHT DARI DISKUSI", "judul": i.get("title", ""),
+                   "uraian": (i.get("content") or "")[:320], "tingkat": "perhatian"}
+                  for i in insights.list_full(tool_context.state) if i.get("source") == "bigquery"]
+    narrative["insight_eksekutif"] = (chat_cards[:2] + narrative.get("insight_eksekutif", []))[:4]
     pages = price_dashboard.build_pages(dataset, narrative, company)
     periode = f"{pb['label']} vs {pa['label']}" if pb else pa["label"]
     title = title.strip() or f"Dashboard Daya Saing Harga Retail {periode}"
@@ -244,6 +252,23 @@ def generate_price_dashboard(period: str, tool_context: ToolContext, compare_per
     note = "" if not pb or has_b else f" Data periode pembanding {pb['label']} tidak ditemukan, jadi kolom tren kosong."
     logger.info("Dashboard dibuat: %s (%s)", title, fmt)
     return {"status": "ok", "report_title": title, **links, "message": f"Dashboard siap.{note}"}
+
+
+def _dashboard_from_insights(items: list, tool_context: ToolContext, output_format: str, title: str) -> dict[str, Any]:
+    """Laporan data BigQuery selalu berupa dashboard; periode diambil dari insight di chat."""
+    from .. import price_data
+
+    texts = []
+    for it in items:
+        if it.get("source") == "bigquery":
+            texts += [it.get("title", ""), it.get("content", ""), " ".join(it.get("citations") or []),
+                      ((it.get("data") or {}).get("question") or "")]
+    period = price_data.infer_period(texts)
+    if not period:
+        return {"status": "needs_input", "message": ("Laporan data BigQuery dibuat sebagai dashboard daya saing harga. "
+                                                      "Tanyakan ke user periodenya (mis. Juli 2026, atau Q3 2026 vs Q2 2026), "
+                                                      "lalu panggil generate_price_dashboard.")}
+    return generate_price_dashboard(period, tool_context, output_format=output_format, title=title)
 
 
 def preview_price_dashboard(tool_context: ToolContext, output_format: str = "") -> dict[str, Any]:

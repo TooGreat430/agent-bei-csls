@@ -132,3 +132,68 @@ class PagesTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class InferPeriodTest(unittest.TestCase):
+    def test_infer(self):
+        self.assertEqual(pdm.infer_period(["Gap harga Hero di Zona 1-3 pada Juli 2026"]), "2026-07")
+        self.assertEqual(pdm.infer_period(["tren Maret sampai Mei 2026"]), "2026-03:2026-05")
+        self.assertEqual(pdm.infer_period(["[Survey Response Report Retail, Q3 2026]"]), "2026-Q3")
+        self.assertEqual(pdm.infer_period(["WHERE DT_PR = '2026-07-31'"]), "2026-07")
+        self.assertEqual(pdm.infer_period(["Juli 2026", "Agustus 2026"]), "2026-07:2026-08")
+        self.assertIsNone(pdm.infer_period(["harga Fastron di pasaran"]))
+
+
+class HiddenTemplateTest(unittest.TestCase):
+    def test_old_bq_template_hidden(self):
+        from library_agent import report_engine
+
+        ids = [t["template_id"] for t in report_engine.list_templates()]
+        self.assertNotIn("daya_saing_harga_bq", ids)
+        self.assertIn("studi_bei_nps", ids)
+
+
+class SampleReportStructureTest(unittest.TestCase):
+    """Struktur mengikuti laporan contoh PTPL (C-Suite Exec Dashboard Q2–Q3 2026)."""
+
+    def setUp(self):
+        self.pages = pd_.build_pages(dataset(), {"ringkasan": [], "insight_eksekutif": [], "zona": {}}, "PT X")
+
+    def test_tabs_and_titles(self):
+        tabs = []
+        for p in self.pages:
+            if p["tab"] not in tabs:
+                tabs.append(p["tab"])
+        self.assertEqual(tabs, ["★ EXECUTIVE SUMMARY (MULTIZONA)", "NASIONAL (AVERAGE)", "ZONA 1 (REGION 3,4,5)",
+                                "ZONA 2 (REGION 2,6)", "ZONA 3 (REGION 1,7)"])
+        self.assertTrue(self.pages[0]["title"].startswith("Executive Summary: Analisis Daya Saing Harga Retail & Margin Advokasi Bengkel"))
+        self.assertEqual(self.pages[0]["tag"], "BOARD OF DIRECTORS & COMMISSIONERS REPORT")
+        self.assertEqual(self.pages[1]["tag"], "PAGE 1 / 2 — RETAIL OUTLET")
+        self.assertEqual(self.pages[2]["tag"], "PAGE 2 / 2 — OUTLET MARGIN")
+        self.assertTrue(self.pages[0]["topbar"].startswith("C-SUITE EXEC DASHBOARD: SURVEY HARGA JUAL VS TEBUS BENGKEL"))
+
+    def test_exec_matrix(self):
+        table = self.pages[0]["table"]
+        self.assertEqual([g for g, _ in table["groups"]],
+                         ["VISKOSITAS / HERO SKU", "NASIONAL", "ZONA 1 (JAWA)", "ZONA 2 (SUMATRA)", "ZONA 3 (TIMUR)", "STATUS"])
+        kinds = {r["kind"] for r in table["rows"]}
+        self.assertEqual(kinds, {"group", "viscosity", "hero"})
+        self.assertTrue(any(r["cells"][0].startswith("▸ ") and r["cells"][0].endswith("(Hero)") for r in table["rows"]))
+        self.assertEqual([z["subtitle"] for z in self.pages[0]["zone_cards"]],
+                         ["RERATA RI", "JAWA-NUSRA", "SUMATRA-KALTIM", "SUMUT & TIMUR"])
+
+    def test_zone_tables(self):
+        consumer, outlet = self.pages[1]["table"]["columns"], self.pages[2]["table"]["columns"]
+        self.assertEqual(consumer, ["VISKOSITAS / HERO SKU", "HET PTPL", "HET KOMP", "GAP HET", "HJ PTPL", "HJ KOMP",
+                                    "GAP HJ", "TR", "STATUS"])
+        self.assertEqual(outlet, ["VISKOSITAS / HERO SKU", "HTO PTPL", "HTO KOMP", "GAP HTO", "HT PTPL", "HT KOMP",
+                                  "GAP HT", "MARG PTPL", "MARG KOMP", "GAP MARG", "TR", "STATUS"])
+
+    def test_kpis_and_watch(self):
+        kpis = self.pages[1]["kpis"]
+        self.assertEqual(len(kpis), 4)
+        self.assertIn("MARGIN PTPL", kpis[-1]["label"])
+        self.assertTrue(all(k["chip"].split()[-1] in ("KOMPETITIF", "MONITOR", "RISK", "AMAN") for k in kpis))
+        for w in self.pages[1]["watch"]:
+            self.assertEqual(len(w["stats"]), 3)
+            self.assertTrue(w["brand"])

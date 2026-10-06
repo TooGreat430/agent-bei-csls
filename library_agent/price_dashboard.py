@@ -183,8 +183,12 @@ def generate_narrative(dataset: dict[str, Any], company: str) -> dict[str, Any]:
 
 
 # ==========================================================================
-# Halaman
+# Halaman (mengikuti laporan "C-Suite Exec Dashboard" PTPL)
 # ==========================================================================
+CHIP = {"AMAN": ("✓ KOMPETITIF", "low"), "WATCH": ("⚠ MONITOR", "mid"), "KRITIS": ("⚡ RISK", "high"), "NA": ("NA", "muted")}
+GROUP_SUFFIX = {"exec": "(MULTIZONE PERFORMANCE)", "konsumen": "(END-USER RETAIL PRICE)", "outlet": "(OUTLET WHOLESALE & MARGIN)"}
+
+
 def _hero_pick(heroes: list[dict], limit: int) -> list[dict]:
     """Satu Hero per segmen dulu (urutan daftar Hero), lalu sisanya."""
     first, rest, seen = [], [], set()
@@ -194,25 +198,38 @@ def _hero_pick(heroes: list[dict], limit: int) -> list[dict]:
     return (first + rest)[:limit]
 
 
+def _group_label(seg: dict, view: str) -> str:
+    return f"{seg['label'].upper()} {GROUP_SUFFIX[view]}"
+
+
+def _row_label(r: dict) -> str:
+    if r["kind"] == "hero":
+        return f"▸ {pdm.short_name(r['product'])} (Hero)"
+    return r["label"]
+
+
+def _status_cell(status: str) -> tuple[str, str]:
+    return status, "status:" + STATUS_TONE[status]
+
+
 def _table(zone_data: dict, view: str, th: dict, has_b: bool) -> dict[str, Any]:
     if view == "konsumen":
-        cols = ["Viskositas / Hero SKU", "HET PTPL", "HET KOMP", "GAP HET", "HJ PTPL", "HJ KOMP", "GAP HJ"]
-        spec = [("HET_P", None), ("HET_K", None), ("GAP_HET", "negatif"), ("HJ_P", None), ("HJ_K", None), ("GAP_HJ", "negatif")]
+        spec = [("HET PTPL", "HET_P", None), ("HET KOMP", "HET_K", None), ("GAP HET", "GAP_HET", "negatif"),
+                ("HJ PTPL", "HJ_P", None), ("HJ KOMP", "HJ_K", None), ("GAP HJ", "GAP_HJ", "negatif")]
         key_gap = "GAP_HJ"
     else:
-        cols = ["Viskositas / Hero SKU", "HTO PTPL", "HTO KOMP", "GAP HTO", "MARG PTPL", "MARG KOMP", "GAP MARG"]
-        spec = [("HTO_P", None), ("HTO_K", None), ("GAP_HTO", "negatif"), ("MARG_P", None), ("MARG_K", None), ("GAP_MARG", "positif")]
+        spec = [("HTO PTPL", "HTO_P", None), ("HTO KOMP", "HTO_K", None), ("GAP HTO", "GAP_HTO", "negatif"),
+                ("HT PTPL", "HT_P", None), ("HT KOMP", "HT_K", None), ("GAP HT", "GAP_HT", "negatif"),
+                ("MARG PTPL", "MARG_P", None), ("MARG KOMP", "MARG_K", None), ("GAP MARG", "GAP_MARG", "positif")]
         key_gap = "GAP_HTO"
-    if has_b:
-        cols.append("TR")
-    cols.append("STATUS")
+    cols = ["VISKOSITAS / HERO SKU"] + [c for c, _, _ in spec] + (["TR"] if has_b else []) + ["STATUS"]
     rows = []
     for seg in zone_data["segments"]:
-        rows.append({"kind": "group", "cells": [seg["label"]] + [""] * (len(cols) - 1), "tones": [None] * len(cols)})
+        rows.append({"kind": "group", "cells": [_group_label(seg, view)] + [""] * (len(cols) - 1), "tones": [None] * len(cols)})
         for r in seg["rows"]:
             a, b = r["a"], r["b"]
-            cells, tones = [r["label"]], [None]
-            for key, good in spec:
+            cells, tones = [_row_label(r)], [None]
+            for _, key, good in spec:
                 val = a.get(key)
                 cells.append(rp(val, per_liter=False) if key.startswith("GAP") else num(val))
                 tones.append(gap_tone(val, good) if good else None)
@@ -220,9 +237,9 @@ def _table(zone_data: dict, view: str, th: dict, has_b: bool) -> dict[str, Any]:
                 sym, tone = TREND_SYMBOL[pdm.trend_of(a.get(key_gap), (b or {}).get(key_gap))]
                 cells.append(sym)
                 tones.append(tone)
-            status = pdm.status_of(a.get(key_gap), th["aman_below"], th["kritis_above"])
-            cells.append(status)
-            tones.append("status:" + STATUS_TONE[status])
+            cell, tone = _status_cell(pdm.status_of(a.get(key_gap), th["aman_below"], th["kritis_above"]))
+            cells.append(cell)
+            tones.append(tone)
             rows.append({"kind": r["kind"], "cells": cells, "tones": tones})
     return {"columns": cols, "rows": rows}
 
@@ -237,50 +254,76 @@ def _segment_charts(zone_data: dict, view: str, pa: dict, pb: dict | None) -> li
         if view == "konsumen":
             series = []
             if pb:
-                series.append({"nama": f"Gap HJ {pb['label']}", "nilai": [(h["b"] or {}).get("GAP_HJ") for h in heroes]})
-            series.append({"nama": f"Gap HJ {pa['label']}", "nilai": [h["a"]["GAP_HJ"] for h in heroes]})
-            title = f"Segmen {seg['segment']} · Gap harga jual"
+                series.append({"nama": f"{pb['label']} Gap", "nilai": [(h["b"] or {}).get("GAP_HJ") for h in heroes]})
+            series.append({"nama": f"{pa['label']} Gap", "nilai": [h["a"]["GAP_HJ"] for h in heroes]})
         else:
-            series = [{"nama": "Margin PTPL", "nilai": [h["a"]["MARG_P"] for h in heroes]},
-                      {"nama": "Margin kompetitor", "nilai": [h["a"]["MARG_K"] for h in heroes]}]
-            title = f"Segmen {seg['segment']} · Margin bengkel {pa['label']}"
-        series = [s for s in series if any(v is not None for v in s["nilai"])]
+            series = [{"nama": "Marg PTPL", "nilai": [h["a"]["MARG_P"] for h in heroes]},
+                      {"nama": "Marg Komp", "nilai": [h["a"]["MARG_K"] for h in heroes]}]
+        series = [x for x in series if any(v is not None for v in x["nilai"])]
         if series:
-            charts.append({"judul": title, "jenis": "bar", "satuan": "IDR/L", "kategori": cats, "seri": series,
-                           "catatan": "", "period_compare": view == "konsumen" and pb is not None})
+            charts.append({"judul": pdm.SEGMENT_CHART.get(seg["segment"], f"SEGMEN {seg['segment']}"), "jenis": "bar",
+                           "satuan": "IDR/L", "kategori": cats, "seri": series, "catatan": "",
+                           "period_compare": view == "konsumen" and pb is not None})
     return charts
+
+
+def _kpi_sentence(gap_a: float | None, gap_b: float | None, status: str, metric: str) -> str:
+    trend = pdm.trend_of(gap_a, gap_b)
+    parts = []
+    if trend:
+        parts.append({"membaik": f"Gap {metric} membaik dibanding periode pembanding",
+                      "memburuk": f"Gap {metric} memburuk dibanding periode pembanding",
+                      "stabil": f"Gap {metric} relatif stabil dibanding periode pembanding"}[trend])
+    parts.append({"AMAN": "PTPL tetap kompetitif", "WATCH": "selisih harga menipis, perlu dimonitor",
+                  "KRITIS": "PTPL lebih mahal dari kompetitor", "NA": "data tidak lengkap"}[status])
+    return "; ".join(parts) + "."
 
 
 def _zone_kpis(zone_data: dict, view: str, th: dict, pa: dict, pb: dict | None) -> list[dict]:
     out = []
-    for h in _hero_pick(zone_data["heroes"], 4):
+    picks = _hero_pick(zone_data["heroes"], 4)
+    gap_heroes = picks[:3]
+    for h in gap_heroes:
         a, b = h["a"], h["b"] or {}
-        key = "GAP_HJ" if view == "konsumen" else "GAP_HTO"
+        key, mlabel = ("GAP_HJ", "HJ") if view == "konsumen" else ("GAP_HTO", "HTO")
+        p_key, k_key = ("HJ_P", "HJ_K") if view == "konsumen" else ("HTO_P", "HTO_K")
         status = pdm.status_of(a[key], th["aman_below"], th["kritis_above"])
-        if pb and b.get(key) is not None:
-            detail = f"{pb['label']}: {rp(b[key])} → {pa['label']}: {rp(a[key])}"
-        elif view == "konsumen":
-            detail = f"HJ PTPL {num(a['HJ_P'])} vs komp {num(a['HJ_K'])}"
-        else:
-            detail = f"HTO PTPL {num(a['HTO_P'])} vs komp {num(a['HTO_K'])}"
-        extra = (f"Margin PTPL {num(a['MARG_P'])}/L · gap margin {rp(a['GAP_MARG'])}" if view == "outlet"
-                 else f"HJ PTPL {num(a['HJ_P'])} vs komp {num(a['HJ_K'])}")
-        out.append({"label": f"{h['short']} · {'GAP HJ' if view == 'konsumen' else 'GAP HTO'}",
-                    "value": rp(a[key]), "tone": gap_tone(a[key]), "detail": detail, "extra": extra,
-                    "chip": status, "chip_tone": STATUS_TONE[status]})
+        lead = f"{pb['label']} {rp(b.get(key))} · " if pb and b.get(key) is not None else ""
+        chip, chip_tone = CHIP[status]
+        out.append({"label": f"▲ {pdm.card_name(h['product']).upper()} {mlabel} GAP", "value": rp(a[key]),
+                    "tone": gap_tone(a[key]), "detail": f"{lead}{pa['label']} PTPL Rp {num(a[p_key])} vs Komp Rp {num(a[k_key])}",
+                    "extra": _kpi_sentence(a[key], b.get(key), status, mlabel), "chip": chip, "chip_tone": chip_tone})
+    if picks:
+        h = picks[0]
+        a, b = h["a"], h["b"] or {}
+        good = (a["GAP_MARG"] or 0) >= 0
+        prev = f" · {pb['label']} margin Rp {num(b.get('MARG_P'))}/L" if pb and b.get("MARG_P") is not None else ""
+        out.append({"label": f"▲ {pdm.card_name(h['product']).upper()} MARGIN PTPL", "value": f"Rp {num(a['MARG_P'])}/L",
+                    "tone": None, "detail": f"Gap margin {rp(a['GAP_MARG'])}{prev}",
+                    "extra": ("Margin outlet PTPL lebih besar dari kompetitor." if good
+                              else "Margin outlet PTPL di bawah kompetitor; perlu dimonitor."),
+                    "chip": "✓ MARGIN AMAN" if good else "⚠ MONITOR", "chip_tone": "low" if good else "mid"})
     return out
 
 
-def _watch(items: list[dict], metric_label: str) -> list[dict]:
-    return [{"product": w["product"], "brand": w["brand"], "segment": w["segment"], "metric": metric_label,
-             "months": [pdm.month_label(m) for m in w["months"]], "values": [rp(v, False) for v in w["values"]],
-             "tones": [gap_tone(v) for v in w["values"]]} for w in items]
+def _watch(items: list[dict], metric: str) -> list[dict]:
+    out = []
+    for w in items:
+        out.append({"product": w["product"], "brand": (w["brand"] or "").upper(), "segment": w["segment"],
+                    "metric": f"Gap {metric}",
+                    "stats": [(f"{metric} KOMP", None, None), (f"{metric} PTPL", None, None),
+                              (f"GAP {metric}", rp(w["last"], False), gap_tone(w["last"]))],
+                    "months": [pdm.month_label(m).upper() for m in w["months"]],
+                    "values": [rp(v, False) for v in w["values"]], "tones": [gap_tone(v) for v in w["values"]],
+                    "caption": f"Gap menyempit dari {rp(w['first'], False)} menjadi {rp(w['last'], False)} per liter."})
+    return out
 
 
 def build_pages(dataset: dict[str, Any], narr: dict[str, Any], company: str) -> list[dict[str, Any]]:
     pa, pb = dataset["period_a"], dataset["period_b"]
     th = dataset["thresholds"]
-    periode = f"{pb['label']} vs {pa['label']}" if pb else pa["label"]
+    vs = f"{pa['label']} vs {pb['label']}" if pb else pa["label"]          # mis. "Q3 2026 vs Q2 2026"
+    cmp_ = f"Perbandingan {pb['label']} vs {pa['label']}" if pb else f"Periode {pa['label']}"
     zones = dataset["zones"]
     pages = []
 
@@ -294,38 +337,39 @@ def build_pages(dataset: dict[str, Any], narr: dict[str, Any], company: str) -> 
         for h in picks[:3]:
             zh = hs.get(h["product"])
             val = zh["a"]["GAP_HJ"] if zh else None
-            metrics.append({"label": f"{h['short']} Gap HJ", "value": rp(val), "tone": gap_tone(val)})
+            metrics.append({"label": f"{pdm.card_name(h['product'])} HJ Gap:", "value": rp(val), "tone": gap_tone(val)})
         if picks:
             zh = hs.get(picks[0]["product"])
             val = zh["a"]["MARG_P"] if zh else None
-            metrics.append({"label": f"{picks[0]['short']} Margin PTPL", "value": f"Rp {num(val)}/L", "tone": None})
-        zone_cards.append({"title": z.upper(), "subtitle": pdm.ZONE_REGIONS[z], "metrics": metrics,
+            metrics.append({"label": f"{pdm.card_name(picks[0]['product'])} Margin PTPL:", "value": f"Rp {num(val)}/L", "tone": "low"})
+        zone_cards.append({"title": pdm.ZONE_TAB[z].replace("REGION 3,4,5", "REGION 3, 4, 5").replace("REGION 2,6", "REGION 2, 6")
+                                    .replace("REGION 1,7", "REGION 1, 7"),
+                           "subtitle": pdm.ZONE_NICK[z], "metrics": metrics,
+                           "note_label": f"Kondisi {pa['label'].split()[0]}:",
                            "note": (narr["zona"].get(z) or {}).get("kondisi", "")})
-    cols = ["Kategori / Hero SKU"]
-    for z in pdm.ZONES:
-        short = "Nas" if z == "Nasional" else z.replace("Zona ", "Z")
-        cols += [f"Gap HJ {short}", f"Gap Marg {short}"]
-    cols.append("Status")
+    groups = [("VISKOSITAS / HERO SKU", 1)] + [(pdm.ZONE_MATRIX[z], 2) for z in pdm.ZONES] + [("STATUS", 1)]
+    cols = [""] + ["GAP HJ", "GAP MARG"] * len(pdm.ZONES) + ["HET/HTO"]
     mrows = []
     for seg in nas["segments"]:
-        seg_heroes = [h for h in nas["heroes"] if h["segment"] == seg["segment"]]
-        if not seg_heroes:
+        seg_rows = [r for r in seg["rows"] if r["kind"] == "hero" or any(
+            x["kind"] == "hero" and x.get("product") and nas_vis(seg, x) == r["label"] for x in seg["rows"])]
+        if not any(r["kind"] == "hero" for r in seg_rows):
             continue
-        mrows.append({"kind": "group", "cells": [seg["label"]] + [""] * (len(cols) - 1), "tones": [None] * len(cols)})
-        for h in seg_heroes:
-            cells, tones = [h["short"]], [None]
+        mrows.append({"kind": "group", "cells": [_group_label(seg, "exec")] + [""] * (len(cols) - 1), "tones": [None] * len(cols)})
+        for r in seg_rows:
+            cells, tones = [_row_label(r)], [None]
             for z in pdm.ZONES:
-                zh = next((x for x in zones[z]["heroes"] if x["product"] == h["product"]), None)
+                zr = _find_row(zones[z], seg["segment"], r)
                 for key, good in (("GAP_HJ", "negatif"), ("GAP_MARG", "positif")):
-                    val = zh["a"][key] if zh else None
+                    val = zr["a"][key] if zr else None
                     cells.append(rp(val, False))
                     tones.append(gap_tone(val, good))
-            status = pdm.status_of(h["a"]["GAP_HTO"], th["aman_below"], th["kritis_above"])
-            cells.append(status)
-            tones.append("status:" + STATUS_TONE[status])
-            mrows.append({"kind": "hero", "cells": cells, "tones": tones})
+            cell, tone = _status_cell(pdm.status_of(r["a"]["GAP_HTO"], th["aman_below"], th["kritis_above"]))
+            cells.append(cell)
+            tones.append(tone)
+            mrows.append({"kind": r["kind"], "cells": cells, "tones": tones})
     exec_charts = []
-    for key, title in (("GAP_HJ", "Komparasi Gap HJ per Zona"), ("GAP_MARG", "Komparasi Gap Margin per Zona")):
+    for key, title in (("GAP_HJ", "KOMPARASI GAP HJ PER ZONA"), ("GAP_MARG", "KOMPARASI GAP MARGIN PER ZONA")):
         series = []
         for z in pdm.ZONES:
             hs = {x["product"]: x for x in zones[z]["heroes"]}
@@ -336,13 +380,15 @@ def build_pages(dataset: dict[str, Any], narr: dict[str, Any], company: str) -> 
             exec_charts.append({"judul": title, "jenis": "bar", "satuan": "IDR/L",
                                 "kategori": [h["short"] for h in picks[:4]], "seri": series, "catatan": ""})
     pages.append({
-        "tab": "★ Executive Summary (Multizona)", "kind": "exec", "tag": "EXECUTIVE SUMMARY",
-        "title": f"Executive Summary: Daya Saing Harga Retail & Margin Bengkel · Multizona {periode}",
-        "subtitle": f"Pricelist HET/HTO resmi vs survei harga jual & tebus aktual · {periode}",
+        "tab": "★ EXECUTIVE SUMMARY (MULTIZONA)", "kind": "exec", "tag": "BOARD OF DIRECTORS & COMMISSIONERS REPORT",
+        "title": f"Executive Summary: Analisis Daya Saing Harga Retail & Margin Advokasi Bengkel (Multizona {vs})",
+        "subtitle": f"Pricelist HET/HTO Resmi vs Survey Harga Jual & Tebus Aktual · {cmp_}",
         "zone_cards": zone_cards, "bullets": narr.get("ringkasan", []),
-        "table": {"columns": cols, "rows": mrows,
-                  "note": "Gap HJ = HJ PTPL − HJ komp (negatif = PTPL lebih murah) · Gap Marg = margin PTPL − margin komp "
-                          "(positif = margin PTPL lebih besar) · Status berdasarkan gap HTO nasional."},
+        "sec": {"table": ("INTEGRATED MULTIZONAL PRICE & MARGIN MATRIX", f"{vs.upper()} (IDR/L)"),
+                "insights": ("STRATEGIC ACTIONABLE INSIGHTS", "REKOMENDASI C-LEVEL")},
+        "table": {"columns": cols, "groups": groups, "rows": mrows,
+                  "note": "▸ Gap HJ = PTPL HJ − Komp HJ (negatif = PTPL lebih murah). Gap Marg = Marg PTPL − Marg Komp "
+                          "(positif = margin PTPL lebih besar bagi bengkel)."},
         "charts": exec_charts, "insights": narr.get("insight_eksekutif", []),
     })
 
@@ -350,27 +396,78 @@ def build_pages(dataset: dict[str, Any], narr: dict[str, Any], company: str) -> 
     for z in pdm.ZONES:
         data = zones[z]
         zn = narr["zona"].get(z) or {}
-        label = f"{z} ({pdm.ZONE_REGIONS[z]})" if z != "Nasional" else "Nasional (Average)"
         for view in ("konsumen", "outlet"):
             is_c = view == "konsumen"
             pages.append({
-                "tab": label, "kind": "zone", "view": view, "zone": z,
-                "tag": f"PAGE {'1/2 — RETAIL OUTLET' if is_c else '2/2 — OUTLET MARGIN'}",
+                "tab": pdm.ZONE_TAB[z], "kind": "zone", "view": view, "zone": z,
+                "tag": "PAGE 1 / 2 — RETAIL OUTLET" if is_c else "PAGE 2 / 2 — OUTLET MARGIN",
                 "title": ("Analisa Price Competitiveness Tingkat Konsumen Akhir (HET vs Harga Jual)" if is_c
-                          else "Analisa Daya Saing Harga Tebus Outlet (HTO) & Margin Bengkel") + f" · {label}",
-                "subtitle": (f"Pricelist HET resmi vs survei harga jual aktual · {periode}" if is_c
-                             else f"Pricelist HTO resmi vs survei harga tebus & margin bengkel · {periode}"),
+                          else "Analisa Daya Saing Harga Tebus Outlet (HTO) & Margin Advokasi Bengkel"),
+                "subtitle": (f"Pricelist HET Resmi & Survey Harga Jual Aktual · {cmp_} · Toleransi Switching Zone" if is_c
+                             else f"Pricelist HTO Resmi, Survey Harga Tebus & Perhitungan Margin Outlet · {cmp_}"),
+                "zone_label": f"{pdm.ZONE_TAB[z]} · {pdm.ZONE_NICK[z]}",
                 "kpis": _zone_kpis(data, view, th, pa, pb),
+                "sec": ({"table": ("DAFTAR VISKOSITAS & SKU FOCUS", f"TABEL HET & HJ {vs.upper()} (IDR/L)"),
+                         "charts": ("SHIFT GAP HARGA JUAL", f"VISUALISASI {(pb['label'] + ' GAP VS ') if pb else ''}{pa['label']} GAP".upper()),
+                         "insights": ("INSIGHTS HARGA JUAL", "& KOMPETITOR KRITIS"),
+                         "watch": ("⚠ PRODUK KOMPETITOR YANG PERLU DIWASPADAI", "HARGA JUAL RETAIL")} if is_c else
+                        {"table": ("DAFTAR VISKOSITAS & SKU FOCUS", f"TABEL HTO & MARGIN {vs.upper()} (IDR/L)"),
+                         "charts": ("KOMPARASI MARGIN", "PTPL VS KOMPETITOR PER SEGMEN"),
+                         "insights": ("INSIGHTS MARGIN BENGKEL", "& TEKANAN DISTRIBUSI"),
+                         "watch": ("⚠ PRODUK KOMPETITOR YANG PERLU DIWASPADAI", "WHOLESALE & MARGIN")}),
                 "table": {**_table(data, view, th, pb is not None),
-                          "note": ("Gap = PTPL − kompetitor (negatif = PTPL lebih murah)" if is_c
-                                   else "Gap HTO negatif = PTPL lebih murah · Gap Marg positif = margin PTPL lebih besar")
+                          "note": ("▸ Gap = PTPL − kompetitor (negatif = PTPL lebih murah)" if is_c
+                                   else "▸ Gap HTO/HT negatif = PTPL lebih murah · Gap Marg positif = margin PTPL lebih besar")
                                   + (" · TR: ▼ membaik ▲ memburuk ▬ stabil" if pb else "")},
                 "charts": _segment_charts(data, view, pa, pb),
+                "anomaly_title": ("ANOMALI DAN BATAS RISK CONSUMER" if is_c else "ANOMALI ACUAN HTO DAN MARGIN OUTLET")
+                                 + f" ({pa['label'].upper()})",
                 "anomaly": zn.get("konsumen_anomali" if is_c else "outlet_anomali", []),
                 "insights": zn.get("konsumen_insight" if is_c else "outlet_insight", []),
-                "watch": _watch(data["watch_hj" if is_c else "watch_hto"], "Gap HJ" if is_c else "Gap HTO"),
+                "watch": _watch(data["watch_hj" if is_c else "watch_hto"], "HJ" if is_c else "HTO"),
+                "footnote": ("Switching Zone Indicator: Gap < Rp 10.000/L (kemasan 0,8–1 L) atau < Rp 50.000/kemasan "
+                             "(4–5 L) dianggap rawan memicu switching oleh konsumen akhir yang sensitif harga."
+                             if is_c else
+                             f"Status HTO: AMAN gap < {fmt_id(th['aman_below'])}/L · WATCH {fmt_id(th['aman_below'])}–0 · KRITIS gap > {fmt_id(th['kritis_above'])}."),
             })
     for p in pages:
-        p["footer"] = (f"Sumber: Survey Response Report Retail · {periode} · Standardized per liter (IDR/L) · {company}"
-                       f" · Status: AMAN gap < {fmt_id(th['aman_below'])}/L · WATCH · KRITIS gap > {fmt_id(th['kritis_above'])}")
+        p["footer"] = f"Source Data: Survey Response Report Retail · {vs} · Standardized per liter (IDR/L) · {company}"
+        p["topbar"] = f"C-SUITE EXEC DASHBOARD: SURVEY HARGA JUAL VS TEBUS BENGKEL ({(pb['label'] + '–') if pb else ''}{pa['label']})".upper()
+    _fill_watch_stats(pages, dataset)
     return pages
+
+
+def nas_vis(seg: dict, hero_row: dict) -> str:
+    """Label baris viskositas yang memuat Hero tersebut (baris tepat sebelum Hero di segmen)."""
+    last_visc = None
+    for r in seg["rows"]:
+        if r["kind"] == "viscosity":
+            last_visc = r["label"]
+        elif r is hero_row:
+            return last_visc or ""
+    return ""
+
+
+def _find_row(zone_data: dict, segment: str, row: dict) -> dict | None:
+    for seg in zone_data["segments"]:
+        if seg["segment"] != segment:
+            continue
+        for r in seg["rows"]:
+            if r["kind"] == row["kind"] and (r.get("product") == row.get("product") if row["kind"] == "hero"
+                                             else r["label"] == row["label"]):
+                return r
+    return None
+
+
+def _fill_watch_stats(pages: list[dict], dataset: dict) -> None:
+    """Isi kotak HJ/HTO KOMP & PTPL kartu kompetitor dari data bulanan terakhir."""
+    for p in pages:
+        if p["kind"] != "zone":
+            continue
+        raw = dataset["zones"][p["zone"]]["watch_hj" if p["view"] == "konsumen" else "watch_hto"]
+        for card, w in zip(p["watch"], raw):
+            if w.get("last_ptpl") is not None:
+                card["stats"][0] = (card["stats"][0][0], num(w["last_komp"]), None)
+                card["stats"][1] = (card["stats"][1][0], num(w["last_ptpl"]), None)
+            else:
+                card["stats"] = card["stats"][2:]

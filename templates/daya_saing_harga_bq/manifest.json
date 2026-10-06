@@ -1,13 +1,13 @@
 {
   "id": "daya_saing_harga_bq",
   "title": "Daya Saing Harga Retail (data BigQuery)",
-  "description": "Laporan eksekutif dari data BigQuery Marketing Intelligence: ringkasan, kartu KPI per zona, matriks gap harga & margin dengan status, grafik perbandingan per zona/periode, dan insight strategis. Untuk insight bersumber BigQuery.",
+  "description": "(Tidak dipakai lagi) Laporan data BigQuery kini selalu dibuat sebagai dashboard daya saing harga.",
   "outputs": [
     "html",
     "pdf",
     "pptx"
   ],
-  "version": "2",
+  "version": "3",
   "grounding": true,
   "theme": {
     "primary": "0F2347",
@@ -63,5 +63,6 @@
       "title": "Sumber Data & Catatan"
     }
   ],
-  "requires_source": "bigquery"
+  "requires_source": "bigquery",
+  "hidden": true
 }

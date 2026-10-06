@@ -19,6 +19,12 @@ from typing import Any
 
 ZONES = ["Nasional", "Zona 1", "Zona 2", "Zona 3"]
 ZONE_REGIONS = {"Nasional": "Region 1-7", "Zona 1": "Region 3, 4, 5", "Zona 2": "Region 2, 6", "Zona 3": "Region 1, 7"}
+ZONE_NICK = {"Nasional": "RERATA RI", "Zona 1": "JAWA-NUSRA", "Zona 2": "SUMATRA-KALTIM", "Zona 3": "SUMUT & TIMUR"}
+ZONE_TAB = {"Nasional": "NASIONAL (AVERAGE)", "Zona 1": "ZONA 1 (REGION 3,4,5)", "Zona 2": "ZONA 2 (REGION 2,6)",
+            "Zona 3": "ZONA 3 (REGION 1,7)"}
+ZONE_MATRIX = {"Nasional": "NASIONAL", "Zona 1": "ZONA 1 (JAWA)", "Zona 2": "ZONA 2 (SUMATRA)", "Zona 3": "ZONA 3 (TIMUR)"}
+SEGMENT_CHART = {"MCO": "SEGMEN MCO (MOTOR CYCLE OIL)", "PCO": "SEGMEN PCO (PASSENGER CAR OIL)",
+                 "COMMERCIAL": "SEGMEN COMMERCIAL (DIESEL ENGINE OIL)", "GEAR": "SEGMEN GEAR (TRANSMISSION & AXLE OIL)"}
 SEGMENT_ORDER = ["MCO", "PCO", "COMMERCIAL", "GEAR"]
 SEGMENT_LABEL = {"MCO": "MCO · Motor Cycle Oil", "PCO": "PCO · Passenger Car Oil",
                  "COMMERCIAL": "Commercial · Diesel Engine Oil", "GEAR": "Gear · Transmission & Axle Oil"}
@@ -148,6 +154,21 @@ def fetch(period_a: dict[str, Any], period_b: dict[str, Any] | None, heroes: lis
 # ==========================================================================
 # Perhitungan (logika murni)
 # ==========================================================================
+def card_name(product: str) -> str:
+    """'PERTAMINA ENDURO MATIC-S 0.8 LITER' -> 'Enduro Matic-S' (untuk label kartu)."""
+    name = re.sub(r"^PERTAMINA\s+", "", (product or "").upper())
+    name = re.sub(r"\s*\d+(?:\.\d+)?\s*LITER$", "", name).strip()
+    words = []
+    for w in name.split():
+        if w == "ECOGREEN":
+            words.append("EcoGreen")
+        elif re.search(r"\d", w) or len(w) <= 3:
+            words.append(w)
+        else:
+            words.append("-".join(x.capitalize() if len(x) > 1 else x for x in w.split("-")))
+    return " ".join(words)
+
+
 def short_name(product: str) -> str:
     name = re.sub(r"^PERTAMINA\s+", "", (product or "").upper())
     return re.sub(r"\s*(\d+(?:\.\d+)?)\s*LITER$", r" \1L", name).strip()
@@ -271,6 +292,7 @@ def watchlist(monthly: list[dict], zone: str, metric: str, top: int = 3) -> list
         item = series.setdefault(key, {"product": r["PRODUCT"], "brand": r.get("BRAND") or "",
                                        "segment": (r.get("SEGMENT") or "").upper(), "points": {}})
         item["points"][r["MONTH"]] = p - r[metric]
+        item.setdefault("levels", {})[r["MONTH"]] = (p, r[metric])
     out = []
     for item in series.values():
         months = sorted(item["points"])
@@ -280,9 +302,11 @@ def watchlist(monthly: list[dict], zone: str, metric: str, top: int = 3) -> list
         narrowing = last - first
         if narrowing <= 0:
             continue
+        last_ptpl, last_komp = item.get("levels", {}).get(months[-1], (None, None))
         out.append({"product": item["product"], "brand": item["brand"], "segment": item["segment"],
                     "months": months[-6:], "values": [item["points"][m] for m in months[-6:]],
-                    "first": first, "last": last, "change": narrowing})
+                    "first": first, "last": last, "change": narrowing,
+                    "last_ptpl": last_ptpl, "last_komp": last_komp})
     out.sort(key=lambda x: -x["change"])
     return out[:top]
 
@@ -326,3 +350,37 @@ def dataset_numbers(dataset: dict[str, Any]) -> list[float]:
                     if a is not None and b is not None:
                         nums.append(abs(a - b))
     return sorted(set(round(n, 2) for n in nums))
+
+
+_MONTH_WORDS = {"januari": 1, "jan": 1, "februari": 2, "feb": 2, "maret": 3, "mar": 3, "april": 4, "apr": 4,
+                "mei": 5, "may": 5, "juni": 6, "jun": 6, "juli": 7, "jul": 7, "agustus": 8, "agu": 8, "agt": 8,
+                "aug": 8, "september": 9, "sep": 9, "sept": 9, "oktober": 10, "okt": 10, "oct": 10,
+                "november": 11, "nov": 11, "desember": 12, "des": 12, "dec": 12}
+
+
+def infer_period(texts: list[str]) -> str | None:
+    """Tebak periode dari teks insight/pertanyaan: 'Juli 2026' -> '2026-07', 'Q3 2026' -> '2026-Q3',
+    'Maret sampai Mei 2026' -> '2026-03:2026-05', '2026-07-31' -> '2026-07'. None jika tidak ada."""
+    text = " ".join(t for t in texts if t).lower()
+    quarters = set(re.findall(r"\bq([1-4])\s*-?\s*(20\d\d)\b", text)) | \
+        {(q, y) for y, q in re.findall(r"\b(20\d\d)\s*-?\s*q([1-4])\b", text)}
+    months: set[tuple[int, int]] = set()
+    for y, m in re.findall(r"\b(20\d\d)-(\d{2})(?:-\d{2})?\b", text):
+        if 1 <= int(m) <= 12:
+            months.add((int(y), int(m)))
+    names = "|".join(sorted(_MONTH_WORDS, key=len, reverse=True))
+    for span in re.finditer(rf"\b({names})\b(?:\s*(?:-|–|sampai|s/d|hingga|ke)\s*\b({names})\b)?\s*(20\d\d)", text):
+        y = int(span.group(3))
+        m1 = _MONTH_WORDS[span.group(1)]
+        m2 = _MONTH_WORDS[span.group(2)] if span.group(2) else m1
+        for m in range(min(m1, m2), max(m1, m2) + 1):
+            months.add((y, m))
+    if quarters and not months:
+        q, y = sorted(quarters, key=lambda x: (x[1], x[0]))[-1]
+        return f"{y}-Q{q}"
+    if not months:
+        return None
+    lo, hi = min(months), max(months)
+    if lo == hi:
+        return f"{lo[0]:04d}-{lo[1]:02d}"
+    return f"{lo[0]:04d}-{lo[1]:02d}:{hi[0]:04d}-{hi[1]:02d}"
