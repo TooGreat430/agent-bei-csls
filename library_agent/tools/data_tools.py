@@ -9,7 +9,6 @@ from google.adk.tools import ToolContext
 from .. import data_agent, insights
 from ..clients import get_user_id
 from ..config import live
-from .library_tools import ACTIVE_KEY, DEFAULT_WORKSPACE, WORKSPACE_KEY
 
 logger = logging.getLogger(__name__)
 
@@ -136,14 +135,29 @@ def save_data_insight(title: str, content: str, citations: list[str], tool_conte
         return {"status": "error", "message": "Belum ada jawaban data BigQuery di chat ini untuk disimpan."}
     table = (last.get("tables") or [None])[0]
     item = insights.save(
-        owner=get_user_id(tool_context),
-        workspace=tool_context.state.get(WORKSPACE_KEY, DEFAULT_WORKSPACE),
+        tool_context.state, get_user_id(tool_context),
         title=title, content=content, citations=citations or [f"[{data_agent.SOURCE_LABEL}]"],
         doc_keys=[], source="bigquery",
         data_table=dict(table, question=last.get("question", "")) if table else None,
         chart=(tool_context.state.get(CHART_KEY) if include_chart else None),
     )
-    return {"status": "ok", "workspace": tool_context.state.get(WORKSPACE_KEY, DEFAULT_WORKSPACE), "insight": item}
+    return {"status": "ok", "insight": item, "total_insight_di_chat": len(insights.list_for(tool_context.state))}
 
 
+def _safe(func):
+    import functools
+
+    @functools.wraps(func)
+    def wrapper(*args, **kwargs):
+        try:
+            return func(*args, **kwargs)
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("%s gagal", func.__name__)
+            return {"status": "error", "message": f"Kendala teknis: {str(exc)[:200]}"}
+    return wrapper
+
+
+ask_marketing_intelligence = _safe(ask_marketing_intelligence)
+create_chart = _safe(create_chart)
+save_data_insight = _safe(save_data_insight)
 DATA_TOOLS = [ask_marketing_intelligence, create_chart, save_data_insight]

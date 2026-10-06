@@ -8,7 +8,7 @@ from google.adk.tools import ToolContext
 
 from .. import insights, report_engine, search
 from ..clients import get_user_id
-from .library_tools import ACTIVE_KEY, DEFAULT_WORKSPACE, WORKSPACE_KEY
+from .library_tools import ACTIVE_KEY
 
 logger = logging.getLogger(__name__)
 
@@ -24,6 +24,22 @@ def list_report_templates() -> dict[str, Any]:
     except Exception as exc:  # noqa: BLE001
         logger.exception("list template gagal")
         return {"status": "error", "message": str(exc)}
+
+
+def _logged(func):
+    import functools
+
+    @functools.wraps(func)
+    def wrapper(*args, **kwargs):
+        try:
+            result = func(*args, **kwargs)
+        except Exception as exc:  # noqa: BLE001  (jangan biarkan error menjatuhkan agent)
+            logger.exception("%s gagal", func.__name__)
+            result = {"status": "error", "message": f"Laporan gagal dibuat karena kendala teknis: {str(exc)[:200]}"}
+        if isinstance(result, dict) and result.get("status") != "ok":
+            logger.warning("%s -> %s: %s", func.__name__, result.get("status"), str(result.get("message"))[:300])
+        return result
+    return wrapper
 
 
 def generate_report(
@@ -46,7 +62,7 @@ def generate_report(
         output_format: Format yang diminta user: "pdf", "pptx" (PowerPoint), atau "html".
             Kosongkan jika user belum menyebut format; tool akan mengembalikan pilihan format.
         insight_ids: ID insight yang dijadikan landasan (lihat list_insights). Kosongkan
-            untuk memakai semua insight di workspace aktif.
+            untuk memakai semua insight di chat ini.
         report_title: Judul laporan, misalnya "Laporan Studi CSLS Q3 2026".
         extra_instructions: Instruksi tambahan dari user, misalnya fokus atau periode.
         use_document_excerpts: True untuk menambah kutipan dari dokumen aktif sebagai sitasi pendukung.
@@ -57,7 +73,6 @@ def generate_report(
         Link laporan HTML (dan PDF jika tersedia).
     """
     user_id = get_user_id(tool_context)
-    workspace = tool_context.state.get(WORKSPACE_KEY, DEFAULT_WORKSPACE)
 
     try:
         template = report_engine.load_template(template_id)
@@ -72,11 +87,11 @@ def generate_report(
         return {"status": "error", "available_formats": template.outputs,
                 "message": f"Template ini tidak mendukung format {fmt}."}
 
-    items = (insights.get_many(workspace, insight_ids, full=True) if insight_ids
-             else insights.list_full(workspace))
+    items = (insights.get_many(tool_context.state, insight_ids, full=True) if insight_ids
+             else insights.list_full(tool_context.state))
     if not items:
         return {"status": "error",
-                "message": "Belum ada insight yang bisa dijadikan landasan. Simpan insight terlebih dahulu."}
+                "message": "Belum ada insight di chat ini. Tanyakan data atau isi dokumen, simpan temuannya sebagai insight, lalu minta laporan lagi."}
     problem = report_engine.source_requirement_problem(template, items)
     if problem:
         return {"status": "needs_input", "message": problem + (
@@ -112,7 +127,7 @@ def generate_report(
         return {"status": "error", "message": f"Laporan gagal dibuat dalam format {fmt}: {exc}"}
     links = report_engine.save_output(
         user_id, template_id, meta["report_title"], data, ext, ctype,
-        record={"workspace": workspace, "insight_ids": [i["insight_id"] for i in items], "doc_keys": active},
+        record={"insight_ids": [i["insight_id"] for i in items], "doc_keys": active},
     )
     logger.info("Laporan dibuat: %s (%s)", meta["report_title"], fmt)
     return {"status": "ok", "report_title": meta["report_title"], **links}
@@ -258,5 +273,9 @@ def preview_price_dashboard(tool_context: ToolContext, output_format: str = "") 
             "message": "Ini contoh tampilan dengan angka ilustrasi, bukan data asli."}
 
 
+generate_report = _logged(generate_report)
+generate_price_dashboard = _logged(generate_price_dashboard)
+preview_report_template = _logged(preview_report_template)
+preview_price_dashboard = _logged(preview_price_dashboard)
 REPORT_TOOLS = [list_report_templates, generate_report, preview_report_template,
                 generate_price_dashboard, preview_price_dashboard]

@@ -7,7 +7,7 @@ import logging
 
 from google.adk.agents import LlmAgent
 
-from .callbacks import capture_uploads
+from .callbacks import capture_uploads, ensure_reply
 from .config import settings
 from .llm import make_model
 from .prompts import ROOT_INSTRUCTION, with_agent_name
@@ -24,4 +24,5 @@ root_agent = LlmAgent(
     instruction=with_agent_name(ROOT_INSTRUCTION),
     sub_agents=[research_agent, data_agent, report_agent],
     before_agent_callback=capture_uploads,
+    after_agent_callback=ensure_reply,
 )

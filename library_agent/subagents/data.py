@@ -6,8 +6,7 @@ from ..config import settings
 from ..llm import make_model
 from ..prompts import DATA_INSTRUCTION, with_agent_name
 from ..tools.data_tools import DATA_TOOLS
-from ..tools.library_tools import (get_active_documents, list_insights, save_insight, search_active_documents,
-                                   set_workspace)
+from ..tools.library_tools import get_active_documents, list_insights, search_active_documents
 
 data_agent = LlmAgent(
     name="data_agent",
@@ -18,7 +17,7 @@ data_agent = LlmAgent(
         "dan menyimpan jawabannya sebagai insight."
     ),
     instruction=with_agent_name(DATA_INSTRUCTION),
-    tools=[*DATA_TOOLS, set_workspace, list_insights, save_insight, get_active_documents, search_active_documents],
+    tools=[*DATA_TOOLS, list_insights, get_active_documents, search_active_documents],
     before_agent_callback=capture_uploads,
     after_agent_callback=data_after_agent,
     disallow_transfer_to_parent=True,

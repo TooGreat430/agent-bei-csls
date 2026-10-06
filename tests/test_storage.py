@@ -129,20 +129,21 @@ class StorageTest(unittest.TestCase):
         self.assertEqual(merged["title"], "Laporan BEI Nasional")   # koreksi user dipertahankan
         self.assertEqual(merged["version"], "2")                    # field lain diperbarui
 
-    def test_insights_shared_in_workspace_but_owner_only_edit(self):
-        item = insights.save("a@klien.co.id", "BEI Study 2026", "Temuan", "Isi", ["[Dok, v1, hal. 2]"], ["doc-1"])
-        # user lain di workspace yang sama bisa melihat dan memakai
-        self.assertEqual(len(insights.list_for("BEI Study 2026")), 1)
-        self.assertEqual(insights.get_many("bei study 2026", [item["insight_id"]])[0]["owner"], "a@klien.co.id")
-        # workspace lain tidak melihat
-        self.assertEqual(insights.list_for("CSLS 2026"), [])
-        # hanya pembuat yang bisa mengubah / menghapus
-        self.assertEqual(insights.update("b@klien.co.id", "BEI Study 2026", item["insight_id"], None, "x")["status"], "forbidden")
-        self.assertEqual(insights.delete("b@klien.co.id", "BEI Study 2026", item["insight_id"])["status"], "forbidden")
-        self.assertEqual(insights.update("a@klien.co.id", "BEI Study 2026", item["insight_id"], None, "Isi baru")["insight"]["content"], "Isi baru")
-        self.assertEqual(insights.delete("a@klien.co.id", "BEI Study 2026", item["insight_id"])["status"], "ok")
-        self.assertEqual(insights.delete("a@klien.co.id", "BEI Study 2026", item["insight_id"])["status"], "not_found")
+    def test_insights_live_in_chat_state(self):
+        from library_agent import insights
 
+        chat_a, chat_b = {}, {}
+        item = insights.save(chat_a, "u1", "Judul", "Isi", ["[Dok, v1, hal. 2]"], ["k1"])
+        insights.save(chat_a, "u1", "Data", "Gap", [], [], source="bigquery",
+                      data_table={"columns": ["X"], "rows": [[1]]})
+        self.assertEqual(len(insights.list_for(chat_a)), 2)
+        self.assertEqual(insights.list_for(chat_b), [])          # chat lain tidak melihatnya
+        self.assertNotIn("data", insights.list_for(chat_a)[1])    # ringkas untuk daftar
+        self.assertIn("data", insights.list_full(chat_a)[1])      # lengkap untuk laporan
+        self.assertEqual(insights.update(chat_a, item["insight_id"], "Baru", None)["insight"]["title"], "Baru")
+        self.assertEqual(insights.delete(chat_a, item["insight_id"])["status"], "ok")
+        self.assertEqual(len(insights.list_for(chat_a)), 1)
+        self.assertEqual(insights.delete(chat_a, "ins-tidakada")["status"], "not_found")
 
 if __name__ == "__main__":
     unittest.main()

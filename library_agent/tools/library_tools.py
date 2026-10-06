@@ -18,16 +18,10 @@ from ..config import settings, live
 logger = logging.getLogger(__name__)
 
 ACTIVE_KEY = "active_docs"
-WORKSPACE_KEY = "workspace"
-DEFAULT_WORKSPACE = "umum"
 
 
 def _active(tool_context: ToolContext) -> list[str]:
     return list(tool_context.state.get(ACTIVE_KEY, []))
-
-
-def _workspace(tool_context: ToolContext) -> str:
-    return tool_context.state.get(WORKSPACE_KEY, DEFAULT_WORKSPACE)
 
 
 def _active_summary(doc_keys: list[str]) -> list[dict[str, Any]]:
@@ -415,65 +409,44 @@ def check_indexing_status(doc_key: str) -> dict[str, Any]:
 
 
 # ==========================================================================
-# Workspace & insight
+# Insight (disimpan di dalam chat)
 # ==========================================================================
-def set_workspace(name: str, tool_context: ToolContext) -> dict[str, Any]:
-    """Memilih workspace, misalnya "BEI Study 2026". Insight di workspace bisa dilihat semua user.
-
-    Args:
-        name: Nama workspace.
-    """
-    tool_context.state[WORKSPACE_KEY] = name.strip() or DEFAULT_WORKSPACE
-    items = insights.list_for(_workspace(tool_context))
-    return {"status": "ok", "workspace": _workspace(tool_context), "insight_count": len(items)}
-
-
 def save_insight(title: str, content: str, citations: list[str], tool_context: ToolContext) -> dict[str, Any]:
-    """Menyimpan insight penting dari diskusi ke workspace aktif (terlihat oleh semua user di workspace).
+    """Menyimpan temuan penting dari jawaban DOKUMEN sebagai insight di chat ini (bahan laporan).
 
     Args:
         title: Judul singkat insight.
         content: Isi insight, ditulis lengkap dan berdiri sendiri.
         citations: Label sitasi pendukung, misalnya ["[Studi CSLS 2026, v2, hal. 12]"].
     """
-    item = insights.save(
-        owner=get_user_id(tool_context), workspace=_workspace(tool_context),
-        title=title, content=content, citations=citations, doc_keys=_active(tool_context),
-    )
-    return {"status": "ok", "workspace": _workspace(tool_context), "insight": item}
+    item = insights.save(tool_context.state, get_user_id(tool_context), title, content, citations,
+                         _active(tool_context))
+    return {"status": "ok", "insight": item, "total_insight_di_chat": len(insights.list_for(tool_context.state))}
 
 
 def list_insights(tool_context: ToolContext) -> dict[str, Any]:
-    """Menampilkan semua insight di workspace aktif, dari semua user, beserta pembuatnya."""
-    items = insights.list_for(_workspace(tool_context))
-    return {"status": "ok", "workspace": _workspace(tool_context), "insights": items}
+    """Menampilkan insight yang sudah disimpan di chat ini."""
+    return {"status": "ok", "insights": insights.list_for(tool_context.state)}
 
 
 def update_insight(insight_id: str, tool_context: ToolContext, title: str = "", content: str = "") -> dict[str, Any]:
-    """Mengubah judul dan/atau isi insight. Hanya pembuat insight yang boleh mengubah.
+    """Mengubah judul dan/atau isi insight di chat ini.
 
     Args:
         insight_id: ID insight.
         title: Judul baru (kosongkan jika tidak diubah).
         content: Isi baru (kosongkan jika tidak diubah).
     """
-    result = insights.update(get_user_id(tool_context), _workspace(tool_context),
-                             insight_id, title or None, content or None)
-    if result["status"] == "forbidden":
-        result["message"] = f"Hanya pembuat insight ({result.get('owner')}) yang bisa mengubahnya."
-    return result
+    return insights.update(tool_context.state, insight_id, title or None, content or None)
 
 
 def delete_insight(insight_id: str, tool_context: ToolContext) -> dict[str, Any]:
-    """Menghapus insight. Hanya pembuat insight yang boleh menghapus.
+    """Menghapus insight dari chat ini.
 
     Args:
         insight_id: ID insight.
     """
-    result = insights.delete(get_user_id(tool_context), _workspace(tool_context), insight_id)
-    if result["status"] == "forbidden":
-        result["message"] = f"Hanya pembuat insight ({result.get('owner')}) yang bisa menghapusnya."
-    return result
+    return insights.delete(tool_context.state, insight_id)
 
 
 RESEARCH_TOOLS = [
@@ -490,7 +463,6 @@ RESEARCH_TOOLS = [
     update_document_metadata,
     delete_document,
     check_indexing_status,
-    set_workspace,
     save_insight,
     list_insights,
     update_insight,

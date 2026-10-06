@@ -8,7 +8,7 @@ Agent ADK yang menjadikan Gemini Enterprise (GE) sebagai **perpustakaan dokumen 
 | Pilih dokumen, chat terpusat, dan bisa diperluas di tengah chat | Daftar dokumen aktif di session state, dan setiap pencarian dipaksa filter `doc_key: ANY(...)` di level API |
 | Upload dokumen dari chat ke perpustakaan | Callback menangkap lampiran, Gemini mengekstrak judul/jenis/versi/tanggal (`extract_upload_metadata`), agent menampilkan hasilnya untuk dikonfirmasi user, lalu dokumen disimpan (`confirm_upload`) ke GCS, data store, dan katalog. User hanya memperbaiki bagian yang salah |
 | Folder `ge-docs-datastore` sebagai satu-satunya tempat dokumen | `sync.py`: katalog otomatis disamakan dengan isi folder setiap kali katalog dibuka atau dokumen dipilih. Upload lewat chat disimpan ke folder yang sama |
-| Hapus dokumen dan insight bersama | `delete_document` (semua user, dengan konfirmasi, file ikut dihapus dari folder dokumen). Insight per workspace terlihat semua user, diubah hanya oleh pembuatnya |
+| Hapus dokumen | `delete_document` (dengan konfirmasi, file ikut dihapus dari folder dokumen). Insight disimpan di chat, bukan di bucket |
 | Data BigQuery kapan saja dalam chat | `data_agent.py` + `tools/data_tools.py`: memanggil Data Agent Marketing Intelligence (Conversational Analytics API, stateless + referensi data agent). Setiap giliran dirutekan ulang oleh agent induk (`disallow_transfer_to_parent`) |
 | Grafik & pengaman angka | `report_render.py` (SVG / reportlab / grafik native PPTX), `grounding.py` (semua angka KPI/matriks/grafik harus ada di data/insight) |
 | Laporan dalam PDF / PowerPoint / HTML sesuai permintaan | `report_render.py`: satu isi JSON dirender ke format yang diminta (reportlab untuk PDF, python-pptx untuk PPTX). Template: `manifest.json` (tema + layout) + `schema.json`, opsional `template.pptx` klien |
@@ -54,7 +54,7 @@ library_agent/
   library_admin.py    operasi hapus dokumen (dipakai agent dan script impor)
   store.py            baca/tulis JSON di GCS, aman untuk penulisan bersamaan
   catalog.py          katalog perpustakaan (catalog/index.json di GCS)
-  insights.py         insight per workspace (insights/<workspace>.json di GCS)
+  insights.py         insight disimpan di session state chat (bukan di bucket)
   report_engine.py    registry template, composer, validasi, pilih format
   report_render.py    render HTML / PDF / PPTX dari layout template (termasuk grafik, KPI, matriks status)
   grounding.py        pengaman angka laporan

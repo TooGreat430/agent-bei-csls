@@ -69,10 +69,10 @@ Nomor halaman boleh berbeda ±1 (nomor slide tercetak ≠ urutan halaman PDF).
 
 | No | Prompt | Yang diharapkan |
 |---|---|---|
-| 21 | `Gunakan workspace POC Uji.` | Workspace aktif |
-| 22 | Setelah jawaban no. 11 (tanyakan ulang jika perlu): `Simpan jawaban tadi sebagai insight.` | Tersimpan dengan sitasi; agent menyebut insight terlihat user lain di workspace |
+| 21 | `Tampilkan insight yang sudah disimpan.` | Daftar insight di chat ini (awalnya kosong) |
+| 22 | Setelah jawaban no. 11 (tanyakan ulang jika perlu): `Simpan jawaban tadi sebagai insight.` | Tersimpan dengan sitasi; insight tersimpan di chat ini |
 | 23 | Ulangi untuk jawaban no. 14 dan no. 18 | Total 3 insight |
-| 24 | `Tampilkan insight di workspace ini.` | 3 insight + pembuatnya |
+| 24 | `Tampilkan insight yang sudah disimpan.` | 3 insight |
 
 ### Bagian 5 — Laporan
 
@@ -97,8 +97,7 @@ Nomor halaman boleh berbeda ±1 (nomor slide tercetak ≠ urutan halaman PDF).
 
 | No | Prompt | Yang diharapkan |
 |---|---|---|
-| 34 | **Chat baru:** `Lanjutkan workspace POC Uji dan tampilkan insight-nya.` | 3 insight tetap ada |
-| 35 | *(opsional, akun kedua)* `Gunakan workspace POC Uji. Tampilkan insight.` → `Hapus insight pertama.` | Terlihat, tapi penghapusan ditolak |
+| 34 | **Chat baru:** `Tampilkan insight yang sudah disimpan.` | Kosong — insight hanya hidup di chat tempat ia disimpan |
 
 ### Bagian 8 — Data BigQuery (Marketing Intelligence)
 
@@ -110,9 +109,9 @@ Prasyarat: izin bagian 2.4 di `PANDUAN_SETUP.md` sudah diberikan. Gunakan **chat
 | 37 | `Bagaimana dengan Zona 2?` | Memahami konteks (produk & periode sama), menjawab untuk Zona 2 |
 | 38 | Bandingkan angka no. 36–37 dengan jawaban agent Marketing Intelligence di GE untuk pertanyaan yang sama | Angka **sama** |
 | 39 | `Tampilkan grafiknya.` | Menjelaskan grafik tidak tampil di chat, tersedia di laporan, dan menawarkan simpan insight |
-| 40 | `Gunakan workspace POC Data.` → `Simpan jawaban data tadi sebagai insight.` | Insight tersimpan (sumber BigQuery, tabel data ikut) |
+| 40 | `Simpan jawaban data tadi sebagai insight.` | Insight tersimpan (sumber BigQuery, tabel data ikut) |
 | 41 | `Bandingkan gap harga jual Hero MCO, PCO, dan Commercial di Nasional dan Zona 1–3 untuk Q3 2026.` → `Simpan sebagai insight.` | Jawaban per segmen/zona; insight kedua tersimpan |
-| 42 | `Buatkan laporan dengan template Daya Saing Harga Retail dari insight di workspace ini dalam format PDF. Judulnya Uji Laporan BQ.` | Link PDF berisi: ringkasan, KPI per zona, matriks dengan status, **grafik**, insight strategis |
+| 42 | `Buatkan laporan dengan template Daya Saing Harga Retail dari insight di chat ini dalam format PDF. Judulnya Uji Laporan BQ.` | Link PDF berisi: ringkasan, KPI per zona, matriks dengan status, **grafik**, insight strategis |
 | 43 | Cocokkan angka di KPI/matriks/grafik dengan jawaban no. 36–41 | Semua angka ada di jawaban/tabel data. Tidak ada angka karangan |
 | 44 | `Buatkan juga dalam PowerPoint.` | PPTX dengan **grafik native** (klik kanan grafik → Edit Data di PowerPoint) |
 

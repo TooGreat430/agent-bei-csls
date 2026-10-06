@@ -188,12 +188,38 @@ def list_templates() -> list[dict[str, Any]]:
 # ==========================================================================
 # Validasi
 # ==========================================================================
+_DROP_KEYS = {"$schema", "$id", "title", "additionalProperties", "minItems", "maxItems", "default", "examples"}
+
+
 def schema_for_model(schema: dict[str, Any]) -> dict[str, Any]:
-    """Salinan skema tanpa kata kunci yang tidak dibutuhkan model."""
-    cleaned = copy.deepcopy(schema)
-    for key in ("$schema", "$id", "title"):
-        cleaned.pop(key, None)
-    return cleaned
+    """Versi skema yang aman untuk Gemini (response_json_schema).
+
+    Validasi akhir tetap memakai skema lengkap. Di sini: $ref di-inline, anyOf [X, null] -> X,
+    dan kata kunci yang berisiko ditolak dibuang.
+    """
+    defs = schema.get("$defs") or schema.get("definitions") or {}
+
+    def simplify(node: Any) -> Any:
+        if isinstance(node, list):
+            return [simplify(n) for n in node]
+        if not isinstance(node, dict):
+            return node
+        ref = node.get("$ref")
+        if isinstance(ref, str) and ref.startswith(("#/$defs/", "#/definitions/")):
+            target = defs.get(ref.split("/")[-1], {})
+            merged = {**target, **{k: v for k, v in node.items() if k != "$ref"}}
+            return simplify(merged)
+        if "anyOf" in node:
+            options = [o for o in node["anyOf"] if not (isinstance(o, dict) and o.get("type") == "null")]
+            if len(options) == 1:
+                rest = {k: v for k, v in node.items() if k != "anyOf"}
+                return simplify({**options[0], **rest})
+        if isinstance(node.get("type"), list):
+            types = [t for t in node["type"] if t != "null"]
+            node = {**node, "type": types[0] if types else "string"}
+        return {k: simplify(v) for k, v in node.items() if k not in _DROP_KEYS and k not in ("$defs", "definitions")}
+
+    return simplify(copy.deepcopy(schema))
 
 
 def validate_content(content: dict[str, Any], schema: dict[str, Any]) -> list[str]:
@@ -269,9 +295,16 @@ def _generate_json(prompt: str, schema: dict[str, Any]) -> dict[str, Any]:
         config = types.GenerateContentConfig(temperature=0.2, response_mime_type="application/json")
         prompt += "\n\nSKEMA JSON YANG WAJIB DIIKUTI:\n" + json.dumps(model_schema, ensure_ascii=False)
 
-    response = genai_client().models.generate_content(
-        model=settings.model_pro, contents=prompt, config=config
-    )
+    try:
+        response = genai_client().models.generate_content(model=settings.model_pro, contents=prompt, config=config)
+    except Exception as exc:  # noqa: BLE001
+        if "400" not in str(exc) and "INVALID_ARGUMENT" not in str(exc):
+            raise
+        logger.warning("Skema JSON ditolak model (%s); ulang tanpa response_json_schema", str(exc)[:120])
+        config = types.GenerateContentConfig(temperature=0.2, response_mime_type="application/json")
+        response = genai_client().models.generate_content(
+            model=settings.model_pro, config=config,
+            contents=prompt + "\n\nSKEMA JSON YANG WAJIB DIIKUTI:\n" + json.dumps(model_schema, ensure_ascii=False))
     text = (response.text or "").strip()
     text = re.sub(r"^```(?:json)?|```$", "", text).strip()
     return json.loads(text)

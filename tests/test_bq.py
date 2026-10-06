@@ -190,3 +190,30 @@ class RoutingTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ModelSchemaTest(unittest.TestCase):
+    def test_bq_schema_simplified_for_model(self):
+        t = report_engine.load_template("daya_saing_harga_bq")
+        text = json.dumps(report_engine.schema_for_model(t.schema))
+        for key in ("anyOf", "$ref", "additionalProperties", "minItems", "maxItems", "$schema"):
+            self.assertNotIn(key, text, key)
+        self.assertIn('"enum"', text)  # enum tetap ada
+
+    def test_refs_inlined(self):
+        schema = {"type": "object", "properties": {"a": {"$ref": "#/$defs/x"}},
+                  "$defs": {"x": {"type": "object", "properties": {"b": {"type": ["string", "null"]}}}}}
+        out = report_engine.schema_for_model(schema)
+        self.assertEqual(out["properties"]["a"]["properties"]["b"], {"type": "string"})
+        self.assertNotIn("$defs", out)
+
+    def test_report_tool_never_raises(self):
+        from library_agent.tools import report_tools
+
+        @report_tools._logged
+        def boom(tool_context=None):
+            raise RuntimeError("400 INVALID_ARGUMENT")
+
+        result = boom()
+        self.assertEqual(result["status"], "error")
+        self.assertIn("kendala teknis", result["message"])

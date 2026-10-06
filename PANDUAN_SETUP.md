@@ -19,7 +19,6 @@ ptpl-ge-bucket/
 ├── ge-docs-datastore/   ← SEMUA dokumen perpustakaan (PDF, DOCX, PPTX, HTML, TXT)
 ├── ge-docs-agent/       ← file kerja agent
 │   ├── catalog/         index.json — daftar dokumen (dibuat & diperbarui otomatis)
-│   ├── insights/        insight per workspace
 │   ├── config/          settings.json — pengaturan yang bisa diubah tanpa deploy
 │   ├── templates/       template laporan
 │   ├── reports/         laporan yang dihasilkan

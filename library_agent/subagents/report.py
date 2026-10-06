@@ -5,7 +5,7 @@ from ..callbacks import capture_uploads, ensure_reply
 from ..config import settings
 from ..llm import make_model
 from ..prompts import REPORT_INSTRUCTION, with_agent_name
-from ..tools.library_tools import get_active_documents, list_insights, set_workspace
+from ..tools.library_tools import get_active_documents, list_insights
 from ..tools.report_tools import REPORT_TOOLS
 
 report_agent = LlmAgent(
@@ -16,7 +16,7 @@ report_agent = LlmAgent(
         "lalu mengirim link laporan HTML/PDF."
     ),
     instruction=with_agent_name(REPORT_INSTRUCTION),
-    tools=[*REPORT_TOOLS, list_insights, set_workspace, get_active_documents],
+    tools=[*REPORT_TOOLS, list_insights, get_active_documents],
     before_agent_callback=capture_uploads,
     after_agent_callback=ensure_reply,
     disallow_transfer_to_parent=True,

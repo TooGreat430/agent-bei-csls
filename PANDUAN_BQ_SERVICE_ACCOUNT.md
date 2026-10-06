@@ -66,8 +66,8 @@ Jika `settings.json` di bucket pernah diberi `"data_auth_mode": "user"`, ubah me
 | 2 | `Fokus ke segmen MCO saja.` | Memahami konteks sebelumnya |
 | 3 | `Di provinsi mana saja outlet survei berada?` | Menguji tabel lokasi outlet (`MIR_MST_OUTLET_GADM`) |
 | 4 | Tanyakan prompt no. 1 ke agent **Marketing Intelligence** di GE | Angka **sama** dengan no. 1 |
-| 5 | `Gunakan workspace POC Data.` → `Simpan jawaban data tadi sebagai insight.` | Insight bersumber BigQuery tersimpan |
-| 6 | `Buatkan laporan dengan template Daya Saing Harga Retail dari insight di workspace ini dalam format PDF.` | Link PDF berisi KPI, matriks, **grafik yang sama dengan di chat**, insight strategis |
+| 5 | `Simpan jawaban data tadi sebagai insight.` | Insight bersumber BigQuery tersimpan |
+| 6 | `Buatkan laporan dengan template Daya Saing Harga Retail dari insight di chat ini dalam format PDF.` | Link PDF berisi KPI, matriks, **grafik yang sama dengan di chat**, insight strategis |
 | 7 | `Buatkan lagi dalam PowerPoint tanpa grafik.` | PPTX tanpa halaman grafik |
 | 8 | `Tampilkan grafiknya sebagai garis per zona.` (setelah pertanyaan data per zona/periode) | Grafik baru dengan pilihan kolom/jenis berbeda |
 

@@ -132,12 +132,12 @@ def _invocation_events(callback_context: CallbackContext) -> list:
 
 
 def fallback_reply(events: list, agent_name: str) -> str:
-    """Jika agent tidak menulis teks apa pun di giliran ini, ambil pesan dari hasil tool terakhir."""
+    """Jika TIDAK ADA agent yang menulis teks di giliran ini, ambil pesan dari hasil tool terakhir."""
     last_response = None
     for event in events:
         content = getattr(event, "content", None)
         for part in (getattr(content, "parts", None) or []):
-            if getattr(event, "author", "") == agent_name and getattr(part, "text", None) \
+            if getattr(event, "author", "") not in ("", "user") and getattr(part, "text", None) \
                     and not getattr(part, "thought", False) and part.text.strip():
                 return ""
             fr = getattr(part, "function_response", None)
