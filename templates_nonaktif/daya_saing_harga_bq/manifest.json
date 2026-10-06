@@ -1,0 +1,68 @@
+{
+  "id": "daya_saing_harga_bq",
+  "title": "Daya Saing Harga Retail (data BigQuery)",
+  "description": "(Tidak dipakai lagi) Laporan data BigQuery kini selalu dibuat sebagai dashboard daya saing harga.",
+  "outputs": [
+    "html",
+    "pdf",
+    "pptx"
+  ],
+  "version": "3",
+  "grounding": true,
+  "theme": {
+    "primary": "0F2347",
+    "accent": "1E6FD9",
+    "highlight": "E0A526",
+    "text": "1E2329",
+    "muted": "5B6470",
+    "light": "EEF2F7",
+    "line": "D5DBE3",
+    "high": "C0392B",
+    "mid": "B7791F",
+    "low": "1E7B4F"
+  },
+  "cover": {
+    "title_field": "judul_utama",
+    "subtitle_fields": [
+      "cakupan",
+      "periode"
+    ],
+    "tag_field": "cakupan"
+  },
+  "footer": "{company} | {report_title} | {date} | Confidential · Executive Decision Support",
+  "layout": [
+    {
+      "type": "bullets",
+      "field": "ringkasan_eksekutif",
+      "title": "Executive Summary",
+      "lead": "Poin utama untuk pimpinan"
+    },
+    {
+      "type": "kpi_cards",
+      "field": "kpi_zona",
+      "title": "Ringkasan per Wilayah"
+    },
+    {
+      "type": "status_table",
+      "field": "matriks",
+      "title": "Matriks Harga & Margin"
+    },
+    {
+      "type": "charts",
+      "field": "grafik",
+      "title": "Visualisasi"
+    },
+    {
+      "type": "insight_cards",
+      "field": "insight_strategis",
+      "title": "Strategic Actionable Insights"
+    },
+    {
+      "type": "text",
+      "field": "sumber_data",
+      "title": "Sumber Data & Catatan"
+    }
+  ],
+  "requires_source": "bigquery",
+  "hidden": true
+}

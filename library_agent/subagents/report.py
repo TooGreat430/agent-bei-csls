@@ -1,22 +1,22 @@
-"""Report sub-agent: membuat laporan dari template resmi berdasarkan insight tersimpan."""
+"""Report sub-agent: membuat laporan dashboard daya saing harga (data BigQuery)."""
 from google.adk.agents import LlmAgent
 
 from ..callbacks import capture_uploads, ensure_reply
 from ..config import settings
 from ..llm import make_model
 from ..prompts import REPORT_INSTRUCTION, with_agent_name
-from ..tools.library_tools import get_active_documents, list_insights
+from ..tools.library_tools import list_insights
 from ..tools.report_tools import REPORT_TOOLS
 
 report_agent = LlmAgent(
     name="report_agent",
     model=make_model(settings.model_fast),
     description=(
-        "Membuat laporan resmi dari template perusahaan berdasarkan insight tersimpan, "
-        "lalu mengirim link laporan HTML/PDF."
+        "Membuat laporan dashboard daya saing harga retail (data BigQuery) dalam PDF, PowerPoint, atau HTML, "
+        "termasuk contoh tampilannya."
     ),
     instruction=with_agent_name(REPORT_INSTRUCTION),
-    tools=[*REPORT_TOOLS, list_insights, get_active_documents],
+    tools=[*REPORT_TOOLS, list_insights],
     before_agent_callback=capture_uploads,
     after_agent_callback=ensure_reply,
     disallow_transfer_to_parent=True,

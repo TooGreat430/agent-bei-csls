@@ -144,13 +144,15 @@ class InferPeriodTest(unittest.TestCase):
         self.assertIsNone(pdm.infer_period(["harga Fastron di pasaran"]))
 
 
-class HiddenTemplateTest(unittest.TestCase):
-    def test_old_bq_template_hidden(self):
-        from library_agent import report_engine
+class ReportAgentToolsTest(unittest.TestCase):
+    def test_only_dashboard_tools(self):
+        from library_agent.tools.report_tools import REPORT_TOOLS
 
-        ids = [t["template_id"] for t in report_engine.list_templates()]
-        self.assertNotIn("daya_saing_harga_bq", ids)
-        self.assertIn("studi_bei_nps", ids)
+        self.assertEqual([t.__name__ for t in REPORT_TOOLS], ["generate_price_dashboard", "preview_price_dashboard"])
+
+    def test_active_template_folder_is_empty(self):
+        folder = os.path.join(ROOT, "templates")
+        self.assertEqual([f for f in os.listdir(folder) if not f.startswith(".")], [])
 
 
 class SampleReportStructureTest(unittest.TestCase):

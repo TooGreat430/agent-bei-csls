@@ -195,15 +195,16 @@ def _render_dashboard(pages: list, meta: dict, fmt: str) -> bytes:
     return {"html": dr.render_html, "pdf": dr.render_pdf, "pptx": dr.render_pptx}[fmt](pages, meta)
 
 
-def generate_price_dashboard(period: str, tool_context: ToolContext, compare_period: str = "",
+def generate_price_dashboard(tool_context: ToolContext, period: str = "", compare_period: str = "",
                              output_format: str = "", title: str = "") -> dict[str, Any]:
-    """Membuat DASHBOARD daya saing harga retail lengkap langsung dari data BigQuery.
+    """Membuat LAPORAN (dashboard daya saing harga retail) langsung dari data BigQuery.
 
-    Gunakan saat user meminta laporan/dashboard daya saing harga (price competitiveness) untuk suatu
-    periode, mis. "laporan daya saing harga Q3 2026 vs Q2 2026". Tidak memerlukan insight.
+    Ini SATU-SATUNYA cara membuat laporan. Gunakan untuk semua permintaan laporan, termasuk
+    "buatkan laporan dari insight tadi" (periode diambil otomatis dari insight di chat).
 
     Args:
         period: Periode utama. Format: "2026-Q3", "2026-07", atau rentang "2026-04:2026-06".
+            Kosongkan jika user tidak menyebut periode; periode diambil dari insight di chat.
         compare_period: Periode pembanding (opsional, HANYA jika user meminta perbandingan), format sama.
         output_format: "pdf", "pptx" (PowerPoint), atau "html". Kosongkan jika user belum menyebut.
         title: Judul laporan (opsional).
@@ -211,6 +212,15 @@ def generate_price_dashboard(period: str, tool_context: ToolContext, compare_per
     from .. import price_dashboard, price_data
     from ..config import live, settings
 
+    if not period.strip():
+        texts = []
+        for it in insights.list_full(tool_context.state):
+            texts += [it.get("title", ""), it.get("content", ""), " ".join(it.get("citations") or []),
+                      ((it.get("data") or {}).get("question") or "")]
+        period = price_data.infer_period(texts) or ""
+        if not period:
+            return {"status": "needs_input",
+                    "message": "Tanyakan ke user periode laporannya (mis. Juli 2026, atau Q3 2026 vs Q2 2026)."}
     fmt = report_engine.normalize_format(output_format)
     if not fmt:
         return {"status": "needs_input", "available_formats": DASHBOARD_INFO["formats"],
@@ -268,7 +278,7 @@ def _dashboard_from_insights(items: list, tool_context: ToolContext, output_form
         return {"status": "needs_input", "message": ("Laporan data BigQuery dibuat sebagai dashboard daya saing harga. "
                                                       "Tanyakan ke user periodenya (mis. Juli 2026, atau Q3 2026 vs Q2 2026), "
                                                       "lalu panggil generate_price_dashboard.")}
-    return generate_price_dashboard(period, tool_context, output_format=output_format, title=title)
+    return generate_price_dashboard(tool_context, period=period, output_format=output_format, title=title)
 
 
 def preview_price_dashboard(tool_context: ToolContext, output_format: str = "") -> dict[str, Any]:
@@ -302,5 +312,5 @@ generate_report = _logged(generate_report)
 generate_price_dashboard = _logged(generate_price_dashboard)
 preview_report_template = _logged(preview_report_template)
 preview_price_dashboard = _logged(preview_price_dashboard)
-REPORT_TOOLS = [list_report_templates, generate_report, preview_report_template,
-                generate_price_dashboard, preview_price_dashboard]
+# Template laporan dokumen (BEI/CSLS) dinonaktifkan sementara: agent laporan hanya membuat dashboard.
+REPORT_TOOLS = [generate_price_dashboard, preview_price_dashboard]

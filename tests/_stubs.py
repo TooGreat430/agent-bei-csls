@@ -32,6 +32,10 @@ def _install_api_core() -> None:
 
 
 def install() -> None:
+    import os as _os
+
+    _os.environ.setdefault("LIB_LOCAL_TEMPLATE_DIR", _os.path.join(
+        _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))), "templates_nonaktif"))
     _install_api_core()
     try:
         import google.adk  # noqa: F401

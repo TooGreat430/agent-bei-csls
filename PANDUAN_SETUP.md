@@ -326,7 +326,10 @@ Hapus dokumen lewat chat juga **menghapus file-nya** dari `ge-docs-datastore/` (
 
 ---
 
-## 9. Template laporan
+## 9. Template laporan (NONAKTIF sementara)
+
+> Saat ini agent laporan **hanya** membuat dashboard daya saing harga (bagian 9B). Template dokumen BEI/CSLS dipindahkan ke `templates_nonaktif/` dan tidak dipakai agent. Folder `ge-docs-agent/templates/` di bucket boleh dihapus.
+
 
 Lokasi: `gs://ptpl-ge-bucket/ge-docs-agent/templates/<nama_template>/`
 
