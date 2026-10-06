@@ -93,9 +93,9 @@ base AS (
       WHEN CAST(SALES_REGION_CUSTOMER AS STRING) IN ('1','7') THEN 'Zona 3'
     END AS ZONE_NAME,
     UPPER(SEGMENT) AS SEGMENT, VISCOSITY, KIMAP, UPPER(BRAND) AS BRAND, UPPER(QNR) AS QNR,
-    SAFE_DIVIDE(HET, CONTENT) AS HET_L, SAFE_DIVIDE(HARGA_JUAL, CONTENT) AS HJ_L,
-    SAFE_DIVIDE(HTO, CONTENT) AS HTO_L, SAFE_DIVIDE(HARGA_TEBUS, CONTENT) AS HT_L,
-    SAFE_DIVIDE(MARGIN_SURVEY, CONTENT) AS MARG_L
+    SAFE_DIVIDE(CAST(HET AS FLOAT64), CAST(CONTENT AS FLOAT64)) AS HET_L, SAFE_DIVIDE(CAST(HARGA_JUAL AS FLOAT64), CAST(CONTENT AS FLOAT64)) AS HJ_L,
+    SAFE_DIVIDE(CAST(HTO AS FLOAT64), CAST(CONTENT AS FLOAT64)) AS HTO_L, SAFE_DIVIDE(CAST(HARGA_TEBUS AS FLOAT64), CAST(CONTENT AS FLOAT64)) AS HT_L,
+    SAFE_DIVIDE(CAST(MARGIN_SURVEY AS FLOAT64), CAST(CONTENT AS FLOAT64)) AS MARG_L
   FROM `{table}`
   WHERE AVAILABILITY = '1' AND OUTLIER_HTO = 'DATA USE' AND OUTLIER_HET = 'DATA USE'
     AND KIMAP IS NOT NULL AND CONTENT > 0
@@ -146,14 +146,24 @@ def fetch(period_a: dict[str, Any], period_b: dict[str, Any] | None, heroes: lis
     ]
     config = bigquery.QueryJobConfig(query_parameters=params)
     client = bigquery_client()
-    agg = [dict(r) for r in client.query(AGG_SQL.format(table=table), job_config=config).result()]
-    monthly = [dict(r) for r in client.query(MONTHLY_SQL.format(table=table), job_config=config).result()]
+    agg = normalize_rows([dict(r) for r in client.query(AGG_SQL.format(table=table), job_config=config).result()])
+    monthly = normalize_rows([dict(r) for r in client.query(MONTHLY_SQL.format(table=table), job_config=config).result()])
     return agg, monthly
 
 
 # ==========================================================================
 # Perhitungan (logika murni)
 # ==========================================================================
+def normalize_rows(rows: list[dict]) -> list[dict]:
+    """Ubah angka dari BigQuery (Decimal untuk kolom NUMERIC) menjadi float."""
+    from decimal import Decimal
+
+    out = []
+    for r in rows:
+        out.append({k: (float(v) if isinstance(v, Decimal) else v) for k, v in r.items()})
+    return out
+
+
 def card_name(product: str) -> str:
     """'PERTAMINA ENDURO MATIC-S 0.8 LITER' -> 'Enduro Matic-S' (untuk label kartu)."""
     name = re.sub(r"^PERTAMINA\s+", "", (product or "").upper())
@@ -315,6 +325,7 @@ def build_dataset(agg: list[dict], monthly: list[dict], heroes: list[str],
                   period_a: dict[str, Any], period_b: dict[str, Any] | None,
                   aman_below: float = -5000.0, kritis_above: float = 0.0) -> dict[str, Any]:
     has_compare = period_b is not None
+    agg, monthly = normalize_rows(agg), normalize_rows(monthly)
     zones = {}
     for z in ZONES:
         data = build_zone(agg, z, heroes, has_compare)

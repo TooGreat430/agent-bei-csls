@@ -199,3 +199,24 @@ class SampleReportStructureTest(unittest.TestCase):
         for w in self.pages[1]["watch"]:
             self.assertEqual(len(w["stats"]), 3)
             self.assertTrue(w["brand"])
+
+
+class DecimalInputTest(unittest.TestCase):
+    """BigQuery mengembalikan kolom NUMERIC sebagai Decimal; dashboard harus tetap jalan."""
+
+    def test_decimal_rows(self):
+        from decimal import Decimal
+
+        agg, monthly = sample_price.make()
+        to_dec = lambda rows: [{k: (Decimal(str(round(v, 4))) if isinstance(v, float) else v) for k, v in r.items()}
+                               for r in rows]
+        ds = pdm.build_dataset(to_dec(agg), to_dec(monthly), sample_price.HEROES,
+                               pdm.parse_period("2026-07"), None)
+        self.assertTrue(ds["has_data"])
+        pages = pd_.build_pages(ds, {"ringkasan": [], "insight_eksekutif": [], "zona": {}}, "PT X")
+        self.assertEqual(len(pages), 9)
+        if HAS_RENDER:
+            from library_agent import dashboard_render as dr
+
+            meta = {"report_title": "Uji", "period_text": "Jul 2026", "company": "PT X"}
+            self.assertTrue(dr.render_pdf(pages, meta).startswith(b"%PDF"))
