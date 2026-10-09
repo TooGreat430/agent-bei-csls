@@ -146,7 +146,7 @@ def analyze_data(plan_json: str, question: str, tool_context: ToolContext) -> di
                                     "tables": [{"columns": result["columns"], "rows": result["rows"][:60]}],
                                     "citation": citation, "insight_source": f"file_{kind}",
                                     "file_id": plan["file"]}
-    shown = result["rows"][:15]
+    shown = result["rows"][:60]
     return {"status": "ok", "columns": result["columns"], "rows": shown, "rows_total": result["rows_total"],
             "baris_input": result["rows_input"], "baris_setelah_filter": result["rows_after_filter"],
             "aturan_diterapkan": {fid: n["excluded"] for fid, n in notes.items()},

@@ -220,3 +220,13 @@ class UploadRoutingTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TableDisplayTest(unittest.TestCase):
+    def test_eighteen_rows_shown_in_full(self):
+        from library_agent.data_agent import table_to_markdown
+
+        rows = [[f"P{i}", "Zona 1", i] for i in range(18)]
+        md = table_to_markdown({"columns": ["QNR", "ZONE", "HJ"], "rows": rows, "total_rows": 18})
+        self.assertIn("P17", md)
+        self.assertNotIn("menampilkan", md)

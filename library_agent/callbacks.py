@@ -218,6 +218,11 @@ def data_after_agent(callback_context: CallbackContext) -> Optional[types.Conten
     pending = callback_context.state.get("bq_pending_chart")
     if pending:
         callback_context.state["bq_pending_chart"] = None
+    from .config import live
+
+    if pending and live("chat_inline_chart"):
+        # Gemini Enterprise belum menampilkan gambar dari agent ADK (muncul sebagai asc_slot://),
+        # jadi lampiran gambar hanya dikirim jika diaktifkan di settings.json.
         try:
             png = storage_client().bucket(pending["bucket"]).blob(pending["path"]).download_as_bytes()
             parts.append(types.Part.from_bytes(data=png, mime_type="image/png"))

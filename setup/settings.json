@@ -55,5 +55,6 @@
     "Manufacturing",
     "Marine",
     "Mining"
-  ]
+  ],
+  "chat_inline_chart": 0
 }

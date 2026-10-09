@@ -86,6 +86,7 @@ class Settings:
     industry_table: str = field(default_factory=lambda: _env(
         "LIB_INDUSTRY_TABLE", "ptpl-curated-prd.DATAMART.survey_industry"))
     industry_htd_column: str = field(default_factory=lambda: _env("LIB_INDUSTRY_HTD_COLUMN", "htd_ptpl_plus"))
+    chat_inline_chart: int = field(default_factory=lambda: int(_env("LIB_CHAT_INLINE_CHART", "0")))
     industry_segment_column: str = field(default_factory=lambda: _env("LIB_INDUSTRY_SEGMENT_COLUMN", "channel"))
     industry_focus_products: tuple = field(default_factory=lambda: (
         "Meditran SX Plus 15W40|HDDO", "Meditran S|HDDO", "Turalik 52|Hydraulic", "Rored HDA 90|Gear & Trans",
@@ -166,6 +167,7 @@ RUNTIME_KEYS: dict[str, type] = {
     "industry_table": str,
     "industry_htd_column": str,
     "industry_segment_column": str,
+    "chat_inline_chart": int,
     "industry_focus_products": CaseList,
     "industry_segments": CaseList,
     "industry_competitors": list,

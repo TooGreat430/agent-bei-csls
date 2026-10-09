@@ -71,7 +71,7 @@ def parse_stream(messages: list[dict[str, Any]]) -> dict[str, Any]:
     return {"answer": "\n".join(texts).strip(), "tables": tables, "sql": sqls, "errors": errors}
 
 
-def table_to_markdown(table: dict[str, Any], max_rows: int = 15) -> str:
+def table_to_markdown(table: dict[str, Any], max_rows: int = 60) -> str:
     cols = table["columns"]
     lines = ["| " + " | ".join(str(c) for c in cols) + " |", "|" + "---|" * len(cols)]
     for row in table["rows"][:max_rows]:

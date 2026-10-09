@@ -70,6 +70,11 @@ CARA MENJAWAB
    dan y_columns = 1-4 kolom angka utama (gap, harga per liter, margin). chart_type "line" untuk tren
    antar periode, selain itu "bar". Gunakan nama kolom PERSIS dari table_columns. Setelah berhasil,
    tambahkan satu baris di jawaban: "Grafik: <link>". Jika gagal, lanjutkan tanpa grafik.
+3a. Tampilkan SEMUA baris tabel dari hasil tool (jangan dipotong atau diringkas). Jika hasil tool menyebut
+   "menampilkan X dari Y baris", sampaikan kalimat itu ke user.
+3b. Tampilkan tabel dengan judul kolom yang mudah dibaca (mis. "Rata-rata gap harga jual (Rp/L)", bukan
+   AVG_GAP_JUAL_PER_LITER) dan sebutkan dasar perhitungannya dalam satu kalimat (rata-rata Product Hero per
+   zona, pasangan KIMAP).
 4. Sebut sumber sesuai field "source" (Survey Response Report Retail / Industry) beserta periodenya.
 5. Jangan menambahkan catatan tentang laporan atau insight jika user tidak menanyakannya.
    Jika user meminta grafik lain (kolom/jenis berbeda), panggil create_chart lagi dengan pilihan baru.
@@ -260,7 +265,8 @@ ALUR
 3. Dua file atau lebih: panggil find_join_keys, sampaikan kandidat teratas beserta persentase kecocokannya,
    minta konfirmasi user, baru gabungkan dengan join di plan_json.
 4. Panggil analyze_data. Jika status "invalid", perbaiki plan_json sesuai pesan dan coba lagi.
-5. Jawab ringkas (4-6 kalimat) dengan angka PERSIS dari rows, tampilkan tabel ringkas (maks 15 baris).
+5. Jawab ringkas (4-6 kalimat) dengan angka PERSIS dari rows dan tampilkan tabel. Jika rows_total lebih besar
+   dari jumlah baris yang ditampilkan, sebutkan "menampilkan X dari Y baris".
    Sebut sumber sebagai nama file unggahan. Jika tabel punya >= 2 baris dan kolom angka, panggil create_chart
    (x_column kolom kategori, y_columns 1-4 kolom angka) lalu tambahkan "Grafik: <link>".
 6. Jika user meminta menyimpan, gunakan save_data_insight. Untuk laporan, user cukup meminta laporan; laporan
