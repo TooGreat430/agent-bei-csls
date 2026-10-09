@@ -29,5 +29,31 @@
   ],
   "status_aman_below": -5000,
   "status_kritis_above": 0,
-  "price_table": "ptpl-curated-prd.DATAMART.SURVEY_PRODUCTS"
+  "price_table": "ptpl-curated-prd.DATAMART.SURVEY_PRODUCTS",
+  "data_agent": "projects/ptpl-land-dev/locations/global/dataAgents/agent_4df3074b-9d7e-4f9f-993b-b3969b8a2095",
+  "data_agent_industry": "projects/ptpl-land-dev/locations/global/dataAgents/agent_04f517f4-e06b-44e8-b0af-d55792ef5222",
+  "industry_table": "ptpl-curated-prd.DATAMART.survey_industry",
+  "industry_htd_column": "htd_ptpl_plus",
+  "industry_focus_products": [
+    "Meditran SX Plus 15W40|HDDO",
+    "Meditran S|HDDO",
+    "Turalik 52|Hydraulic",
+    "Rored HDA 90|Gear & Trans",
+    "Masri RG 320|Gear & Trans",
+    "Medripal 412|Marine",
+    "Grease Pertamina SGX-NL 2|Grease",
+    "Grease Pertamina EPX NL 2|Grease"
+  ],
+  "industry_competitors": [
+    "SHELL"
+  ],
+  "industry_segment_column": "channel",
+  "industry_segments": [
+    "Agro",
+    "Construction",
+    "Fleet",
+    "Manufacturing",
+    "Marine",
+    "Mining"
+  ]
 }

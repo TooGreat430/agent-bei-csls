@@ -14,7 +14,9 @@ bukti utama POC "apakah Gemini Enterprise meneruskan lampiran ke agent custom".
 """
 from __future__ import annotations
 
+import json
 import logging
+import re
 from typing import Optional
 
 from google.adk.agents.callback_context import CallbackContext
@@ -53,6 +55,55 @@ def _describe_parts(content: types.Content) -> list[dict]:
     return summary
 
 
+DATA_MIME_TYPES = {"text/csv", "application/csv", "application/vnd.ms-excel",
+                   "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"}
+DATA_EXTENSIONS = (".csv", ".xlsx", ".xlsm", ".xls")
+
+
+def _is_data_file(name: str, mime: str) -> bool:
+    return (mime or "").lower() in DATA_MIME_TYPES or (name or "").lower().endswith(DATA_EXTENSIONS)
+
+
+def _store_data_file(part, callback_context: CallbackContext, session_id: str) -> bool:
+    """CSV/Excel -> folder data per chat + daftar data_files di state. True jika part ditangani."""
+    import hashlib
+
+    from .clients import storage_client
+    from .config import settings
+    from .ingest import parse_gcs_uri, safe_filename
+
+    if part.inline_data and part.inline_data.data:
+        name = getattr(part.inline_data, "display_name", None) or "data.csv"
+        mime = part.inline_data.mime_type or ""
+        if not _is_data_file(name, mime):
+            return False
+        data = part.inline_data.data
+    elif part.file_data and part.file_data.file_uri and part.file_data.file_uri.startswith("gs://"):
+        uri = part.file_data.file_uri
+        name = getattr(part.file_data, "display_name", None) or uri.rsplit("/", 1)[-1]
+        mime = part.file_data.mime_type or ""
+        if not _is_data_file(name, mime):
+            return False
+        bucket, path = parse_gcs_uri(uri)
+        data = storage_client().bucket(bucket).blob(path).download_as_bytes()
+    else:
+        return False
+    files = list(callback_context.state.get("data_files", []))
+    digest = hashlib.sha256(data).hexdigest()[:12]
+    if any(f.get("hash") == digest for f in files):
+        return True
+    if not name.lower().endswith(DATA_EXTENSIONS):
+        name += ".xlsx" if "sheet" in mime or "excel" in mime else ".csv"
+    fname = safe_filename(name)
+    path = f"{settings.data_file_prefix}/{session_id}/{digest}_{fname}"
+    storage_client().bucket(settings.bucket).blob(path).upload_from_string(data, content_type=mime or "text/csv")
+    files.append({"file_id": f"f{len(files) + 1}", "filename": fname, "uri": f"gs://{settings.bucket}/{path}",
+                  "mime_type": mime, "size_bytes": len(data), "hash": digest})
+    callback_context.state["data_files"] = files
+    logger.info("File data disimpan: %s (%d byte)", fname, len(data))
+    return True
+
+
 def capture_uploads(callback_context: CallbackContext) -> Optional[types.Content]:
     content = callback_context.user_content
     if not content or not content.parts:
@@ -67,6 +118,8 @@ def capture_uploads(callback_context: CallbackContext) -> Optional[types.Content
 
     for part in content.parts:
         try:
+            if _store_data_file(part, callback_context, session_id):
+                continue
             if part.inline_data and part.inline_data.data:
                 mime = part.inline_data.mime_type or ""
                 name = getattr(part.inline_data, "display_name", None) or "dokumen"
@@ -171,3 +224,77 @@ def data_after_agent(callback_context: CallbackContext) -> Optional[types.Conten
         except Exception:  # noqa: BLE001
             logger.exception("Grafik tidak bisa ditampilkan di chat")
     return types.Content(role="model", parts=parts) if parts else None
+
+
+# ==========================================================================
+# Pengecekan angka otomatis (Tahap 0)
+# ==========================================================================
+def _number_pool(callback_context: CallbackContext) -> list[float]:
+    """Angka dari hasil tool di sesi ini + pesan user (dasar verifikasi jawaban)."""
+    from .price_dashboard import _MONEY
+    from .report_render import parse_number
+
+    ctx = getattr(callback_context, "_invocation_context", None)
+    events = list(getattr(getattr(ctx, "session", None), "events", []) or [])[-60:]
+    texts = []
+    for e in events:
+        content = getattr(e, "content", None)
+        for part in (getattr(content, "parts", None) or []):
+            fr = getattr(part, "function_response", None)
+            if fr is not None and getattr(fr, "name", "") != "periksa_angka":
+                try:
+                    texts.append(json.dumps(fr.response, ensure_ascii=False, default=str))
+                except Exception:  # noqa: BLE001
+                    texts.append(str(fr.response))
+            elif getattr(e, "author", "") == "user" and getattr(part, "text", None):
+                texts.append(part.text)
+    if callback_context.user_content and callback_context.user_content.parts:
+        texts += [p.text for p in callback_context.user_content.parts if getattr(p, "text", None)]
+    pool = set()
+    for t in texts:
+        for raw in _MONEY.findall(t):
+            v = parse_number(raw)
+            if v is not None:
+                v = abs(v)
+                pool.update({round(v, 2), round(v * 100, 2), round(v / 100, 4)})
+        for raw in re.findall(r"-?\d+\.\d+(?:[eE][-+]?\d+)?", t):
+            try:
+                v = abs(float(raw))
+                pool.update({round(v, 2), round(v * 100, 2)})
+            except ValueError:
+                pass
+    return sorted(pool)
+
+
+def verify_numbers(callback_context: CallbackContext, llm_response):
+    """Jawaban akhir yang memuat angka di luar hasil tool -> minta model menulis ulang sekali; jika masih,
+    tambahkan catatan transparan."""
+    from google.adk.models import LlmResponse
+
+    from .price_dashboard import ungrounded_numbers
+
+    content = getattr(llm_response, "content", None)
+    parts = list(getattr(content, "parts", None) or [])
+    if not parts or any(getattr(p, "function_call", None) for p in parts):
+        return None
+    text = "".join(p.text for p in parts if getattr(p, "text", None) and not getattr(p, "thought", False))
+    if not text.strip():
+        return None
+    pool = _number_pool(callback_context)
+    if not pool:
+        return None
+    bad = sorted(set(ungrounded_numbers(text, pool)))
+    if not bad:
+        return None
+    ctx = getattr(callback_context, "_invocation_context", None)
+    key = f"temp:numcheck_{getattr(ctx, 'invocation_id', '')}"
+    tries = callback_context.state.get(key, 0)
+    logger.warning("Angka tidak terverifikasi (percobaan %d): %s", tries, bad[:10])
+    if tries == 0:
+        callback_context.state[key] = 1
+        call = types.FunctionCall(name="periksa_angka", args={"angka_tidak_terverifikasi": bad[:10]})
+        return LlmResponse(content=types.Content(role="model", parts=[types.Part(function_call=call)]))
+    note = ("\n\n_Catatan: angka berikut tidak dapat diverifikasi otomatis terhadap data: "
+            + ", ".join(bad[:8]) + ". Mohon cek ulang sebelum dipakai._")
+    new_parts = [types.Part(text=text + note)]
+    return LlmResponse(content=types.Content(role="model", parts=new_parts))

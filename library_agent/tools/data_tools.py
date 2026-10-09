@@ -18,20 +18,29 @@ CHART_KEY = "bq_last_chart"
 PENDING_CHART_KEY = "bq_pending_chart"
 
 
-def ask_marketing_intelligence(question: str, tool_context: ToolContext) -> dict[str, Any]:
-    """Menjawab pertanyaan data pasar dari BigQuery lewat Data Agent Marketing Intelligence.
+def ask_marketing_intelligence(question: str, tool_context: ToolContext, domain: str = "retail") -> dict[str, Any]:
+    """Menjawab pertanyaan data survei BigQuery lewat Data Agent PTPL (retail atau industri).
 
-    Gunakan untuk SEMUA pertanyaan data survei retail: harga jual/tebus, HET, HTO, gap harga,
-    margin, TOV, Product Hero, kompetitor, zona/region, segmen MCO/PCO/Commercial, tren per periode.
+    domain "retail": survei outlet/bengkel — harga jual/tebus, HET, HTO, gap Rp/L, margin, TOV,
+        Product Hero, KIMAP, segmen MCO/PCO/Commercial/Gear.
+    domain "industri": survei industri/B2B — channel (Agro, Construction, Fleet, Manufacturing, Marine,
+        Mining), main stage EARLY/NEXT, HTD (Harga Tebus Distributor), gap % vs HTD+3%, produk fokus
+        B2B (Meditran, Turalik, Rored HDA, Masri, Medripal, Grease).
 
     Args:
         question: Pertanyaan user dalam bahasa alami, lengkap dengan konteks yang relevan dari
             percakapan (mis. periode, zona, produk yang sedang dibahas).
+        domain: "retail" atau "industri". Jika tidak jelas dari pertanyaan, TANYAKAN ke user dulu.
 
     Returns:
         answer (teks dari Data Agent), tables (tabel markdown hasil query), source.
     """
-    history = list(tool_context.state.get(HISTORY_KEY, []))
+    domain = "industri" if str(domain).strip().lower() in ("industri", "industry", "b2b") else "retail"
+    agent = live("data_agent_industry") if domain == "industri" else live("data_agent")
+    if not agent:
+        return {"status": "error", "message": f"Data Agent {domain} belum dikonfigurasi."}
+    hist_key = HISTORY_KEY if domain == "retail" else HISTORY_KEY + "_industri"
+    history = list(tool_context.state.get(hist_key, []))
     mode = (live("data_auth_mode") or "service_account").strip().lower()
     token = None
     if mode == "user":
@@ -42,7 +51,7 @@ def ask_marketing_intelligence(question: str, tool_context: ToolContext) -> dict
                                 "Klik tombol Authorize/Otorisasi yang muncul di Gemini Enterprise untuk agent ini, "
                                 "lalu kirim ulang pertanyaan. Jika tombol tidak muncul, buka chat baru.")}
     try:
-        result = data_agent.ask(question, history, access_token=token)
+        result = data_agent.ask(question, history, access_token=token, agent=agent)
     except Exception as exc:  # noqa: BLE001
         logger.exception("Data Agent gagal")
         text = str(exc)
@@ -62,14 +71,15 @@ def ask_marketing_intelligence(question: str, tool_context: ToolContext) -> dict
 
     tool_context.state[CHART_KEY] = None
     history.append({"question": question, "answer": result["answer"][:2000]})
-    tool_context.state[HISTORY_KEY] = history[-data_agent.MAX_HISTORY:]
-    tool_context.state[LAST_KEY] = dict(data_agent.trim_for_state(result), question=question)
+    tool_context.state[hist_key] = history[-data_agent.MAX_HISTORY:]
+    tool_context.state[LAST_KEY] = dict(data_agent.trim_for_state(result), question=question, domain=domain)
     return {
         "status": "ok",
         "answer": result["answer"],
         "tables": [data_agent.table_to_markdown(t) for t in result["tables"][:2]],
         "table_columns": [t["columns"] for t in result["tables"][:2]],
-        "source": data_agent.SOURCE_LABEL,
+        "source": data_agent.SOURCE_LABELS[domain],
+        "domain": domain,
     }
 
 
@@ -132,12 +142,18 @@ def save_data_insight(title: str, content: str, citations: list[str], tool_conte
     """
     last = tool_context.state.get(LAST_KEY)
     if not last:
-        return {"status": "error", "message": "Belum ada jawaban data BigQuery di chat ini untuk disimpan."}
+        return {"status": "error", "message": "Belum ada jawaban data (BigQuery atau file) di chat ini untuk disimpan."}
     table = (last.get("tables") or [None])[0]
+    domain = last.get("domain", "retail")
+    if domain == "file":
+        label, source = last.get("citation", "File unggahan"), last.get("insight_source", "file")
+    else:
+        label = data_agent.SOURCE_LABELS[domain]
+        source = "bigquery" if domain == "retail" else "bigquery_industri"
     item = insights.save(
         tool_context.state, get_user_id(tool_context),
-        title=title, content=content, citations=citations or [f"[{data_agent.SOURCE_LABEL}]"],
-        doc_keys=[], source="bigquery",
+        title=title, content=content, citations=citations or [f"[{label}]"],
+        doc_keys=[], source=source,
         data_table=dict(table, question=last.get("question", "")) if table else None,
         chart=(tool_context.state.get(CHART_KEY) if include_chart else None),
     )

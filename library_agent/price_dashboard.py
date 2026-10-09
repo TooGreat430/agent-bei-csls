@@ -431,7 +431,8 @@ def build_pages(dataset: dict[str, Any], narr: dict[str, Any], company: str) -> 
                              f"Status HTO: AMAN gap < {fmt_id(th['aman_below'])}/L · WATCH {fmt_id(th['aman_below'])}–0 · KRITIS gap > {fmt_id(th['kritis_above'])}."),
             })
     for p in pages:
-        p["footer"] = f"Source Data: Survey Response Report Retail · {vs} · Standardized per liter (IDR/L) · {company}"
+        p["footer"] = (f"Source Data: {dataset.get('source_label', 'Survey Response Report Retail')} · {vs} · "
+                       f"Standardized per liter (IDR/L) · {company}")
         p["topbar"] = f"C-SUITE EXEC DASHBOARD: SURVEY HARGA JUAL VS TEBUS BENGKEL ({(pb['label'] + '–') if pb else ''}{pa['label']})".upper()
     _fill_watch_stats(pages, dataset)
     return pages

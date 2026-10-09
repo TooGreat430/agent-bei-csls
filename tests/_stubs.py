@@ -4,6 +4,7 @@ Jika library aslinya terpasang, stub tidak dipakai.
 """
 import sys
 import types as _t
+from types import SimpleNamespace
 
 
 def _install_api_core() -> None:
@@ -60,9 +61,26 @@ def install() -> None:
     mod("google.adk.agents", LlmAgent=_Any)
     mod("google.adk.agents.callback_context", CallbackContext=_Any)
     mod("google.adk.tools", ToolContext=_Any)
-    mod("google.adk.models", Gemini=_Any)
+    class _LlmResponse:
+        def __init__(self, content=None, **kwargs):
+            self.content = content
+
+    mod("google.adk.models", Gemini=_Any, LlmResponse=_LlmResponse)
     mod("google.adk.models.google_llm", Gemini=_Any)
     genai = mod("google.genai", Client=_Any)
-    genai.types = mod("google.genai.types", Content=_Any, Part=_Any, GenerateContentConfig=_Any)
+    class _Obj:
+        def __init__(self, **kwargs):
+            self.text = None
+            self.function_call = None
+            self.function_response = None
+            self.thought = False
+            for k, v in kwargs.items():
+                setattr(self, k, v)
+
+        @classmethod
+        def from_bytes(cls, data=None, mime_type=None):
+            return cls(inline_data=SimpleNamespace(data=data, mime_type=mime_type))
+
+    genai.types = mod("google.genai.types", Content=_Obj, Part=_Obj, FunctionCall=_Obj, GenerateContentConfig=_Any)
     google.adk = sys.modules["google.adk"]
     google.genai = genai

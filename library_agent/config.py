@@ -46,6 +46,7 @@ class Settings:
     # --- Cloud Storage ------------------------------------------------------
     bucket: str = field(default_factory=lambda: _env("LIB_BUCKET", ""))
     staging_prefix: str = field(default_factory=lambda: _env("LIB_STAGING_PREFIX") or _internal("staging"))
+    data_file_prefix: str = field(default_factory=lambda: _env("LIB_DATA_FILE_PREFIX") or _internal("data-files"))
     template_prefix: str = field(default_factory=lambda: _env("LIB_TEMPLATE_PREFIX") or _internal("templates"))
     report_prefix: str = field(default_factory=lambda: _env("LIB_REPORT_PREFIX") or _internal("reports"))
 
@@ -77,6 +78,23 @@ class Settings:
     # data_auth_mode: "user" | "service_account". data_auth_id: ID Authorization di GE.
     data_auth_mode: str = field(default_factory=lambda: _env("LIB_DATA_AUTH_MODE", "service_account"))
     data_auth_id: str = field(default_factory=lambda: _env("LIB_DATA_AUTH_ID", "mia-bigquery"))
+
+    # --- Data Agent industri (B2B) & laporan industri ------------------------------
+    data_agent_industry: str = field(default_factory=lambda: _env(
+        "LIB_DATA_AGENT_INDUSTRY",
+        "projects/ptpl-land-dev/locations/global/dataAgents/agent_04f517f4-e06b-44e8-b0af-d55792ef5222"))
+    industry_table: str = field(default_factory=lambda: _env(
+        "LIB_INDUSTRY_TABLE", "ptpl-curated-prd.DATAMART.survey_industry"))
+    industry_htd_column: str = field(default_factory=lambda: _env("LIB_INDUSTRY_HTD_COLUMN", "htd_ptpl_plus"))
+    industry_segment_column: str = field(default_factory=lambda: _env("LIB_INDUSTRY_SEGMENT_COLUMN", "channel"))
+    industry_focus_products: tuple = field(default_factory=lambda: (
+        "Meditran SX Plus 15W40|HDDO", "Meditran S|HDDO", "Turalik 52|Hydraulic", "Rored HDA 90|Gear & Trans",
+        "Masri RG 320|Gear & Trans", "Medripal 412|Marine", "Grease Pertamina SGX-NL 2|Grease",
+        "Grease Pertamina EPX NL 2|Grease"))
+    industry_segments: tuple = field(default_factory=lambda: (
+        "Agro", "Construction", "Fleet", "Manufacturing", "Marine", "Mining"))
+    industry_competitors: tuple = field(default_factory=lambda: tuple(
+        p.strip().upper() for p in _env("LIB_INDUSTRY_COMPETITORS", "SHELL").split(",") if p.strip()))
 
     # --- Dashboard daya saing harga (query BigQuery langsung) -------------------
     price_table: str = field(default_factory=lambda: _env(
@@ -137,8 +155,20 @@ settings = Settings()
 # file tersebut setiap 5 menit. Jika file tidak ada atau rusak, nilai .env dipakai.
 logger = logging.getLogger(__name__)
 
+class CaseList(list):
+    """Penanda tipe: daftar yang mempertahankan huruf besar/kecil (mis. nama produk fokus industri)."""
+
+
 RUNTIME_KEYS: dict[str, type] = {
     "agent_name": str,
+    "data_agent": str,
+    "data_agent_industry": str,
+    "industry_table": str,
+    "industry_htd_column": str,
+    "industry_segment_column": str,
+    "industry_focus_products": CaseList,
+    "industry_segments": CaseList,
+    "industry_competitors": list,
     "hero_products": list,
     "status_aman_below": float,
     "status_kritis_above": float,
@@ -185,6 +215,10 @@ def coerce(name: str, value: Any) -> Any:
     """Ubah nilai dari JSON ke tipe yang benar. Nilai tidak valid -> None (pakai .env)."""
     kind = RUNTIME_KEYS.get(name)
     try:
+        if kind is CaseList:
+            items = value.split(",") if isinstance(value, str) else list(value)
+            out = tuple(str(v).strip() for v in items if str(v).strip())
+            return out or None
         if kind is list:
             items = value.split(",") if isinstance(value, str) else list(value)
             out = tuple(str(v).strip().upper() for v in items if str(v).strip())

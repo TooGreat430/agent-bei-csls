@@ -21,6 +21,7 @@ from .config import settings
 logger = logging.getLogger(__name__)
 
 SOURCE_LABEL = "Survey Response Report Retail"
+SOURCE_LABELS = {"retail": "Survey Response Report Retail", "industri": "Survey Response Report Industry"}
 MAX_TABLE_ROWS = 200
 MAX_HISTORY = 3
 
@@ -121,14 +122,15 @@ def classify_error(text: str) -> str:
 
 
 def ask(question: str, history: list[dict[str, str]] | None = None,
-        access_token: str | None = None) -> dict[str, Any]:
+        access_token: str | None = None, agent: str | None = None) -> dict[str, Any]:
     """Kirim pertanyaan ke Data Agent. `history`: [{"question", "answer"}] untuk konteks lanjutan.
 
     `access_token`: token OAuth user; jika diisi, Data Agent dipanggil atas nama user tersebut.
     """
     from google.cloud import geminidataanalytics as gda
 
-    if not settings.data_agent:
+    agent = agent or settings.data_agent
+    if not agent:
         raise RuntimeError("Data Agent belum dikonfigurasi (LIB_DATA_AGENT).")
     messages = []
     for item in (history or [])[-MAX_HISTORY:]:
@@ -141,7 +143,7 @@ def ask(question: str, history: list[dict[str, str]] | None = None,
     request = gda.ChatRequest(
         parent=f"projects/{settings.data_agent_billing_project}/locations/{settings.data_agent_location}",
         messages=messages,
-        data_agent_context=gda.DataAgentContext(data_agent=settings.data_agent),
+        data_agent_context=gda.DataAgentContext(data_agent=agent),
     )
     if access_token:
         from google.oauth2.credentials import Credentials

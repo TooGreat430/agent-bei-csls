@@ -196,7 +196,7 @@ def _render_dashboard(pages: list, meta: dict, fmt: str) -> bytes:
 
 
 def generate_price_dashboard(tool_context: ToolContext, period: str = "", compare_period: str = "",
-                             output_format: str = "", title: str = "") -> dict[str, Any]:
+                             output_format: str = "", title: str = "", file_id: str = "") -> dict[str, Any]:
     """Membuat LAPORAN (dashboard daya saing harga retail) langsung dari data BigQuery.
 
     Ini SATU-SATUNYA cara membuat laporan. Gunakan untuk semua permintaan laporan, termasuk
@@ -204,7 +204,9 @@ def generate_price_dashboard(tool_context: ToolContext, period: str = "", compar
 
     Args:
         period: Periode utama. Format: "2026-Q3", "2026-07", atau rentang "2026-04:2026-06".
-            Kosongkan jika user tidak menyebut periode; periode diambil dari insight di chat.
+            Kosongkan jika user tidak menyebut periode; periode diambil dari insight di chat (atau bulan
+            terakhir di file jika file_id diisi).
+        file_id: Isi (mis. "f1") jika laporan dibuat dari FILE unggahan format survei retail, bukan BigQuery.
         compare_period: Periode pembanding (opsional, HANYA jika user meminta perbandingan), format sama.
         output_format: "pdf", "pptx" (PowerPoint), atau "html". Kosongkan jika user belum menyebut.
         title: Judul laporan (opsional).
@@ -212,9 +214,18 @@ def generate_price_dashboard(tool_context: ToolContext, period: str = "", compar
     from .. import price_dashboard, price_data
     from ..config import live, settings
 
+    frame, entry = (None, None)
+    if file_id.strip():
+        frame, entry = _file_frame(tool_context, file_id.strip(), "retail")
+        if frame is None:
+            return {"status": "error", "message": entry}
+        if not period.strip():
+            period = _latest_month(frame)
     if not period.strip():
         texts = []
         for it in insights.list_full(tool_context.state):
+            if it.get("source") != "bigquery":
+                continue
             texts += [it.get("title", ""), it.get("content", ""), " ".join(it.get("citations") or []),
                       ((it.get("data") or {}).get("question") or "")]
         period = price_data.infer_period(texts) or ""
@@ -232,12 +243,19 @@ def generate_price_dashboard(tool_context: ToolContext, period: str = "", compar
         return {"status": "error", "message": str(exc)}
     heroes = list(live("hero_products") or settings.hero_products)
     try:
-        agg, monthly = price_data.fetch(pa, pb, heroes, live("price_table") or settings.price_table)
+        if frame is not None:
+            from .. import data_engine as de
+
+            agg, monthly = de.retail_report_rows(frame, pa, pb, heroes)
+        else:
+            agg, monthly = price_data.fetch(pa, pb, heroes, live("price_table") or settings.price_table)
     except Exception as exc:  # noqa: BLE001
         logger.exception("Query dashboard gagal")
         hint = " Service account agent belum punya akses ke tabel BigQuery." if "403" in str(exc) or "Access Denied" in str(exc) else ""
         return {"status": "error", "message": f"Data BigQuery tidak bisa diambil.{hint}", "detail": str(exc)[:300]}
     dataset = price_data.build_dataset(agg, monthly, heroes, pa, pb, live("status_aman_below"), live("status_kritis_above"))
+    if entry:
+        dataset["source_label"] = f"File unggahan {entry['filename']}"
     if not dataset["has_data"]:
         return {"status": "error", "message": f"Tidak ada data survei untuk periode {pa['label']}. Coba periode lain."}
     has_b = any(r["PERIOD"] == "B" for r in agg)
@@ -312,5 +330,145 @@ generate_report = _logged(generate_report)
 generate_price_dashboard = _logged(generate_price_dashboard)
 preview_report_template = _logged(preview_report_template)
 preview_price_dashboard = _logged(preview_price_dashboard)
-# Template laporan dokumen (BEI/CSLS) dinonaktifkan sementara: agent laporan hanya membuat dashboard.
-REPORT_TOOLS = [generate_price_dashboard, preview_price_dashboard]
+INDUSTRY_ID = "daya_saing_harga_industri"
+
+
+def _file_frame(tool_context: ToolContext, file_id: str, expected_kind: str):
+    """Frame file unggahan yang sudah diberi aturan bisnis. Mengembalikan (frame, entry) atau (None, pesan)."""
+    from .. import data_engine as de
+    from ..config import live
+
+    entry = next((f for f in tool_context.state.get("data_files", []) if f["file_id"] == file_id), None)
+    if not entry:
+        return None, f"File {file_id} tidak ada di chat ini."
+    df, _ = de.load_frame(entry["uri"], entry["filename"], entry.get("sheet"))
+    kind = de.detect_kind(df)
+    if kind != expected_kind:
+        return None, (f"File {entry['filename']} bukan format survei {expected_kind} (terdeteksi: {kind}); "
+                      "laporan template ini tidak bisa dibuat dari file tersebut.")
+    prepared, _ = de.prepare(df, kind, list(live("hero_products") or [])
+                             )
+    return prepared, entry
+
+
+def _latest_month(df) -> str:
+    months = sorted(m for m in df.get("PERIODE", []).dropna().unique() if isinstance(m, str) and len(m) == 7) \
+        if "PERIODE" in df.columns else []
+    return months[-1] if months else ""
+
+
+def _industry_period(tool_context: ToolContext, period: str) -> str:
+    from .. import price_data
+
+    if period.strip():
+        return period
+    texts = []
+    for it in insights.list_full(tool_context.state):
+        if it.get("source") == "bigquery_industri":
+            texts += [it.get("title", ""), it.get("content", ""), ((it.get("data") or {}).get("question") or "")]
+    found = price_data.infer_period(texts) or ""
+    return found.split(":")[-1] if ":" in found else ("" if "Q" in found else found)
+
+
+def generate_industry_report(tool_context: ToolContext, period: str = "", output_format: str = "",
+                             competitor: str = "", title: str = "", file_id: str = "") -> dict[str, Any]:
+    """Membuat laporan "Price Competitiveness Analysis — B2B Segment" (INDUSTRI) dari survei industri BigQuery.
+
+    One-pager: tombol Early/Next Stage, KPI per kategori produk & segmen customer, matriks gap per zona
+    dan per segmen customer (Agro, Construction, Fleet, Manufacturing, Marine, Mining), executive summary.
+    Gap (%) = (harga kompetitor − HTD PTPL+3%) / HTD PTPL+3%; POSITIF = PTPL kompetitif.
+
+    Args:
+        period: Bulan laporan "YYYY-MM" (mis. "2026-08"). Dibandingkan otomatis dengan bulan sebelumnya.
+            Kosongkan jika user tidak menyebut; diambil dari insight industri di chat.
+        output_format: "pdf", "pptx", atau "html". Kosongkan jika user belum menyebut.
+        competitor: Merek pembanding (default dari pengaturan, mis. SHELL).
+        title: Judul laporan (opsional).
+        file_id: Isi (mis. "f1") jika laporan dibuat dari FILE unggahan format survei industri, bukan BigQuery.
+    """
+    from .. import industry_data as idm
+    from .. import industry_report as ir
+    from ..config import live
+
+    frame, entry = (None, None)
+    if file_id.strip():
+        frame, entry = _file_frame(tool_context, file_id.strip(), "industri")
+        if frame is None:
+            return {"status": "error", "message": entry}
+        if not period.strip():
+            period = _latest_month(frame)
+    period = _industry_period(tool_context, period)
+    if not period:
+        return {"status": "needs_input", "message": "Tanyakan ke user bulan laporannya (mis. Agustus 2026)."}
+    fmt = report_engine.normalize_format(output_format)
+    if not fmt:
+        return {"status": "needs_input", "available_formats": ["pdf", "pptx", "html"],
+                "message": "Tanyakan ke user format yang diinginkan: PDF, PowerPoint, atau HTML (dengan tombol stage)."}
+    try:
+        pa = idm.month_period(period)
+        pb = idm.month_period(idm.previous_month(pa["months"][0]))
+    except ValueError as exc:
+        return {"status": "error", "message": str(exc)}
+    comps = [competitor.strip().upper()] if competitor.strip() else list(live("industry_competitors") or ["SHELL"])
+    try:
+        if frame is not None:
+            from .. import data_engine as de
+
+            rows = de.industry_report_rows(frame, pa, pb, live("industry_htd_column"),
+                                           live("industry_segment_column") or "channel")
+        else:
+            rows = idm.fetch(pa, pb, live("industry_table"), live("industry_htd_column"),
+                             live("industry_segment_column") or "channel")
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("Query industri gagal")
+        hint = " Service account agent belum punya akses ke tabel survei industri." if "403" in str(exc) or "Access Denied" in str(exc) else ""
+        return {"status": "error", "message": f"Data survei industri tidak bisa diambil.{hint}", "detail": str(exc)[:300]}
+    ds = idm.build_dataset(rows, list(live("industry_focus_products")), comps, pa, pb,
+                           segments_focus=list(live("industry_segments") or []))
+    if entry:
+        ds["source_label"] = f"File unggahan {entry['filename']}"
+    if not ds["has_data"]:
+        msg = f"Tidak ada data survei industri untuk {pa['label']} dengan pembanding {', '.join(comps)}."
+        if ds["unmatched"]:
+            msg += " Nama produk di data tidak cocok dengan daftar produk fokus; contoh: " + ", ".join(ds["unmatched"][:5])
+        return {"status": "error", "message": msg}
+    company = live("company_name")
+    narr = ir.generate_narrative(ds, comps[0])
+    title = title.strip() or f"Price Competitiveness B2B {pa['label']}"
+    meta = {"report_title": title, "company": company, "competitor": comps[0]}
+    data = ir.RENDERERS[fmt](ds, narr, meta)
+    links = report_engine.save_output(get_user_id(tool_context), INDUSTRY_ID, title, data, fmt, CONTENT_TYPES[fmt],
+                                      record={"source": "bigquery_industri", "periode": pa["label"]})
+    note = ""
+    if ds["unmatched"]:
+        note = f" Catatan: {len(ds['unmatched'])} nama produk di data tidak termasuk produk fokus dan tidak dihitung."
+    return {"status": "ok", "report_title": title, **links, "message": "Laporan industri siap." + note}
+
+
+def preview_industry_report(tool_context: ToolContext, output_format: str = "") -> dict[str, Any]:
+    """Contoh tampilan laporan industri (B2B) dengan DATA ILUSTRASI (bukan data asli).
+
+    Args:
+        output_format: "pdf", "pptx", atau "html". Kosongkan jika user belum menyebut.
+    """
+    from .. import industry_data as idm
+    from .. import industry_report as ir
+
+    fmt = report_engine.normalize_format(output_format)
+    if not fmt:
+        return {"status": "needs_input", "available_formats": ["pdf", "pptx", "html"],
+                "message": "Tanyakan ke user format contoh yang diinginkan (PDF, PowerPoint, atau HTML)."}
+    pa, pb = idm.month_period("2026-08"), idm.month_period("2026-07")
+    ds = idm.build_dataset(ir.sample_rows(), idm.DEFAULT_FOCUS, ["SHELL"], pa, pb)
+    title = "CONTOH TAMPILAN - Price Competitiveness B2B (ILUSTRASI)"
+    meta = {"report_title": title, "company": "PT Pertamina Lubricants", "competitor": "SHELL"}
+    data = ir.RENDERERS[fmt](ds, {}, meta)
+    links = report_engine.save_output(get_user_id(tool_context), INDUSTRY_ID, title, data, fmt, CONTENT_TYPES[fmt],
+                                      record={"preview": True})
+    return {"status": "ok", "report_title": title, **links, "message": "Ini contoh tampilan dengan angka ilustrasi, bukan data asli."}
+
+
+# Template laporan dokumen (BEI/CSLS) dinonaktifkan sementara.
+generate_industry_report = _logged(generate_industry_report)
+preview_industry_report = _logged(preview_industry_report)
+REPORT_TOOLS = [generate_price_dashboard, preview_price_dashboard, generate_industry_report, preview_industry_report]

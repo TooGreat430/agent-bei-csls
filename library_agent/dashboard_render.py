@@ -159,7 +159,7 @@ def _watch_html(items: list[dict]) -> str:
             f'<b>{_e(v)}</b></div>' for m, v, t in zip(w["months"], w["values"], w["tones"]))
         brand = f'<span class="brand">{_e(w["brand"])}</span>' if w["brand"] else ""
         out += (f'<div class="watch"><div class="wt"><span>{_e(w["product"])}</span>{brand}</div>'
-                f'<div class="wm">{_e(w["segment"])} · {_e(w["metric"])} = PTPL − produk ini (IDR/L)</div>'
+                f'<div class="wm">{_e(w.get("subtitle") or (w["segment"] + " · " + w["metric"] + " = PTPL − produk ini (IDR/L)"))}</div>'
                 f'<div class="wstats">{stats}</div><div class="wmonths">{months}</div>'
                 f'<div class="wcap">{_e(w["caption"])}</div></div>')
     return out
@@ -458,7 +458,7 @@ def render_pdf(pages: list[dict[str, Any]], meta: dict[str, Any]) -> bytes:
                          colWidths=[w - 40, 34])
             head.setStyle(TableStyle([("BACKGROUND", (1, 0), (1, 0), hx(C["high"])), ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
                                       ("TOPPADDING", (0, 0), (-1, -1), 0), ("BOTTOMPADDING", (0, 0), (-1, -1), 0)]))
-            sub = para(f"{it['segment']} · {it['metric']} = PTPL − produk ini (IDR/L)", 5.2, C["muted"])
+            sub = para(it.get("subtitle") or f"{it['segment']} · {it['metric']} = PTPL − produk ini (IDR/L)", 5.2, C["muted"])
             st = Table([[para(lbl, 4.8, C["muted"], align=1) for lbl, _, _ in it["stats"]],
                         [para(v, 6, TONE.get(t, C["text"]), bold, align=1) for _, v, t in it["stats"]]],
                        colWidths=[(w - 6) / max(len(it["stats"]), 1)] * len(it["stats"]))
@@ -943,7 +943,7 @@ def render_pptx(pages: list[dict[str, Any]], meta: dict[str, Any]) -> bytes:
                             for r_ in p_.runs:
                                 r_.font.size, r_.font.bold, r_.font.name = Pt(5), True, FONT
                                 r_.font.color.rgb = rgb(C["white"])
-                    text(s, x3 + 4, iy + 9, w3 - 8, 8, f"{wv['segment']} · {wv['metric']} = PTPL − produk ini", 5.1, C["muted"])
+                    text(s, x3 + 4, iy + 9, w3 - 8, 8, wv.get("subtitle") or f"{wv['segment']} · {wv['metric']} = PTPL − produk ini", 5.1, C["muted"])
                     sw = (w3 - 8) / max(len(wv["stats"]), 1)
                     for si, (lbl, v, t) in enumerate(wv["stats"]):
                         rect(s, x3 + 4 + si * sw, iy + 17, sw - 2, 13, C["light"])

@@ -12,6 +12,7 @@ from .config import settings
 from .llm import make_model
 from .prompts import ROOT_INSTRUCTION, with_agent_name
 from .subagents.data import data_agent
+from .subagents.files import file_agent
 from .subagents.report import report_agent
 from .subagents.research import research_agent
 
@@ -22,7 +23,7 @@ root_agent = LlmAgent(
     model=make_model(settings.model_fast),
     description="Marketing Insight Assistant, agent serba bisa: perpustakaan dokumen BEI/CSLS, data pasar BigQuery (Marketing Intelligence), insight, dan laporan PDF/PPT/HTML dari template.",
     instruction=with_agent_name(ROOT_INSTRUCTION),
-    sub_agents=[research_agent, data_agent, report_agent],
+    sub_agents=[research_agent, data_agent, file_agent, report_agent],
     before_agent_callback=capture_uploads,
     after_agent_callback=ensure_reply,
 )

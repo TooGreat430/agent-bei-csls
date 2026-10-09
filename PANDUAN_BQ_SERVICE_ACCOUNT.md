@@ -77,6 +77,11 @@ Jika `settings.json` di bucket pernah diberi `"data_auth_mode": "user"`, ubah me
 | 12 | `Buatkan dashboard harga Juli 2026 saja dalam PowerPoint.` | 9 slide tanpa kolom tren (tanpa pembanding) |
 | 13 | Cocokkan beberapa angka gap Hero di dashboard dengan jawaban Data Agent untuk pertanyaan yang sama | Sama (pembulatan boleh beda ±1) |
 
+| 14 | `Berapa rata-rata gap harga Shell vs HTD PTPL+3% untuk produk fokus di channel Mining pada Agustus 2026, main stage EARLY?` | Dijawab dari data **industri**, sumber "Survey Response Report Industry", gap dalam % |
+| 15 | `Buatkan contoh laporan industri dalam HTML.` | One-pager B2B ilustrasi dengan tombol Early/Next Stage |
+| 16 | `Buatkan laporan price competitiveness B2B Agustus 2026 dalam PDF.` | PDF 2 halaman (Early & Next) dari data asli |
+| 17 | `Buatkan laporan dalam PDF.` (tanpa konteks) | Agent **bertanya** laporan retail atau industri |
+
 Skenario lanjutan: `PANDUAN_TESTING.md` Bagian 8–9.
 
 ---
