@@ -173,7 +173,36 @@ def _safe(func):
     return wrapper
 
 
+def ask_retail_intelligence(question: str, tool_context: ToolContext) -> dict[str, Any]:
+    """Data survei RETAIL (outlet/bengkel) lewat Data Agent "Retail Marketing Intelligence".
+
+    Untuk: harga jual, harga tebus, HET, HTO, gap harga Rp/L (negatif = PTPL lebih murah), margin bengkel, TOV,
+    Product Hero, KIMAP, segmen MCO/PCO/Commercial/Gear, tipe outlet, lokasi outlet.
+
+    Args:
+        question: Pertanyaan user dalam bahasa alami, lengkap dengan konteks dari percakapan
+            (periode, zona, produk yang sedang dibahas).
+    """
+    return ask_marketing_intelligence(question, tool_context, domain="retail")
+
+
+def ask_industry_intelligence(question: str, tool_context: ToolContext) -> dict[str, Any]:
+    """Data survei INDUSTRI/B2B lewat Data Agent "Industry Marketing Intelligence".
+
+    Untuk: channel (Agro, Construction, Fleet, Manufacturing, Marine, Mining, dll.), main stage EARLY/NEXT,
+    HTD (Harga Tebus Distributor), gap % terhadap HTD+3% (positif = PTPL kompetitif), produk fokus B2B
+    (Meditran, Turalik, Rored HDA, Masri, Medripal, Grease), harga kompetitor per liter.
+
+    Args:
+        question: Pertanyaan user dalam bahasa alami, lengkap dengan konteks dari percakapan
+            (periode, channel, zona, main stage, produk).
+    """
+    return ask_marketing_intelligence(question, tool_context, domain="industri")
+
+
 ask_marketing_intelligence = _safe(ask_marketing_intelligence)
+ask_retail_intelligence = _safe(ask_retail_intelligence)
+ask_industry_intelligence = _safe(ask_industry_intelligence)
 create_chart = _safe(create_chart)
 save_data_insight = _safe(save_data_insight)
-DATA_TOOLS = [ask_marketing_intelligence, create_chart, save_data_insight]
+DATA_TOOLS = [ask_retail_intelligence, ask_industry_intelligence, create_chart, save_data_insight]

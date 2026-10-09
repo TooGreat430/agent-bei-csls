@@ -135,3 +135,13 @@ class RealDataPatternsTest(unittest.TestCase):
         focus = idm.parse_focus(idm.DEFAULT_FOCUS)
         self.assertEqual(idm.match_product("Grease Pertamina EPX NL 2", focus), "Grease Pertamina EPX NL 2")
         self.assertEqual(idm.match_product("Grease Pertamina SGX-NL 2", focus), "Grease Pertamina SGX-NL 2")
+
+
+class DataToolNamesTest(unittest.TestCase):
+    def test_two_named_data_tools(self):
+        from library_agent.tools.data_tools import DATA_TOOLS
+
+        names = [t.__name__ for t in DATA_TOOLS]
+        self.assertIn("ask_retail_intelligence", names)
+        self.assertIn("ask_industry_intelligence", names)
+        self.assertNotIn("ask_marketing_intelligence", names)

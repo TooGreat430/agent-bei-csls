@@ -5,7 +5,7 @@ from ..callbacks import capture_uploads, ensure_reply
 from ..config import settings
 from ..llm import make_model
 from ..prompts import RESEARCH_INSTRUCTION, with_agent_name
-from ..tools.data_tools import ask_marketing_intelligence
+from ..tools.data_tools import ask_industry_intelligence, ask_retail_intelligence
 from ..tools.library_tools import RESEARCH_TOOLS
 
 research_agent = LlmAgent(
@@ -16,7 +16,7 @@ research_agent = LlmAgent(
         "menjawab pertanyaan hanya dari dokumen aktif dengan sitasi, dan menyimpan insight."
     ),
     instruction=with_agent_name(RESEARCH_INSTRUCTION),
-    tools=[*RESEARCH_TOOLS, ask_marketing_intelligence],
+    tools=[*RESEARCH_TOOLS, ask_retail_intelligence, ask_industry_intelligence],
     before_agent_callback=capture_uploads,
     after_agent_callback=ensure_reply,
     disallow_transfer_to_parent=True,
