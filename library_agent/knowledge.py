@@ -44,22 +44,38 @@ def _find(node: Any, key: str) -> list:
     return out
 
 
+CONTEXT_KEYS = ("published_context", "publishedContext", "last_published_context", "lastPublishedContext",
+                "staging_context", "stagingContext")
+
+
+def has_content(k: dict) -> bool:
+    return bool(k.get("instruction") or k.get("examples") or k.get("glossary"))
+
+
 def parse_definition(raw: dict) -> dict[str, Any]:
-    """Ambil instruksi, glossary, dan contoh query dari definisi Data Agent (struktur dict)."""
-    published = (_find(raw, "published_context") or [None])[0] or raw
-    instructions = [s for key in ("system_instruction", "system_instructions")
+    """Instruksi, glossary, dan contoh query dari definisi Data Agent: published -> last published -> staging -> semua."""
+    candidates = [c for key in CONTEXT_KEYS for c in _find(raw, key) if isinstance(c, dict) and c]
+    for ctx in candidates + [raw]:
+        parsed = _parse_context(ctx)
+        if has_content(parsed):
+            return parsed
+    return _parse_context(raw)
+
+
+def _parse_context(published: dict) -> dict[str, Any]:
+    instructions = [s for key in ("system_instruction", "system_instructions", "systemInstruction")
                     for s in _find(published, key) if isinstance(s, str) and s.strip()]
     glossary = []
-    for g in _find(published, "glossary_terms"):
+    for g in _find(published, "glossary_terms") + _find(published, "glossaryTerms"):
         for item in g if isinstance(g, list) else [g]:
             if isinstance(item, str):
                 glossary.append(item)
             elif isinstance(item, dict):
-                term = item.get("display_name") or item.get("term") or ""
+                term = item.get("display_name") or item.get("displayName") or item.get("term") or ""
                 desc = item.get("description") or item.get("definition") or ""
                 glossary.append(f"{term}: {desc}".strip(": "))
     examples = []
-    for e in _find(published, "example_queries"):
+    for e in _find(published, "example_queries") + _find(published, "exampleQueries"):
         if isinstance(e, dict) and not ({"natural_language_question", "sql_query", "question", "sql"} & set(e)):
             # Format agent card: {"pertanyaan": ["SQL", ...]}
             for q, sqls in e.items():
@@ -68,8 +84,9 @@ def parse_definition(raw: dict) -> dict[str, Any]:
             continue
         for item in e if isinstance(e, list) else [e]:
             if isinstance(item, dict):
-                q = item.get("natural_language_question") or item.get("question") or ""
-                sql = item.get("sql_query") or item.get("sql") or ""
+                q = (item.get("natural_language_question") or item.get("naturalLanguageQuestion")
+                     or item.get("question") or "")
+                sql = item.get("sql_query") or item.get("sqlQuery") or item.get("sql") or ""
                 if q or sql:
                     examples.append({"question": q, "sql": sql})
     tables = []
@@ -80,6 +97,19 @@ def parse_definition(raw: dict) -> dict[str, Any]:
         tables.extend(x for x in (t if isinstance(t, list) else [t]) if isinstance(x, str))
     return {"instruction": "\n\n".join(instructions), "glossary": glossary, "examples": examples,
             "tables": sorted(set(tables))}
+
+
+def fetch_raw(agent: str) -> dict:
+    """Definisi Data Agent mentah (dict) dari API — untuk diagnosa."""
+    from google.cloud import geminidataanalytics as gda
+
+    client_cls = getattr(gda, "DataAgentServiceClient", None)
+    if client_cls is None:
+        from google.cloud import geminidataanalytics_v1beta as gda_beta
+
+        client_cls = gda_beta.DataAgentServiceClient
+    agent_obj = client_cls().get_data_agent(name=agent)
+    return type(agent_obj).to_dict(agent_obj)
 
 
 def _fetch_api(agent: str) -> dict[str, Any]:
@@ -134,12 +164,16 @@ def get(domain: str, force: bool = False) -> dict[str, Any]:
     if agent:
         try:
             data = _fetch_api(agent)
-            data["source"] = "api"
-            data["agent"] = agent
-            data["fetched_at"] = int(now)
-            _write_snapshot(domain, data)
+            data.update(source="api", agent=agent, fetched_at=int(now))
+            if has_content(data):
+                _write_snapshot(domain, data)
+            else:
+                logger.warning("Definisi Data Agent %s terbaca tetapi kosong; memakai salinan", domain)
+                data = {}
         except Exception as exc:  # noqa: BLE001
             logger.warning("Definisi Data Agent %s tidak bisa dibaca (%s); memakai salinan", domain, str(exc)[:200])
+            data = {}
+        if not data:
             data = _read_snapshot(domain) or {}
             if data:
                 data["source"] = "snapshot"

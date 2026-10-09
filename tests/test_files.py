@@ -145,6 +145,25 @@ class KnowledgeCardTest(unittest.TestCase):
         self.assertEqual(k["tables"], ["ptpl-curated-prd.DATAMART.survey_industry"])
 
 
+class KnowledgeContextOrderTest(unittest.TestCase):
+    def test_empty_published_falls_back_to_last_published(self):
+        from library_agent import knowledge
+
+        raw = {"data_analytics_agent": {"published_context": {"datasource_references": {}},
+                                        "last_published_context": {"system_instruction": "ROLE retail"},
+                                        "staging_context": {"system_instruction": "draft"}}}
+        self.assertEqual(knowledge.parse_definition(raw)["instruction"], "ROLE retail")
+
+    def test_camel_case_keys(self):
+        from library_agent import knowledge
+
+        raw = {"dataAnalyticsAgent": {"publishedContext": {"systemInstruction": "ROLE",
+                                                            "exampleQueries": [{"naturalLanguageQuestion": "Q",
+                                                                                "sqlQuery": "SELECT 1"}]}}}
+        k = knowledge.parse_definition(raw)
+        self.assertEqual((k["instruction"], k["examples"][0]["sql"]), ("ROLE", "SELECT 1"))
+
+
 class KnowledgeTest(unittest.TestCase):
     def test_parse_definition(self):
         from library_agent import knowledge

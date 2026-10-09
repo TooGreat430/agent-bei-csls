@@ -1,11 +1,8 @@
 """Cek & siapkan pengetahuan Data Agent (retail & industri) untuk ADK.
 
-1) Cek baca lewat API (default):
-       python scripts/check_knowledge.py
-2) Buat salinan cadangan dari file agent card (JSON yang diberikan tim data):
-       python scripts/check_knowledge.py --from-card retail card_retail.json
-       python scripts/check_knowledge.py --from-card industri card_industri.json
-Salinan disimpan di bucket (config/knowledge_<domain>.json) dan dipakai jika API tidak bisa diakses.
+1) Cek baca lewat API:            python scripts/check_knowledge.py
+2) Diagnosa struktur definisi:     python scripts/check_knowledge.py --dump retail
+3) Salinan dari file agent card:   python scripts/check_knowledge.py --from-card retail card_retail.json
 """
 import json
 import os
@@ -24,18 +21,44 @@ def show(domain, data):
           f"contoh query={len(data.get('examples', []))} · tabel={', '.join(data.get('tables', [])) or '-'}")
 
 
-if len(sys.argv) == 4 and sys.argv[1] == "--from-card":
-    domain, path = sys.argv[2], sys.argv[3]
+def outline(node, path="", depth=0, out=None):
+    out = [] if out is None else out
+    if depth > 6:
+        return out
+    if isinstance(node, dict):
+        for k, v in node.items():
+            outline(v, f"{path}.{k}" if path else k, depth + 1, out)
+    elif isinstance(node, list):
+        out.append(f"{path}  [list, {len(node)} item]")
+        if node:
+            outline(node[0], f"{path}[0]", depth + 1, out)
+    else:
+        text = str(node)
+        out.append(f"{path}  = {text[:60]!r}{'…' if len(text) > 60 else ''} ({len(text)} karakter)")
+    return out
+
+
+args = sys.argv[1:]
+if len(args) == 2 and args[0] == "--dump":
+    domain = args[1]
+    raw = knowledge.fetch_raw(knowledge._agent_for(domain))
+    print("\n".join(outline(raw)))
+    sys.exit(0)
+if len(args) == 3 and args[0] == "--from-card":
+    domain, path = args[1], args[2]
     with open(path, encoding="utf-8") as fh:
         card = json.load(fh)
-    show(domain, knowledge.save_from_card(domain, card))
-    print("Salinan pengetahuan dari agent card tersimpan di bucket.")
+    data = knowledge.save_from_card(domain, card)
+    show(domain, data)
+    print("Salinan pengetahuan dari agent card tersimpan di bucket." if knowledge.has_content(data)
+          else "PERINGATAN: isi agent card kosong — periksa file JSON-nya.")
     sys.exit(0)
 
 ok = True
 for domain in knowledge.DOMAINS:
     data = knowledge.get(domain, force=True)
     show(domain, data)
-    ok = ok and data.get("source") == "api"
-print("\nHASIL:", "OK — definisi Data Agent terbaca langsung lewat API." if ok else
-      "Sebagian belum terbaca lewat API. Tambahkan role Data Agent Viewer, atau buat salinan dengan --from-card.")
+    ok = ok and data.get("source") == "api" and knowledge.has_content(data)
+print("\nHASIL:", "OK — pengetahuan Data Agent terbaca lewat API." if ok else
+      "BELUM OK — isi belum terbaca lewat API. Jalankan '--dump retail' dan kirim hasilnya, "
+      "atau buat salinan dengan '--from-card'.")
