@@ -230,3 +230,42 @@ class TableDisplayTest(unittest.TestCase):
         md = table_to_markdown({"columns": ["QNR", "ZONE", "HJ"], "rows": rows, "total_rows": 18})
         self.assertIn("P17", md)
         self.assertNotIn("menampilkan", md)
+
+
+class ContentValidationTest(unittest.TestCase):
+    """Aturan Data Agent retail: ukuran kemasan dari nama produk mengalahkan CONTENT yang tidak konsisten."""
+
+    def test_file_engine_uses_size_from_product_name(self):
+        df = retail_frame()
+        df.loc[0, "CONTENT"] = 1.0           # salah: nama produk menyebut 0.8 LITER
+        out, notes = de.prepare(df, "retail", HEROES)
+        self.assertEqual(notes["content_dikoreksi_dari_nama_produk"], 1)
+        self.assertAlmostEqual(out["HJ_L"].iloc[0], 60000 / 0.8)
+
+    def test_name_without_size_keeps_content(self):
+        df = retail_frame()
+        df.loc[1, "QNR"] = "AHM MPX2"
+        df.loc[1, "CONTENT"] = 0.8
+        out, _ = de.prepare(df, "retail", HEROES)
+        self.assertAlmostEqual(out[out["QNR"] == "AHM MPX2"]["HJ_L"].iloc[0], 68000 / 0.8)
+
+    def test_dashboard_sql_uses_official_pattern(self):
+        from library_agent import price_data as pdm
+
+        for template in (pdm.AGG_SQL, pdm.MONTHLY_SQL):
+            sql = template.format(table="t", content=pdm.VALID_CONTENT_SQL)
+            self.assertIn(r"REGEXP_EXTRACT(UPPER(QNR), r'\b([0-9]+(?:\.[0-9]+)?)\s*(?:LITER|L)\b')", sql)
+            self.assertNotIn("CAST(CONTENT AS FLOAT64))) AS HET_L", sql.replace(pdm.VALID_CONTENT_SQL, "X"))
+
+
+class KnowledgeLengthTest(unittest.TestCase):
+    def test_long_retail_instruction_not_truncated(self):
+        from library_agent import knowledge
+
+        knowledge._cache["retail"] = (10**12, {"instruction": "A" * 20000 + " AKHIR_INSTRUKSI",
+                                              "examples": [{"question": f"Q{i}", "sql": "SELECT 1"} for i in range(12)],
+                                              "glossary": []})
+        text = knowledge.as_text("retail")
+        self.assertIn("AKHIR_INSTRUKSI", text)
+        self.assertIn("Q11", text)
+        knowledge._cache.pop("retail", None)

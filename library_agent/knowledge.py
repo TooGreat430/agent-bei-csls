@@ -181,7 +181,7 @@ def get(domain: str, force: bool = False) -> dict[str, Any]:
     return data
 
 
-def as_text(domain: str, max_chars: int = 20000) -> str:
+def as_text(domain: str, max_chars: int = 60000) -> str:
     """Pengetahuan dalam bentuk teks untuk instruksi agent."""
     k = get(domain)
     if not k or not (k.get("instruction") or k.get("examples")):
@@ -193,8 +193,8 @@ def as_text(domain: str, max_chars: int = 20000) -> str:
         parts.append("Glossary:\n" + "\n".join(f"- {g}" for g in k["glossary"][:60]))
     if k.get("examples"):
         lines = ["Contoh pertanyaan & query resmi (terjemahkan logikanya ke rencana analisis file):"]
-        for ex in k["examples"][:12]:
-            lines.append(f"- T: {ex['question']}\n  SQL: {' '.join(ex['sql'].split())[:900]}")
+        for ex in k["examples"][:20]:
+            lines.append(f"- T: {ex['question']}\n  SQL: {' '.join(ex['sql'].split())[:2500]}")
         parts.append("\n".join(lines))
     text = "\n\n".join(parts)
     return text[:max_chars]

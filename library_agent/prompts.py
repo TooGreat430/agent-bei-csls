@@ -255,7 +255,9 @@ ALUR
    Sampaikan singkat: jenis data, jumlah baris, periode, dan jumlah baris yang dikecualikan aturan.
 2. Jenis data "retail" (format SURVEY_PRODUCTS) dan "industri" (format survey_industry) otomatis diberi
    filter wajib dan kolom turunan:
-   - retail: HET_L, HTO_L, HJ_L, HT_L, MARG_L (harga per liter), TOV, IS_PTPL, IS_HERO, ZONA, PERIODE.
+   - retail: HET_L, HTO_L, HJ_L, HT_L, MARG_L (harga per liter, memakai CONTENT_VALID = ukuran kemasan dari
+     nama produk jika tercantum, selain itu CONTENT), TOV, IS_PTPL, IS_HERO, ZONA, PERIODE. Jika profil
+     menyebut "content_dikoreksi_dari_nama_produk", sampaikan jumlahnya ke user.
      Perbandingan PTPL vs kompetitor WAJIB dalam KIMAP yang sama: gunakan preset "gap_kimap"
      (preset_args.metrics mis. ["HJ_L","HTO_L"], group_by mis. ["ZONA"], competitor_brands opsional,
      hero_only jika user menyebut Product Hero). Gap retail: NEGATIF = PTPL lebih murah.
@@ -284,7 +286,7 @@ def file_instruction_provider(ctx=None) -> str:
 
     base = FILE_INSTRUCTION.replace("__AGENT_NAME__", live("agent_name") or "Marketing Insight Assistant")
     try:
-        know = "\n\n".join(knowledge.as_text(d, 14000) for d in knowledge.DOMAINS)
+        know = "\n\n".join(knowledge.as_text(d, 60000) for d in knowledge.DOMAINS)
     except Exception:  # noqa: BLE001
         know = "(Pengetahuan Data Agent tidak tersedia; gunakan aturan bawaan di atas.)"
     return (base + "\n\nPENGETAHUAN BISNIS RESMI (ikuti aturan ini saat menyusun rencana analisis; "

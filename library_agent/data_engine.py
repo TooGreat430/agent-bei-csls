@@ -23,6 +23,7 @@ AGGS = {"mean", "sum", "count", "min", "max", "median", "nunique"}
 OPS = {"==", "!=", ">", ">=", "<", "<=", "in", "not in", "contains", "between", "isnull", "notnull"}
 MAX_RESULT_ROWS = 200
 _EXPR_OK = re.compile(r"^[A-Za-z0-9_ .+\-*/()`]+$")
+PACKAGE_SIZE = r"\b([0-9]+(?:\.[0-9]+)?)\s*(?:LITER|L)\b"   # sama dengan verified query Data Agent retail
 _frames: "OrderedDict[str, pd.DataFrame]" = OrderedDict()
 
 
@@ -128,8 +129,17 @@ def prepare(df: pd.DataFrame, kind: str, heroes: list[str] | None = None) -> tup
             if c(f):
                 drop(_txt(out[c(f)]).str.upper() == "DATA USE", f"{f} bukan DATA USE")
         if c("CONTENT"):
-            drop(_num(out[c("CONTENT")]) > 0, "CONTENT kosong/0")
-            content = _num(out[c("CONTENT")])
+            raw_content = _num(out[c("CONTENT")])
+            from_name = (pd.to_numeric(out[c("QNR")].astype(str).str.upper().str.extract(PACKAGE_SIZE)[0], errors="coerce")
+                         if c("QNR") else pd.Series(float("nan"), index=out.index))
+            valid = from_name.where(from_name.notna(), raw_content)
+            fixed = int(((from_name.notna()) & ((from_name - raw_content).abs() > 0.0001)).sum())
+            if fixed:
+                notes["content_dikoreksi_dari_nama_produk"] = fixed
+            out["CONTENT_VALID"] = valid
+            notes["added_columns"].append("CONTENT_VALID")
+            drop(out["CONTENT_VALID"] > 0, "ukuran kemasan kosong/0")
+            content = out["CONTENT_VALID"]
             for src, dst in (("HET", "HET_L"), ("HTO", "HTO_L"), ("HARGA_JUAL", "HJ_L"), ("HARGA_TEBUS", "HT_L"),
                              ("MARGIN_SURVEY", "MARG_L")):
                 if c(src):

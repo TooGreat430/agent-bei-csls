@@ -83,6 +83,11 @@ def month_label(ym: str) -> str:
 # ==========================================================================
 # SQL
 # ==========================================================================
+# Validasi CONTENT (aturan Data Agent retail): jika nama produk (QNR) menyebut ukuran kemasan yang jelas,
+# ukuran itu yang dipakai; selain itu CONTENT. Hanya saat query, data sumber tidak diubah.
+VALID_CONTENT_SQL = ("COALESCE(SAFE_CAST(REGEXP_EXTRACT(UPPER(QNR), r'" + r"\b([0-9]+(?:\.[0-9]+)?)\s*(?:LITER|L)\b"
+                     + "') AS FLOAT64), CAST(CONTENT AS FLOAT64))")
+
 _BASE = """
 base AS (
   SELECT
@@ -93,12 +98,12 @@ base AS (
       WHEN CAST(SALES_REGION_CUSTOMER AS STRING) IN ('1','7') THEN 'Zona 3'
     END AS ZONE_NAME,
     UPPER(SEGMENT) AS SEGMENT, VISCOSITY, KIMAP, UPPER(BRAND) AS BRAND, UPPER(QNR) AS QNR,
-    SAFE_DIVIDE(CAST(HET AS FLOAT64), CAST(CONTENT AS FLOAT64)) AS HET_L, SAFE_DIVIDE(CAST(HARGA_JUAL AS FLOAT64), CAST(CONTENT AS FLOAT64)) AS HJ_L,
-    SAFE_DIVIDE(CAST(HTO AS FLOAT64), CAST(CONTENT AS FLOAT64)) AS HTO_L, SAFE_DIVIDE(CAST(HARGA_TEBUS AS FLOAT64), CAST(CONTENT AS FLOAT64)) AS HT_L,
-    SAFE_DIVIDE(CAST(MARGIN_SURVEY AS FLOAT64), CAST(CONTENT AS FLOAT64)) AS MARG_L
+    SAFE_DIVIDE(CAST(HET AS FLOAT64), {content}) AS HET_L, SAFE_DIVIDE(CAST(HARGA_JUAL AS FLOAT64), {content}) AS HJ_L,
+    SAFE_DIVIDE(CAST(HTO AS FLOAT64), {content}) AS HTO_L, SAFE_DIVIDE(CAST(HARGA_TEBUS AS FLOAT64), {content}) AS HT_L,
+    SAFE_DIVIDE(CAST(MARGIN_SURVEY AS FLOAT64), {content}) AS MARG_L
   FROM `{table}`
   WHERE AVAILABILITY = '1' AND OUTLIER_HTO = 'DATA USE' AND OUTLIER_HET = 'DATA USE'
-    AND KIMAP IS NOT NULL AND CONTENT > 0
+    AND KIMAP IS NOT NULL AND {content} > 0
     AND (SUBSTR(CAST(DT_PR AS STRING), 1, 10) BETWEEN @a_start AND @a_end
          OR SUBSTR(CAST(DT_PR AS STRING), 1, 10) BETWEEN @b_start AND @b_end)
 )"""
@@ -146,8 +151,10 @@ def fetch(period_a: dict[str, Any], period_b: dict[str, Any] | None, heroes: lis
     ]
     config = bigquery.QueryJobConfig(query_parameters=params)
     client = bigquery_client()
-    agg = normalize_rows([dict(r) for r in client.query(AGG_SQL.format(table=table), job_config=config).result()])
-    monthly = normalize_rows([dict(r) for r in client.query(MONTHLY_SQL.format(table=table), job_config=config).result()])
+    agg = normalize_rows([dict(r) for r in client.query(
+        AGG_SQL.format(table=table, content=VALID_CONTENT_SQL), job_config=config).result()])
+    monthly = normalize_rows([dict(r) for r in client.query(
+        MONTHLY_SQL.format(table=table, content=VALID_CONTENT_SQL), job_config=config).result()])
     return agg, monthly
 
 
