@@ -19,17 +19,18 @@ class RuntimeConfigTest(unittest.TestCase):
         config._runtime_cache.update(loaded_at=0.0, data={})
 
     def test_override_from_bucket_file(self):
-        data = {"allowed_doc_types": ["bei", "csls", "Audit"], "max_active_docs": "7",
-                "company_name": "PT Pertamina Lubricants"}
+        data = {"industry_competitors": ["shell", "Castrol"], "planogram_min_carry": "25",
+                "company_name": "PT Pertamina Lubricants", "planogram_default_period": "2026-Q4"}
         with mock.patch.object(config, "_read_runtime_file", return_value=data):
-            self.assertEqual(config.live("allowed_doc_types"), ("BEI", "CSLS", "AUDIT"))
-            self.assertEqual(config.live("max_active_docs"), 7)
+            self.assertEqual(config.live("industry_competitors"), ("SHELL", "CASTROL"))
+            self.assertEqual(config.live("planogram_min_carry"), 25)
             self.assertEqual(config.live("company_name"), "PT Pertamina Lubricants")
+            self.assertEqual(config.live("planogram_default_period"), "2026-Q4")
 
     def test_missing_or_invalid_values_fall_back_to_env(self):
-        with mock.patch.object(config, "_read_runtime_file", return_value={"max_active_docs": "sepuluh"}):
-            self.assertEqual(config.live("max_active_docs"), config.settings.max_active_docs)
-            self.assertEqual(config.live("allowed_doc_types"), config.settings.allowed_doc_types)
+        with mock.patch.object(config, "_read_runtime_file", return_value={"planogram_min_carry": "tiga puluh"}):
+            self.assertEqual(config.live("planogram_min_carry"), config.settings.planogram_min_carry)
+            self.assertEqual(config.live("planogram_table"), config.settings.planogram_table)
 
     def test_file_is_cached(self):
         with mock.patch.object(config, "_read_runtime_file", return_value={}) as reader:
@@ -37,13 +38,25 @@ class RuntimeConfigTest(unittest.TestCase):
             config.live("max_file_mb")
             self.assertEqual(reader.call_count, 1)
 
-    def test_comma_string_for_doc_types(self):
-        self.assertEqual(config.coerce("allowed_doc_types", "BEI, CSLS"), ("BEI", "CSLS"))
+    def test_comma_string_for_competitors(self):
+        self.assertEqual(config.coerce("industry_competitors", "shell, castrol"), ("SHELL", "CASTROL"))
 
-    def test_config_path_next_to_catalog_folder(self):
+    def test_config_path_in_internal_folder(self):
         os.environ.pop("LIB_RUNTIME_CONFIG_PATH", None)
-        with mock.patch.object(config, "settings", mock.Mock(catalog_path="ge-docs-agent/catalog/index.json")):
-            self.assertEqual(config.runtime_config_path(), "ge-docs-agent/config/settings.json")
+        os.environ.pop("LIB_INTERNAL_FOLDER", None)
+        self.assertEqual(config.runtime_config_path(), "ge-docs-agent/config/settings.json")
+
+    def test_library_settings_removed(self):
+        for name in ("allowed_doc_types", "max_active_docs", "source_folder", "doc_type_hints"):
+            self.assertNotIn(name, config.RUNTIME_KEYS)
+            self.assertFalse(hasattr(config.settings, name))
+
+    def test_model_locations(self):
+        from library_agent import clients
+
+        self.assertEqual(config.settings.model_pro, "gemini-4-argon")
+        self.assertEqual(clients.location_for(config.settings.model_pro), config.settings.gemini_location_pro)
+        self.assertEqual(clients.location_for(config.settings.model_fast), config.settings.gemini_location)
 
 
 class AgentNameTest(unittest.TestCase):
@@ -66,7 +79,7 @@ class AgentNameTest(unittest.TestCase):
     def test_all_instructions_have_no_leftover_old_name(self):
         from library_agent import prompts
 
-        for const in ("ROOT_INSTRUCTION", "RESEARCH_INSTRUCTION", "DATA_INSTRUCTION", "REPORT_INSTRUCTION"):
+        for const in ("ROOT_INSTRUCTION", "DATA_INSTRUCTION", "REPORT_INSTRUCTION", "FILE_INSTRUCTION"):
             self.assertNotIn("Document Insight Agent", getattr(prompts, const))
 
 

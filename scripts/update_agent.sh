@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Update agent yang sudah ter-deploy dengan kode terbaru dari repo. Satu perintah:
+# Update agent yang sudah ter-deploy dengan kode terbaru dari repo (update DI TEMPAT). Satu perintah:
 #   bash scripts/update_agent.sh
 # Aman dijalankan berulang kali. Pendaftaran agent di Gemini Enterprise tidak perlu diulang.
 set -euo pipefail
@@ -15,67 +15,48 @@ source .venv/bin/activate
 pip install -q -r requirements.txt
 
 echo "==> 3/6 Rapikan .env"
-[ -f .env ] || { echo "File .env tidak ditemukan. Buat dulu sesuai PANDUAN_SETUP.md Tahap 2."; exit 1; }
+[ -f .env ] || { echo "File .env tidak ditemukan. Salin .env.example menjadi .env lalu isi nilainya."; exit 1; }
 add_if_missing() { grep -q "^$1=" .env || echo "$1=$2" >> .env; }
-# Folder kerja lama (mis. agent-perpustakaan) dibaca dari .env sebelum barisnya dihapus.
-OLD_ROOT=$( (grep '^LIB_CATALOG_PATH=' .env || true) | head -1 | cut -d= -f2- | tr -d '"' | cut -d/ -f1)
-[ "$OLD_ROOT" = "catalog" ] && OLD_ROOT=""
-sed -i -E '/^LIB_(STAGING_PREFIX|TEMPLATE_PREFIX|REPORT_PREFIX|CATALOG_PATH|INSIGHT_PREFIX|LIBRARY_PREFIX)=/d' .env
+set_value() { if grep -q "^$1=" .env; then sed -i -E "s#^$1=.*#$1=$2#" .env; else echo "$1=$2" >> .env; fi; }
+# Pengaturan perpustakaan dokumen (sudah dihapus dari agent) dibuang dari .env.
+sed -i -E '/^LIB_(DATASTORE_ID|SERVING_CONFIG|SEARCH_RESULT_MODE|SEARCH_LOCATION|DOC_TYPES|DOC_TYPE_HINTS|MAX_ACTIVE_DOCS|SOURCE_FOLDER|FOLDER_BATCH_SIZE|TEMPLATE_SOURCE|LOCAL_TEMPLATE_DIR|STAGING_PREFIX|TEMPLATE_PREFIX|CATALOG_PATH|INSIGHT_PREFIX|LIBRARY_PREFIX)=/d' .env
 add_if_missing LIB_INTERNAL_FOLDER "ge-docs-agent"
-add_if_missing LIB_SOURCE_FOLDER "gs://ptpl-ge-bucket/ge-docs-datastore/"
-add_if_missing LIB_FOLDER_BATCH_SIZE "20"
 add_if_missing LIB_MAX_FILE_MB "100"
-unset LIB_STAGING_PREFIX LIB_TEMPLATE_PREFIX LIB_REPORT_PREFIX LIB_CATALOG_PATH LIB_INSIGHT_PREFIX LIB_LIBRARY_PREFIX
+# Model utama Gemini 4 Argon (asia-southeast1); model cepat tetap seperti sebelumnya.
+set_value LIB_MODEL_PRO "${NEW_MODEL_PRO:-gemini-4-argon}"
+set_value LIB_GEMINI_LOCATION_PRO "${NEW_GEMINI_LOCATION_PRO:-asia-southeast1}"
+add_if_missing LIB_MODEL_FAST "gemini-3.5-flash"
+add_if_missing LIB_GEMINI_LOCATION "global"
+# Data Agent & tabel planogram
+add_if_missing LIB_DATA_AGENT_PLANOGRAM "projects/ptpl-land-dev/locations/global/dataAgents/agent_5f69a707-a240-49ea-9c96-dd12493f659c"
+add_if_missing LIB_PLANOGRAM_TABLE "ptpl-curated-prd.DATAMART.VM_PLANOGRAM"
+add_if_missing LIB_PLANOGRAM_DEFAULT_PERIOD "2026-Q3"
 set -a; source .env; set +a
 gcloud config set project "$LIB_PROJECT_ID" >/dev/null 2>&1
-NEW_ROOT="$LIB_INTERNAL_FOLDER"
 B="gs://$LIB_BUCKET"
+CFG="$B/$LIB_INTERNAL_FOLDER/config/settings.json"
 
-echo "==> 4/6 Siapkan folder kerja agent: $B/$NEW_ROOT/"
-if [ -n "$OLD_ROOT" ] && [ "$OLD_ROOT" != "$NEW_ROOT" ] && gcloud storage ls "$B/$OLD_ROOT/" >/dev/null 2>&1; then
-  echo "    Memindahkan isi $OLD_ROOT/ -> $NEW_ROOT/"
-  for SUB in templates insights config reports; do
-    if gcloud storage ls "$B/$OLD_ROOT/$SUB/" >/dev/null 2>&1; then
-      gcloud storage cp -r "$B/$OLD_ROOT/$SUB" "$B/$NEW_ROOT/" >/dev/null
-      echo "      $SUB/ dipindahkan"
-    fi
-  done
-  # Izin baca laporan (IAM condition) yang masih menunjuk folder lama ikut diperbarui.
-  POLICY=$(mktemp)
-  gcloud storage buckets get-iam-policy "$B" --format=json > "$POLICY"
-  if grep -q "objects/$OLD_ROOT/" "$POLICY"; then
-    sed -i "s#objects/$OLD_ROOT/#objects/$NEW_ROOT/#g" "$POLICY"
-    gcloud storage buckets set-iam-policy "$B" "$POLICY" >/dev/null
-    echo "      izin baca laporan diperbarui ke $NEW_ROOT/reports/"
-  fi
-  rm -f "$POLICY"
-  gcloud storage rm -r "$B/$OLD_ROOT/" >/dev/null
-  echo "      folder $OLD_ROOT/ dihapus (katalog dibangun ulang otomatis dari ge-docs-datastore)"
-fi
-# Template baru dari repo diunggah; template yang sudah ada di bucket tidak ditimpa.
-python scripts/upload_templates.py --missing-only | sed 's/^/    /' || true
-if ! gcloud storage ls "$B/$NEW_ROOT/config/settings.json" >/dev/null 2>&1; then
-  gcloud storage cp setup/settings.json "$B/$NEW_ROOT/config/settings.json" >/dev/null && echo "    settings.json diunggah"
-fi
-
-echo "    Memeriksa data store perpustakaan..."
-if ! python - <<'PY' >/dev/null 2>&1
-import sys
-sys.path.insert(0, ".")
-from google.api_core.exceptions import NotFound
-from google.cloud import discoveryengine_v1 as de
-from library_agent.clients import _discovery_client_options, datastore_path
+echo "==> 4/6 Perbarui settings.json di bucket: $CFG"
+# Kunci baru ditambahkan, kunci perpustakaan dokumen dibuang, nilai yang sudah Anda ubah TIDAK ditimpa.
+python - "$CFG" <<'PY'
+import json, subprocess, sys
+cfg = sys.argv[1]
+new = json.load(open("setup/settings.json", encoding="utf-8"))
 try:
-    de.DataStoreServiceClient(client_options=_discovery_client_options()).get_data_store(name=datastore_path())
-except NotFound:
-    sys.exit(1)
+    cur = json.loads(subprocess.run(["gcloud", "storage", "cat", cfg], capture_output=True, text=True, check=True).stdout)
+except Exception:
+    cur = {}
+old_keys = {"allowed_doc_types", "doc_type_hints", "max_active_docs", "source_folder", "folder_batch_size"}
+removed = sorted(k for k in cur if k in old_keys)
+added = sorted(k for k in new if k not in cur)
+merged = {k: v for k, v in cur.items() if k not in old_keys}
+for k in added:
+    merged[k] = new[k]
+open("/tmp/settings_merged.json", "w", encoding="utf-8").write(json.dumps(merged, ensure_ascii=False, indent=2))
+print("    ditambahkan:", ", ".join(added) or "-")
+print("    dibuang    :", ", ".join(removed) or "-")
 PY
-then
-  echo "    Data store belum ada, membuat sekarang (beberapa menit)..."
-  python scripts/setup_datastore.py
-else
-  echo "    Data store sudah ada"
-fi
+gcloud storage cp /tmp/settings_merged.json "$CFG" >/dev/null && echo "    settings.json diperbarui"
 
 echo "==> 5/6 Uji unit"
 python -m unittest discover tests >/dev/null 2>&1 || { python -m unittest discover tests; echo "Uji gagal, update dibatalkan."; exit 1; }

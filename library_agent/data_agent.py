@@ -1,6 +1,6 @@
 """Memanggil Data Agent BigQuery (Conversational Analytics API) dari Marketing Insight Assistant.
 
-Data Agent "Marketing Intelligence" sudah berisi aturan bisnis, glossary, Product Hero, dan
+Tiga Data Agent PTPL (Retail, Industry, Planogram Marketing Intelligence) sudah berisi aturan bisnis, glossary, Product Hero, dan
 verified queries. Agent ini TIDAK menduplikasi aturan itu: setiap pertanyaan data diteruskan
 ke Data Agent (stateless chat dengan referensi data agent), lalu jawaban teks dan tabel hasil
 query dikembalikan untuk ditampilkan, disimpan sebagai insight, dan dipakai di laporan.
@@ -21,7 +21,27 @@ from .config import settings
 logger = logging.getLogger(__name__)
 
 SOURCE_LABEL = "Survey Response Report Retail"
-SOURCE_LABELS = {"retail": "Survey Response Report Retail", "industri": "Survey Response Report Industry"}
+SOURCE_LABELS = {"retail": "Survey Response Report Retail", "industri": "Survey Response Report Industry",
+                 "planogram": "Planogram Marketing Intelligence (VM_PLANOGRAM)"}
+DOMAINS = ("retail", "industri", "planogram")
+DOMAIN_SETTING = {"retail": "data_agent", "industri": "data_agent_industry", "planogram": "data_agent_planogram"}
+INSIGHT_SOURCE = {"retail": "bigquery", "industri": "bigquery_industri", "planogram": "bigquery_planogram"}
+
+
+def normalize_domain(value: str) -> str:
+    """'industry'/'b2b' -> 'industri', 'planogram'/'rak'/'vm' -> 'planogram', lainnya -> 'retail'."""
+    v = str(value or "").strip().lower()
+    if v in ("industri", "industry", "b2b"):
+        return "industri"
+    if v in ("planogram", "rak", "vm", "vm_planogram", "visual merchandising"):
+        return "planogram"
+    return "retail"
+
+
+def agent_for(domain: str) -> str:
+    from .config import live
+
+    return live(DOMAIN_SETTING[normalize_domain(domain)]) or ""
 MAX_TABLE_ROWS = 200
 MAX_HISTORY = 3
 

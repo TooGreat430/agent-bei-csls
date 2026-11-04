@@ -35,7 +35,7 @@ def numeric_cell(value: Any) -> float | None:
     return parse_number(text) if _NUMERIC_TEXT.match(text) else None
 
 
-_KEEP_UPPER = {"HET", "HTO", "TOV", "PTPL", "QNR", "KIMAP", "HJ", "HT", "NHT", "MCO", "PCO", "SKU", "SR", "NPS", "BEI"}
+_KEEP_UPPER = {"HET", "HTO", "TOV", "PTPL", "QNR", "KIMAP", "HJ", "HT", "NHT", "MCO", "PCO", "SKU", "SR", "NPS", "ND", "AV", "SEGMEN_USAGE"}
 
 
 def pretty_label(column: str) -> str:

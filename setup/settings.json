@@ -1,14 +1,6 @@
 {
   "agent_name": "Marketing Insight Assistant",
   "company_name": "PT Pertamina Lubricants",
-  "allowed_doc_types": [
-    "BEI",
-    "CSLS"
-  ],
-  "doc_type_hints": "BEI: Brand Equity Index - laporan studi ekuitas merek pelumas (brand awareness, brand image, preferensi, brand funnel, perbandingan dengan merek pesaing); CSLS: Customer Satisfaction and Loyalty Survey - laporan survei kepuasan dan loyalitas pelanggan (indeks kepuasan, NPS, loyalitas, evaluasi produk dan layanan)",
-  "max_active_docs": 10,
-  "source_folder": "gs://ptpl-ge-bucket/ge-docs-datastore/",
-  "folder_batch_size": 20,
   "max_file_mb": 100,
   "data_auth_mode": "service_account",
   "data_auth_id": "mia-bigquery",
@@ -32,6 +24,11 @@
   "price_table": "ptpl-curated-prd.DATAMART.SURVEY_PRODUCTS",
   "data_agent": "projects/ptpl-land-dev/locations/global/dataAgents/agent_4df3074b-9d7e-4f9f-993b-b3969b8a2095",
   "data_agent_industry": "projects/ptpl-land-dev/locations/global/dataAgents/agent_04f517f4-e06b-44e8-b0af-d55792ef5222",
+  "data_agent_planogram": "projects/ptpl-land-dev/locations/global/dataAgents/agent_5f69a707-a240-49ea-9c96-dd12493f659c",
+  "planogram_table": "ptpl-curated-prd.DATAMART.VM_PLANOGRAM",
+  "planogram_default_period": "2026-Q3",
+  "planogram_carry_ratio_line": 70,
+  "planogram_min_carry": 30,
   "industry_table": "ptpl-curated-prd.DATAMART.survey_industry",
   "industry_htd_column": "htd_ptpl_plus",
   "industry_focus_products": [

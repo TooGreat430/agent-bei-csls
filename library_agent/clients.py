@@ -1,7 +1,8 @@
-"""Client Google Cloud yang dibuat sekali (lazy) dan helper konteks ADK."""
+"""Client Google Cloud yang dibuat sekali (lazy) dan helper konteks ADK / Cloud Storage."""
 from __future__ import annotations
 
 import functools
+import re
 from typing import Any
 
 from .config import settings
@@ -10,14 +11,6 @@ from .config import settings
 # --------------------------------------------------------------------------
 # Client GCP
 # --------------------------------------------------------------------------
-def _discovery_client_options():
-    from google.api_core.client_options import ClientOptions
-
-    if settings.search_location == "global":
-        return None
-    return ClientOptions(api_endpoint=f"{settings.search_location}-discoveryengine.googleapis.com")
-
-
 @functools.lru_cache(maxsize=1)
 def storage_client():
     from google.cloud import storage
@@ -33,50 +26,43 @@ def bigquery_client():
     return bigquery.Client(project=project)
 
 
-@functools.lru_cache(maxsize=1)
-def search_client():
-    from google.cloud import discoveryengine_v1 as de
-
-    return de.SearchServiceClient(client_options=_discovery_client_options())
-
-
-@functools.lru_cache(maxsize=1)
-def document_client():
-    from google.cloud import discoveryengine_v1 as de
-
-    return de.DocumentServiceClient(client_options=_discovery_client_options())
-
-
-@functools.lru_cache(maxsize=1)
-def genai_client():
+@functools.lru_cache(maxsize=4)
+def genai_client(location: str = ""):
+    """Client Gemini (Vertex AI). Lokasi bisa berbeda per model (mis. Argon di asia-southeast1)."""
     from google import genai
 
-    return genai.Client(
-        vertexai=True, project=settings.project_id, location=settings.gemini_location
-    )
+    return genai.Client(vertexai=True, project=settings.project_id, location=location or settings.gemini_location)
+
+
+def location_for(model: str) -> str:
+    """Lokasi endpoint untuk sebuah model: model utama memakai LIB_GEMINI_LOCATION_PRO."""
+    if model and model == settings.model_pro and model != settings.model_fast:
+        return settings.gemini_location_pro
+    return settings.gemini_location
 
 
 # --------------------------------------------------------------------------
-# Nama resource Discovery Engine
+# Cloud Storage
 # --------------------------------------------------------------------------
-def datastore_path() -> str:
-    return (
-        f"projects/{settings.project_id}/locations/{settings.search_location}"
-        f"/collections/default_collection/dataStores/{settings.datastore_id}"
-    )
-
-
-def branch_path() -> str:
-    return f"{datastore_path()}/branches/default_branch"
-
-
-def serving_config_path() -> str:
-    return f"{datastore_path()}/servingConfigs/{settings.serving_config_id}"
-
-
 def gcs_console_url(bucket: str, blob_path: str) -> str:
     """URL unduhan terautentikasi (user perlu izin baca di bucket)."""
     return f"https://storage.cloud.google.com/{bucket}/{blob_path}"
+
+
+def parse_gcs_uri(uri: str) -> tuple[str, str]:
+    """'gs://bucket/a/b.csv' -> ('bucket', 'a/b.csv')."""
+    if not uri.startswith("gs://"):
+        raise ValueError(f"Bukan URI GCS: {uri}")
+    bucket, _, path = uri[5:].partition("/")
+    if not bucket or not path:
+        raise ValueError(f"URI GCS tidak lengkap: {uri}")
+    return bucket, path
+
+
+def safe_filename(name: str) -> str:
+    """Nama file aman untuk Cloud Storage (huruf, angka, titik, minus, garis bawah)."""
+    base = re.sub(r"[^A-Za-z0-9._-]+", "_", (name or "").strip()).strip("._") or "file"
+    return base[:120]
 
 
 # --------------------------------------------------------------------------

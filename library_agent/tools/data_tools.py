@@ -1,4 +1,4 @@
-"""Tool ADK untuk data BigQuery lewat Data Agent "Marketing Intelligence"."""
+"""Tool ADK untuk data BigQuery lewat tiga Data Agent PTPL: Retail, Industry, dan Planogram Marketing Intelligence."""
 from __future__ import annotations
 
 import logging
@@ -18,28 +18,40 @@ CHART_KEY = "bq_last_chart"
 PENDING_CHART_KEY = "bq_pending_chart"
 
 
-def ask_marketing_intelligence(question: str, tool_context: ToolContext, domain: str = "retail") -> dict[str, Any]:
-    """Menjawab pertanyaan data survei BigQuery lewat Data Agent PTPL (retail atau industri).
+def history_key(domain: str) -> str:
+    return HISTORY_KEY if domain == "retail" else f"{HISTORY_KEY}_{domain}"
 
-    domain "retail": survei outlet/bengkel — harga jual/tebus, HET, HTO, gap Rp/L, margin, TOV,
-        Product Hero, KIMAP, segmen MCO/PCO/Commercial/Gear.
-    domain "industri": survei industri/B2B — channel (Agro, Construction, Fleet, Manufacturing, Marine,
-        Mining), main stage EARLY/NEXT, HTD (Harga Tebus Distributor), gap % vs HTD+3%, produk fokus
-        B2B (Meditran, Turalik, Rored HDA, Masri, Medripal, Grease).
+
+def ask_marketing_intelligence(question: str, tool_context: ToolContext, domain: str = "retail") -> dict[str, Any]:
+    """Menjawab pertanyaan data survei BigQuery lewat Data Agent PTPL (retail, industri, atau planogram).
 
     Args:
-        question: Pertanyaan user dalam bahasa alami, lengkap dengan konteks yang relevan dari
-            percakapan (mis. periode, zona, produk yang sedang dibahas).
-        domain: "retail" atau "industri". Jika tidak jelas dari pertanyaan, TANYAKAN ke user dulu.
+        question: Pertanyaan user dalam bahasa alami, lengkap dengan konteks yang relevan dari percakapan.
+        domain: "retail", "industri", atau "planogram". Jika tidak jelas dari pertanyaan, TANYAKAN ke user dulu.
 
     Returns:
         answer (teks dari Data Agent), tables (tabel markdown hasil query), source.
     """
-    domain = "industri" if str(domain).strip().lower() in ("industri", "industry", "b2b") else "retail"
-    agent = live("data_agent_industry") if domain == "industri" else live("data_agent")
+    result = pull(question, tool_context, domain)
+    if result.get("status") != "ok":
+        return result
+    return {
+        "status": "ok",
+        "answer": result["answer"],
+        "tables": [data_agent.table_to_markdown(t) for t in result["tables"][:2]],
+        "table_columns": [t["columns"] for t in result["tables"][:2]],
+        "source": data_agent.SOURCE_LABELS[result["domain"]],
+        "domain": result["domain"],
+    }
+
+
+def pull(question: str, tool_context: ToolContext, domain: str = "retail") -> dict[str, Any]:
+    """Tarik data dari Data Agent; dipakai tool tanya-jawab dan laporan custom. Mengembalikan hasil lengkap."""
+    domain = data_agent.normalize_domain(domain)
+    agent = data_agent.agent_for(domain)
     if not agent:
         return {"status": "error", "message": f"Data Agent {domain} belum dikonfigurasi."}
-    hist_key = HISTORY_KEY if domain == "retail" else HISTORY_KEY + "_industri"
+    hist_key = history_key(domain)
     history = list(tool_context.state.get(hist_key, []))
     mode = (live("data_auth_mode") or "service_account").strip().lower()
     token = None
@@ -73,14 +85,7 @@ def ask_marketing_intelligence(question: str, tool_context: ToolContext, domain:
     history.append({"question": question, "answer": result["answer"][:2000]})
     tool_context.state[hist_key] = history[-data_agent.MAX_HISTORY:]
     tool_context.state[LAST_KEY] = dict(data_agent.trim_for_state(result), question=question, domain=domain)
-    return {
-        "status": "ok",
-        "answer": result["answer"],
-        "tables": [data_agent.table_to_markdown(t) for t in result["tables"][:2]],
-        "table_columns": [t["columns"] for t in result["tables"][:2]],
-        "source": data_agent.SOURCE_LABELS[domain],
-        "domain": domain,
-    }
+    return {"status": "ok", "domain": domain, "question": question, **result}
 
 
 def create_chart(x_column: str, y_columns: list[str], tool_context: ToolContext, chart_type: str = "bar",
@@ -149,7 +154,7 @@ def save_data_insight(title: str, content: str, citations: list[str], tool_conte
         label, source = last.get("citation", "File unggahan"), last.get("insight_source", "file")
     else:
         label = data_agent.SOURCE_LABELS[domain]
-        source = "bigquery" if domain == "retail" else "bigquery_industri"
+        source = data_agent.INSIGHT_SOURCE[domain]
     item = insights.save(
         tool_context.state, get_user_id(tool_context),
         title=title, content=content, citations=citations or [f"[{label}]"],
@@ -200,9 +205,25 @@ def ask_industry_intelligence(question: str, tool_context: ToolContext) -> dict[
     return ask_marketing_intelligence(question, tool_context, domain="industri")
 
 
+def ask_planogram_intelligence(question: str, tool_context: ToolContext) -> dict[str, Any]:
+    """Data survei PLANOGRAM / rak outlet lewat Data Agent "Planogram Marketing Intelligence".
+
+    Untuk: outlet carry (exposure outlet, BUKAN market share), ND (numeric distribution) per viskositas, skor
+    availability & visibility (AV, skala 1-5), gap AV PTPL vs kompetitor dalam PAIR_KIMAP, sebaran outlet per
+    region SR1-SR7/zona, segmen MCO/PCO/Commercial & usage, brand kompetitor di rak, whitespace, tren antar kuartal.
+
+    Args:
+        question: Pertanyaan user dalam bahasa alami, lengkap dengan konteks dari percakapan
+            (periode/kuartal, region, segmen, viskositas, KIMAP, brand).
+    """
+    return ask_marketing_intelligence(question, tool_context, domain="planogram")
+
+
 ask_marketing_intelligence = _safe(ask_marketing_intelligence)
 ask_retail_intelligence = _safe(ask_retail_intelligence)
 ask_industry_intelligence = _safe(ask_industry_intelligence)
+ask_planogram_intelligence = _safe(ask_planogram_intelligence)
 create_chart = _safe(create_chart)
 save_data_insight = _safe(save_data_insight)
-DATA_TOOLS = [ask_retail_intelligence, ask_industry_intelligence, create_chart, save_data_insight]
+DATA_TOOLS = [ask_retail_intelligence, ask_industry_intelligence, ask_planogram_intelligence, create_chart,
+              save_data_insight]

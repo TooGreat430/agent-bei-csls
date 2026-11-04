@@ -2,7 +2,7 @@
 
 > Saat ini agent memakai **service account** (`data_auth_mode = service_account`). Ikuti panduan ini hanya jika ingin beralih ke otorisasi per user, lalu set `"data_auth_mode": "user"` di `gs://ptpl-ge-bucket/ge-docs-agent/config/settings.json`.
 
-Marketing Insight Assistant mengambil data BigQuery dengan **akun user yang login**, sama seperti Data Agent *Marketing Intelligence* di Gemini Enterprise. Fitur dokumen, insight, dan laporan tetap memakai service account agent (izinnya sudah lengkap).
+Marketing Insight Assistant mengambil data BigQuery dengan **akun user yang login**, sama seperti Data Agent *Marketing Intelligence* di Gemini Enterprise. File unggahan, insight, dan laporan tetap memakai service account agent. Catatan: laporan TEMPLATE (retail, industri, planogram) meng-query tabel BigQuery langsung dengan service account, jadi izin tabel untuk service account tetap diperlukan (lihat PANDUAN_IAM.md).
 
 | Item | Nilai |
 |---|---|

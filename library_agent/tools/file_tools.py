@@ -14,7 +14,14 @@ from .data_tools import CHART_KEY, LAST_KEY
 logger = logging.getLogger(__name__)
 FILES_KEY = "data_files"
 KIND_LABEL = {"retail": "format Survei Retail (SURVEY_PRODUCTS)", "industri": "format Survei Industri (survey_industry)",
-              "lainnya": "format umum"}
+              "planogram": "format Survei Planogram / rak outlet (VM_PLANOGRAM)", "lainnya": "format umum"}
+KNOWLEDGE_KEY = "file_knowledge_domains"
+RULES = {
+    "retail": "filter wajib (AVAILABILITY=1, outlier DATA USE), harga per liter, zona, KIMAP, Product Hero",
+    "industri": "filter data_status OK, gap % terhadap HTD+3%, zona, channel",
+    "planogram": ("normalisasi 2T, buang NO VISCOSITY di PCO/Commercial dan SEGMENT/USAGE kosong, SR1–SR7 & zona, "
+                  "skor AV, penanda oli mesin, kuartal dari DT_PR"),
+}
 
 
 def _files(tool_context: ToolContext) -> list[dict]:
@@ -31,7 +38,7 @@ def _frame(entry: dict, sheet: str = ""):
 
 
 def _prepared(entry: dict):
-    df, _ = _frame(entry)
+    df, _ = _frame(entry, entry.get("sheet") or "")
     kind = entry.get("kind") or de.detect_kind(df)
     heroes = list(live("hero_products") or settings.hero_products)
     return de.prepare(df, kind, heroes) + (kind,)
@@ -74,7 +81,7 @@ def profile_data_file(file_id: str, tool_context: ToolContext, sheet: str = "") 
     if not entry:
         return {"status": "error", "message": f"File {file_id} tidak ada di chat ini."}
     df, sheets = _frame(entry, sheet)
-    kind = de.detect_kind(df)
+    kind = entry.get("kind") if entry.get("kind_manual") else de.detect_kind(df)
     heroes = list(live("hero_products") or settings.hero_products)
     prepared, notes = de.prepare(df, kind, heroes)
     files = _files(tool_context)
@@ -83,12 +90,57 @@ def profile_data_file(file_id: str, tool_context: ToolContext, sheet: str = "") 
             f.update(kind=kind, rows=int(len(df)), sheet=sheet or f.get("sheet"))
     tool_context.state[FILES_KEY] = files
     prof = de.profile(df)
+    know = absorb_knowledge(kind, tool_context)
     return {"status": "ok", "file_id": file_id, "filename": entry["filename"], "sheets": sheets,
             "jenis_data": kind, "keterangan_jenis": KIND_LABEL[kind], "profil": prof,
+            "pengetahuan_data_agent": know,
             "aturan_diterapkan": notes, "kolom_tambahan_tersedia": notes["added_columns"],
-            "catatan": ("Aturan bisnis survei diterapkan otomatis (filter wajib, harga per liter, zona). "
-                        "Sebutkan jumlah baris yang dikecualikan ke user.") if kind != "lainnya" else
-                       "Format umum: tidak ada aturan otomatis; tanyakan definisi bisnis yang tidak jelas ke user."}
+            "catatan": (f"Pengetahuan resmi Data Agent {kind} sudah diserap dan dipakai untuk analisis file ini. "
+                        f"Aturan otomatis: {RULES[kind]}. Sampaikan singkat ke user: jenis data, jumlah baris, periode, "
+                        "pengetahuan yang dipakai, dan jumlah baris yang dikecualikan.") if kind != "lainnya" else
+                       ("Jenis data tidak dikenali. TANYAKAN ke user ini data apa (retail, industri, planogram, atau lainnya) "
+                        "dan definisi kolom yang tidak jelas; jangan berasumsi.")}
+
+
+def absorb_knowledge(kind: str, tool_context: ToolContext) -> dict[str, Any]:
+    """Langkah pertama setelah file dikenali: serap pengetahuan resmi Data Agent domain tersebut.
+
+    Domain dicatat di state agar instruksi agent analisis memuat pengetahuan itu pada langkah berikutnya.
+    """
+    if kind not in RULES:
+        return {"domain": None, "tersedia": False}
+    from .. import knowledge
+
+    domains = list(tool_context.state.get(KNOWLEDGE_KEY, []))
+    if kind not in domains:
+        domains.append(kind)
+        tool_context.state[KNOWLEDGE_KEY] = domains
+    try:
+        return knowledge.summary(kind)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Pengetahuan Data Agent %s tidak terbaca: %s", kind, str(exc)[:200])
+        return {"domain": kind, "tersedia": False, "sumber": "aturan bawaan"}
+
+
+@_safe
+def set_data_type(file_id: str, data_type: str, tool_context: ToolContext) -> dict[str, Any]:
+    """Menetapkan jenis data file secara manual jika tidak terdeteksi otomatis (setelah user menjawab).
+
+    Args:
+        file_id: ID file (mis. "f1").
+        data_type: "retail", "industri", "planogram", atau "lainnya".
+    """
+    kind = data_type.strip().lower()
+    kind = {"industry": "industri", "b2b": "industri", "rak": "planogram"}.get(kind, kind)
+    if kind not in KIND_LABEL:
+        return {"status": "invalid", "message": "Jenis data harus retail, industri, planogram, atau lainnya."}
+    files = _files(tool_context)
+    for f in files:
+        if f["file_id"] == file_id:
+            f.update(kind=kind, kind_manual=True)
+    tool_context.state[FILES_KEY] = files
+    return {"status": "ok", "file_id": file_id, "jenis_data": kind, "pengetahuan_data_agent": absorb_knowledge(kind, tool_context),
+            "message": "Jenis data disimpan. Kolom wajib yang tidak ada akan dilaporkan saat analisis."}
 
 
 @_safe
@@ -119,8 +171,10 @@ def analyze_data(plan_json: str, question: str, tool_context: ToolContext) -> di
         plan_json: Rencana analisis (JSON). Kunci yang didukung:
             file (wajib, ID file), join {file, left_on[], right_on[], how}, filters [{column, op, value}]
             (op: == != > >= < <= in "not in" contains between isnull notnull), derive [{name, expr}]
-            (expr aritmetika kolom), preset "gap_kimap" + preset_args {metrics[], group_by[],
-            competitor_brands[], hero_only}, group_by [], metrics [{column, agg, name}]
+            (expr aritmetika kolom), preset "gap_kimap" (retail) + preset_args {metrics[], group_by[],
+            competitor_brands[], hero_only}; preset planogram "planogram_nd" | "planogram_av" |
+            "planogram_whitespace" + preset_args {group_by[] dari SR ZONA SEGMENT USAGE SEGMEN_USAGE VISCOSITY
+            PAIR_KIMAP BRAND, engine_oil_only (default true)} — KUARTAL selalu ikut; group_by [], metrics [{column, agg, name}]
             (agg: mean sum count min max median nunique), pivot {index[], columns, values, agg},
             columns [] (tanpa agregasi), sort [{column, desc}], limit (maks 200).
         question: Pertanyaan user yang sedang dijawab (untuk sitasi dan insight).
@@ -167,4 +221,4 @@ def periksa_angka(angka_tidak_terverifikasi: list[str], tool_context: ToolContex
                           "Jangan menghitung angka baru. Jika perlu angka lain, panggil tool lagi.")}
 
 
-FILE_TOOLS = [list_data_files, profile_data_file, find_join_keys, analyze_data, periksa_angka]
+FILE_TOOLS = [list_data_files, profile_data_file, set_data_type, find_join_keys, analyze_data, periksa_angka]

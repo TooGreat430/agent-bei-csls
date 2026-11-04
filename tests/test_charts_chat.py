@@ -12,7 +12,7 @@ import _stubs  # noqa: E402
 _stubs.install()
 os.environ["LIB_TEMPLATE_SOURCE"] = "local"
 
-from library_agent import callbacks, chart_image, report_engine  # noqa: E402
+from library_agent import callbacks, chart_image  # noqa: E402
 
 try:
     import matplotlib  # noqa: F401
@@ -47,28 +47,6 @@ class BuildChartTest(unittest.TestCase):
         chart, _ = chart_image.build_chart(TABLE, "HERO_PRODUCT", ["GAP_HET_PER_LITER"])
         png = chart_image.render_png(chart)
         self.assertTrue(png.startswith(b"\x89PNG"))
-
-
-class ReportChartsTest(unittest.TestCase):
-    def setUp(self):
-        self.t = report_engine.load_template("daya_saing_harga_bq")
-        self.content = {"grafik": [{"judul": "dari model"}], "judul_utama": "x"}
-        chart, _ = chart_image.build_chart(TABLE, "HERO_PRODUCT", ["GAP_HET_PER_LITER"])
-        self.items = [{"source": "bigquery", "chart": dict(chart, question="q")}, {"source": "bigquery"}]
-
-    def test_saved_chart_replaces_model_chart(self):
-        out = report_engine.apply_insight_charts(self.t, self.content, self.items, True)
-        self.assertEqual(len(out["grafik"]), 1)
-        self.assertNotIn("question", out["grafik"][0])
-        self.assertEqual(out["grafik"][0]["seri"][0]["nilai"][0], -4847.97)
-
-    def test_exclude_charts(self):
-        out = report_engine.apply_insight_charts(self.t, self.content, self.items, False)
-        self.assertEqual(out["grafik"], [])
-
-    def test_no_saved_chart_keeps_model_chart(self):
-        out = report_engine.apply_insight_charts(self.t, self.content, [{"source": "bigquery"}], True)
-        self.assertEqual(out["grafik"], [{"judul": "dari model"}])
 
 
 def _event(author, text=None, response=None):

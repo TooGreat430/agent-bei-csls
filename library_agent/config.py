@@ -7,7 +7,6 @@ from __future__ import annotations
 import json
 import logging
 import os
-import posixpath
 import time
 from dataclasses import dataclass, field
 from typing import Any
@@ -32,40 +31,17 @@ class Settings:
     project_id: str = field(
         default_factory=lambda: _env("LIB_PROJECT_ID") or _env("GOOGLE_CLOUD_PROJECT", "")
     )
-    # Lokasi Discovery Engine / data store GE: "global", "us", atau "eu"
-    search_location: str = field(default_factory=lambda: _env("LIB_SEARCH_LOCATION", "global"))
-    # Lokasi Vertex AI untuk model Gemini (dipakai composer laporan)
+    # Lokasi Vertex AI untuk model cepat (router, data agent, narasi ringan)
     gemini_location: str = field(default_factory=lambda: _env("LIB_GEMINI_LOCATION", "global"))
-
-    # --- Data store perpustakaan -----------------------------------------
-    datastore_id: str = field(default_factory=lambda: _env("LIB_DATASTORE_ID", "perpustakaan-dokumen"))
-    serving_config_id: str = field(default_factory=lambda: _env("LIB_SERVING_CONFIG", "default_config"))
-    # "CHUNKS" (butuh chunking/layout parser di data store) atau "DOCUMENTS"
-    search_result_mode: str = field(default_factory=lambda: _env("LIB_SEARCH_RESULT_MODE", "CHUNKS"))
+    # Lokasi Vertex AI untuk model utama (Gemini 4 Argon) — analisis file & laporan
+    gemini_location_pro: str = field(default_factory=lambda: _env("LIB_GEMINI_LOCATION_PRO", "asia-southeast1"))
 
     # --- Cloud Storage ------------------------------------------------------
     bucket: str = field(default_factory=lambda: _env("LIB_BUCKET", ""))
-    staging_prefix: str = field(default_factory=lambda: _env("LIB_STAGING_PREFIX") or _internal("staging"))
     data_file_prefix: str = field(default_factory=lambda: _env("LIB_DATA_FILE_PREFIX") or _internal("data-files"))
-    template_prefix: str = field(default_factory=lambda: _env("LIB_TEMPLATE_PREFIX") or _internal("templates"))
-    report_prefix: str = field(default_factory=lambda: _env("LIB_REPORT_PREFIX") or _internal("reports"))
-
-    # "gcs" (produksi) atau "local" (pengembangan: baca dari folder ./templates)
-    template_source: str = field(default_factory=lambda: _env("LIB_TEMPLATE_SOURCE", "gcs"))
-    local_template_dir: str = field(
-        default_factory=lambda: _env(
-            "LIB_LOCAL_TEMPLATE_DIR",
-            os.path.join(os.path.dirname(os.path.dirname(__file__)), "templates"),
-        )
-    )
-
     # Bucket terpisah untuk laporan (disarankan): user diberi izin baca HANYA di bucket ini,
     # sehingga katalog dan insight milik user lain di bucket utama tidak ikut terbuka.
     report_bucket: str = field(default_factory=lambda: _env("LIB_REPORT_BUCKET") or _env("LIB_BUCKET", ""))
-
-    # --- Penyimpanan data aplikasi di GCS (pengganti database) --------------
-    catalog_path: str = field(default_factory=lambda: _env("LIB_CATALOG_PATH") or _internal("catalog/index.json"))
-    insight_prefix: str = field(default_factory=lambda: _env("LIB_INSIGHT_PREFIX") or _internal("insights"))
 
     # --- Data Agent BigQuery (Conversational Analytics) -----------------------
     data_agent: str = field(default_factory=lambda: _env(
@@ -97,6 +73,19 @@ class Settings:
     industry_competitors: tuple = field(default_factory=lambda: tuple(
         p.strip().upper() for p in _env("LIB_INDUSTRY_COMPETITORS", "SHELL").split(",") if p.strip()))
 
+    # --- Data Agent planogram & laporan planogram ------------------------------------
+    data_agent_planogram: str = field(default_factory=lambda: _env(
+        "LIB_DATA_AGENT_PLANOGRAM",
+        "projects/ptpl-land-dev/locations/global/dataAgents/agent_5f69a707-a240-49ea-9c96-dd12493f659c"))
+    planogram_table: str = field(default_factory=lambda: _env(
+        "LIB_PLANOGRAM_TABLE", "ptpl-curated-prd.DATAMART.VM_PLANOGRAM"))
+    # Periode default template planogram (dibandingkan otomatis dengan kuartal sebelumnya).
+    planogram_default_period: str = field(default_factory=lambda: _env("LIB_PLANOGRAM_DEFAULT_PERIOD", "2026-Q3"))
+    # Ambang kuadran matriks KIMAP: rasio carry PTPL / leader kompetitor (%).
+    planogram_carry_ratio_line: float = field(default_factory=lambda: float(_env("LIB_PLANOGRAM_CARRY_RATIO_LINE", "70")))
+    # Sel dengan total carry di bawah angka ini ditandai "sampel kecil".
+    planogram_min_carry: int = field(default_factory=lambda: int(_env("LIB_PLANOGRAM_MIN_CARRY", "30")))
+
     # --- Dashboard daya saing harga (query BigQuery langsung) -------------------
     price_table: str = field(default_factory=lambda: _env(
         "LIB_PRICE_TABLE", "ptpl-curated-prd.DATAMART.SURVEY_PRODUCTS"))
@@ -114,35 +103,16 @@ class Settings:
     status_kritis_above: float = field(default_factory=lambda: float(_env("LIB_STATUS_KRITIS_ABOVE", "0")))
 
     # --- Model ------------------------------------------------------------------
+    # model_fast: router & agent data BigQuery. model_pro: model utama (analisis file, laporan, narasi).
     model_fast: str = field(default_factory=lambda: _env("LIB_MODEL_FAST", "gemini-3.5-flash"))
-    model_pro: str = field(default_factory=lambda: _env("LIB_MODEL_PRO", "gemini-3.5-flash"))
+    model_pro: str = field(default_factory=lambda: _env("LIB_MODEL_PRO", "gemini-4-argon"))
 
-    # --- Aturan perpustakaan -------------------------------------------------
-    allowed_doc_types: tuple[str, ...] = field(
-        default_factory=lambda: tuple(
-            t.strip().upper() for t in _env("LIB_DOC_TYPES", "BEI,CSLS").split(",") if t.strip()
-        )
-    )
-    # Penjelasan singkat tiap jenis dokumen, membantu Gemini mengklasifikasi saat upload.
-    # Contoh: "BEI: <penjelasan>; CSLS: <penjelasan>"
-    doc_type_hints: str = field(default_factory=lambda: _env("LIB_DOC_TYPE_HINTS", ""))
-    # Folder dokumen: SATU-SATUNYA tempat file dokumen perpustakaan (mis. ge-docs-datastore).
-    source_folder: str = field(default_factory=lambda: _env("LIB_SOURCE_FOLDER", ""))
-    folder_batch_size: int = field(default_factory=lambda: int(_env("LIB_FOLDER_BATCH_SIZE", "20")))
+    # --- Identitas ---------------------------------------------------------------
     max_file_mb: float = field(default_factory=lambda: float(_env("LIB_MAX_FILE_MB", "100")))
-    max_active_docs: int = field(default_factory=lambda: int(_env("LIB_MAX_ACTIVE_DOCS", "10")))
     company_name: str = field(default_factory=lambda: _env("LIB_COMPANY_NAME", "Nama Perusahaan"))
     # Nama agent yang dipakai saat memperkenalkan diri (bisa diubah lewat settings.json tanpa deploy).
     agent_name: str = field(default_factory=lambda: _env("LIB_AGENT_NAME", "Marketing Insight Assistant"))
 
-
-SUPPORTED_MIME_TYPES = {
-    "application/pdf": ".pdf",
-    "text/html": ".html",
-    "text/plain": ".txt",
-    "application/vnd.openxmlformats-officedocument.wordprocessingml.document": ".docx",
-    "application/vnd.openxmlformats-officedocument.presentationml.presentation": ".pptx",
-}
 
 settings = Settings()
 
@@ -164,6 +134,11 @@ RUNTIME_KEYS: dict[str, type] = {
     "agent_name": str,
     "data_agent": str,
     "data_agent_industry": str,
+    "data_agent_planogram": str,
+    "planogram_table": str,
+    "planogram_default_period": str,
+    "planogram_carry_ratio_line": float,
+    "planogram_min_carry": int,
     "industry_table": str,
     "industry_htd_column": str,
     "industry_segment_column": str,
@@ -177,12 +152,7 @@ RUNTIME_KEYS: dict[str, type] = {
     "price_table": str,
     "data_auth_mode": str,
     "data_auth_id": str,
-    "allowed_doc_types": list,
-    "doc_type_hints": str,
     "company_name": str,
-    "max_active_docs": int,
-    "source_folder": str,
-    "folder_batch_size": int,
     "max_file_mb": float,
 }
 RUNTIME_TTL_SECONDS = 300
@@ -193,8 +163,7 @@ def runtime_config_path() -> str:
     explicit = os.getenv("LIB_RUNTIME_CONFIG_PATH")
     if explicit:
         return explicit
-    root = posixpath.dirname(posixpath.dirname(settings.catalog_path))
-    return posixpath.join(root, "config", "settings.json") if root else "config/settings.json"
+    return _internal("config/settings.json")
 
 
 def _read_runtime_file() -> dict[str, Any]:

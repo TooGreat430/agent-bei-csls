@@ -1,16 +1,12 @@
-"""Callback yang menangkap lampiran file dari chat.
+"""Callback agent: menangkap lampiran file, memastikan jawaban tidak kosong, dan memeriksa angka.
 
-Dipasang sebagai before_agent_callback di root agent DAN sub-agent, karena
-setelah transfer, pesan user berikutnya bisa langsung diterima sub-agent yang
-terakhir aktif (tanpa melewati root). Duplikasi dicegah dengan hash konten.
+`capture_uploads` dipasang sebagai before_agent_callback di root agent DAN sub-agent, karena setelah
+transfer, pesan user berikutnya bisa langsung diterima sub-agent yang terakhir aktif (tanpa melewati
+root). Duplikasi dicegah dengan hash konten.
 
-Dijalankan sebelum agent memproses setiap pesan user. Jika pesan berisi
-file (inline_data atau file_data), file disimpan ke GCS staging dan dicatat di
-state `pending_uploads`. Research agent kemudian mengekstrak metadata, meminta konfirmasi user, dan
-memasukkan file ke perpustakaan lewat `extract_upload_metadata` dan `confirm_upload`.
-
-Callback ini juga menulis log struktur pesan yang diterima. Log ini adalah
-bukti utama POC "apakah Gemini Enterprise meneruskan lampiran ke agent custom".
+Agent HANYA menerima file data CSV/Excel. File CSV/Excel disimpan ke folder data per chat
+(ge-docs-agent/data-files/<chat>/) dan dicatat di state `data_files`. Lampiran lain (PDF, Word, gambar,
+dll.) ditolak dengan pesan yang jelas — tidak ada perpustakaan dokumen lagi.
 """
 from __future__ import annotations
 
@@ -22,13 +18,15 @@ from typing import Optional
 from google.adk.agents.callback_context import CallbackContext
 from google.genai import types
 
-from . import ingest
-from .clients import storage_client, get_session_id
-from .config import SUPPORTED_MIME_TYPES
+from .clients import get_session_id, storage_client
 
 logger = logging.getLogger(__name__)
 
-PENDING_KEY = "pending_uploads"
+DATA_MIME_TYPES = {"text/csv", "application/csv", "application/vnd.ms-excel",
+                   "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"}
+DATA_EXTENSIONS = (".csv", ".xlsx", ".xlsm", ".xls")
+REJECT_TEXT = ("Maaf, saya hanya bisa menerima file data CSV atau Excel (.csv, .xlsx, .xls). "
+               "File berikut tidak diproses: {files}. Silakan unggah datanya dalam format CSV/Excel.")
 
 
 def _describe_parts(content: types.Content) -> list[dict]:
@@ -37,40 +35,38 @@ def _describe_parts(content: types.Content) -> list[dict]:
         if part.text:
             summary.append({"kind": "text", "chars": len(part.text)})
         elif part.inline_data:
-            summary.append({
-                "kind": "inline_data",
-                "mime_type": part.inline_data.mime_type,
-                "display_name": getattr(part.inline_data, "display_name", None),
-                "bytes": len(part.inline_data.data or b""),
-            })
+            summary.append({"kind": "inline_data", "mime_type": part.inline_data.mime_type,
+                            "display_name": getattr(part.inline_data, "display_name", None),
+                            "bytes": len(part.inline_data.data or b"")})
         elif part.file_data:
-            summary.append({
-                "kind": "file_data",
-                "mime_type": part.file_data.mime_type,
-                "display_name": getattr(part.file_data, "display_name", None),
-                "file_uri": part.file_data.file_uri,
-            })
+            summary.append({"kind": "file_data", "mime_type": part.file_data.mime_type,
+                            "display_name": getattr(part.file_data, "display_name", None),
+                            "file_uri": part.file_data.file_uri})
         else:
             summary.append({"kind": "other"})
     return summary
-
-
-DATA_MIME_TYPES = {"text/csv", "application/csv", "application/vnd.ms-excel",
-                   "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"}
-DATA_EXTENSIONS = (".csv", ".xlsx", ".xlsm", ".xls")
 
 
 def _is_data_file(name: str, mime: str) -> bool:
     return (mime or "").lower() in DATA_MIME_TYPES or (name or "").lower().endswith(DATA_EXTENSIONS)
 
 
+def _attachment(part) -> tuple[str, str] | None:
+    """(nama, mime) jika part adalah lampiran file; None jika bukan."""
+    if part.inline_data and part.inline_data.data:
+        return getattr(part.inline_data, "display_name", None) or "lampiran", part.inline_data.mime_type or ""
+    if part.file_data and part.file_data.file_uri:
+        uri = part.file_data.file_uri
+        return getattr(part.file_data, "display_name", None) or uri.rsplit("/", 1)[-1], part.file_data.mime_type or ""
+    return None
+
+
 def _store_data_file(part, callback_context: CallbackContext, session_id: str) -> bool:
     """CSV/Excel -> folder data per chat + daftar data_files di state. True jika part ditangani."""
     import hashlib
 
-    from .clients import storage_client
-    from .config import settings
-    from .ingest import parse_gcs_uri, safe_filename
+    from .clients import parse_gcs_uri, safe_filename
+    from .config import live, settings
 
     if part.inline_data and part.inline_data.data:
         name = getattr(part.inline_data, "display_name", None) or "data.csv"
@@ -88,6 +84,11 @@ def _store_data_file(part, callback_context: CallbackContext, session_id: str) -
         data = storage_client().bucket(bucket).blob(path).download_as_bytes()
     else:
         return False
+    max_mb = float(live("max_file_mb") or 100)
+    if len(data) > max_mb * 1024 * 1024:
+        callback_context.state["temp:rejected_uploads"] = [
+            *callback_context.state.get("temp:rejected_uploads", []), f"{name} (lebih dari {max_mb:g} MB)"]
+        return True
     files = list(callback_context.state.get("data_files", []))
     digest = hashlib.sha256(data).hexdigest()[:12]
     if any(f.get("hash") == digest for f in files):
@@ -105,59 +106,33 @@ def _store_data_file(part, callback_context: CallbackContext, session_id: str) -
 
 
 def capture_uploads(callback_context: CallbackContext) -> Optional[types.Content]:
+    """Simpan CSV/Excel; tolak lampiran lain. Jika pesan HANYA berisi lampiran yang ditolak, balas langsung."""
     content = callback_context.user_content
     if not content or not content.parts:
         return None
-
     logger.info("user_content parts: %s", _describe_parts(content))
-
     session_id = get_session_id(callback_context)
-    pending = list(callback_context.state.get(PENDING_KEY, []))
-    known_hashes = {p["content_hash"] for p in pending}
-    rejected = []
-
+    accepted, rejected = 0, []
     for part in content.parts:
+        info = _attachment(part)
+        if not info:
+            continue
         try:
             if _store_data_file(part, callback_context, session_id):
-                continue
-            if part.inline_data and part.inline_data.data:
-                mime = part.inline_data.mime_type or ""
-                name = getattr(part.inline_data, "display_name", None) or "dokumen"
-                if mime not in SUPPORTED_MIME_TYPES:
-                    rejected.append({"file": name, "mime_type": mime})
-                    continue
-                if ingest.md5_b64(part.inline_data.data) in known_hashes:
-                    continue  # sudah ditangkap (callback juga terpasang di sub-agent)
-                staged = ingest.stage_bytes(part.inline_data.data, name, mime, session_id)
-            elif part.file_data and part.file_data.file_uri:
-                uri = part.file_data.file_uri
-                mime = part.file_data.mime_type or ""
-                name = getattr(part.file_data, "display_name", None) or uri.rsplit("/", 1)[-1]
-                if mime not in SUPPORTED_MIME_TYPES:
-                    rejected.append({"file": name, "mime_type": mime})
-                    continue
-                if not uri.startswith("gs://"):
-                    # Mis. URI Drive: belum didukung, dicatat untuk analisis POC.
-                    logger.warning("file_data non-GCS belum didukung: %s", uri)
-                    rejected.append({"file": name, "reason": "sumber file belum didukung", "uri": uri})
-                    continue
-                staged = ingest.stage_gcs_uri(uri, name, mime, session_id)
+                accepted += 1
             else:
-                continue
+                rejected.append(info[0])
         except Exception:  # noqa: BLE001
-            logger.exception("Gagal menyimpan lampiran ke staging")
-            continue
-
-        if staged["content_hash"] in known_hashes:
-            continue
-        staged["upload_id"] = f"up{len(pending) + 1}"
-        pending.append(staged)
-        known_hashes.add(staged["content_hash"])
-
-    callback_context.state[PENDING_KEY] = pending
-    if rejected:
-        callback_context.state["temp:rejected_uploads"] = rejected
-    return None
+            logger.exception("Gagal menyimpan lampiran data")
+            rejected.append(info[0])
+    too_big = callback_context.state.get("temp:rejected_uploads") or []
+    rejected += [r for r in too_big if r not in rejected]
+    if not rejected:
+        return None
+    callback_context.state["temp:rejected_uploads"] = rejected
+    if accepted:
+        return None  # pesan juga berisi CSV/Excel: agent tetap jalan dan menyebut file yang ditolak
+    return types.Content(role="model", parts=[types.Part(text=REJECT_TEXT.format(files=", ".join(rejected)))])
 
 
 # ==========================================================================

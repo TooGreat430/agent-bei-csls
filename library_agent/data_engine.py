@@ -1,8 +1,9 @@
 """Mesin analisis file CSV/Excel unggahan user.
 
 Gemini menyusun RENCANA analisis (JSON); kode ini yang membaca file dan MENGHITUNG dengan pandas.
-Aturan bisnis survei retail dan industri (filter wajib, harga per liter, zona, KIMAP, gap) diterapkan
-otomatis sesuai jenis file yang dikenali dari kolomnya (skema SURVEY_PRODUCTS / survey_industry).
+Aturan bisnis survei retail, industri, dan planogram (filter wajib, harga per liter, zona, KIMAP, gap,
+skor AV) diterapkan otomatis sesuai jenis file yang dikenali dari kolomnya (skema SURVEY_PRODUCTS /
+survey_industry / VM_PLANOGRAM).
 Tidak ada tabel yang dibuat di BigQuery.
 """
 from __future__ import annotations
@@ -18,6 +19,11 @@ import pandas as pd
 
 RETAIL_KEYS = {"HARGA_JUAL", "HARGA_TEBUS", "HET", "HTO", "CONTENT", "KIMAP", "BRAND", "QNR", "SALES_REGION_CUSTOMER"}
 INDUSTRY_KEYS = {"harga_kompetitor_per_liter", "htd_ptpl", "htd_ptpl_plus", "main_stage", "channel", "produk_ptpl"}
+PLANOGRAM_KEYS = {"OUTLET_ID", "PAIR_KIMAP", "BRAND", "SERIES", "VISCOSITY", "SEGMENT", "USAGE", "REGION",
+                  "AVAILABILITY_SCORE", "VISIBILITY_SCORE", "AV_SCORE"}
+ROMAN = {"I": "1", "II": "2", "III": "3", "IV": "4", "V": "5", "VI": "6", "VII": "7"}
+ENGINE_SEGMENTS = {"MCO", "PCO", "COMMERCIAL"}
+NON_ENGINE_VISC = {"90", "140", "GEAR", "OTHER"}
 ZONE_OF_REGION = {"3": "Zona 1", "4": "Zona 1", "5": "Zona 1", "2": "Zona 2", "6": "Zona 2", "1": "Zona 3", "7": "Zona 3"}
 AGGS = {"mean", "sum", "count", "min", "max", "median", "nunique"}
 OPS = {"==", "!=", ">", ">=", "<", "<=", "in", "not in", "contains", "between", "isnull", "notnull"}
@@ -65,8 +71,7 @@ def load_frame(uri: str, filename: str, sheet: str | None = None) -> tuple[pd.Da
     if key in _frames:
         _frames.move_to_end(key)
         return _frames[key], []
-    from .clients import storage_client
-    from .ingest import parse_gcs_uri
+    from .clients import parse_gcs_uri, storage_client
 
     bucket, path = parse_gcs_uri(uri)
     data = storage_client().bucket(bucket).blob(path).download_as_bytes()
@@ -90,7 +95,16 @@ def detect_kind(df: pd.DataFrame) -> str:
         return "retail"
     if len({k.lower() for k in INDUSTRY_KEYS} & cols) >= 4:
         return "industri"
+    if len({k.lower() for k in PLANOGRAM_KEYS} & cols) >= 7:
+        return "planogram"
     return "lainnya"
+
+
+def region_number(series: pd.Series) -> pd.Series:
+    """'REGION V' / 'SR5' / '5' / 5.0 -> '5' (kosong jika tidak dikenali)."""
+    s = series.astype(str).str.upper().str.strip().str.replace(r"\.0$", "", regex=True)
+    s = s.str.replace(r"^(REGION|SR|SALES REGION)\s*", "", regex=True).str.strip()
+    return s.map(lambda v: ROMAN.get(v, v if v in ROMAN.values() else ""))
 
 
 def _col(df: pd.DataFrame, name: str) -> str | None:
@@ -172,6 +186,51 @@ def prepare(df: pd.DataFrame, kind: str, heroes: list[str] | None = None) -> tup
             htd = _num(out[c("htd_ptpl_plus")])
             out["GAP_PCT"] = (_num(out[c("harga_kompetitor_per_liter")]) - htd) / htd * 100
             notes["added_columns"].append("GAP_PCT")
+    elif kind == "planogram":
+        c = lambda n: _col(out, n)  # noqa: E731
+        out = out.copy()
+        for name in ("BRAND", "SERIES", "VISCOSITY", "SEGMENT", "USAGE"):
+            if c(name):
+                col = out[c(name)]
+                out[c(name)] = col.where(col.isna(), col.astype(str).str.strip().str.upper())
+        if c("SEGMENT") and c("USAGE"):
+            empty = {"", "NAN", "NULL", "NONE"}
+            drop(out[c("SEGMENT")].notna() & out[c("USAGE")].notna() & ~out[c("SEGMENT")].isin(empty)
+                 & ~out[c("USAGE")].isin(empty), "SEGMENT/USAGE kosong")
+        if c("SERIES") and c("VISCOSITY"):
+            out = out.copy()
+            is2t = out[c("SERIES")].astype(str).str.contains(r"\b2T\b", regex=True, na=False) & \
+                (out[c("VISCOSITY")].isna() | out[c("VISCOSITY")].astype(str).isin(["20", "NO VISCOSITY", ""]))
+            if int(is2t.sum()):
+                out.loc[is2t, c("VISCOSITY")] = "2T"
+                notes["viskositas_2T_dinormalisasi"] = int(is2t.sum())
+        if c("SEGMENT") and c("VISCOSITY"):
+            drop(~(out[c("SEGMENT")].isin(["PCO", "COMMERCIAL"]) & (out[c("VISCOSITY")].astype(str) == "NO VISCOSITY")),
+                 "NO VISCOSITY di PCO/Commercial (bukan oli mesin)")
+        out = out.copy()
+        if c("BRAND"):
+            out["IS_PTPL"] = out[c("BRAND")].astype(str) == "PERTAMINA"
+            notes["added_columns"].append("IS_PTPL")
+        if c("REGION"):
+            num = region_number(out[c("REGION")])
+            out["SR"] = ("SR" + num).where(num != "", None)
+            out["ZONA"] = num.map(ZONE_OF_REGION)
+            notes["added_columns"] += ["SR", "ZONA"]
+        if c("AV_SCORE"):
+            out["AV"] = _num(out[c("AV_SCORE")])
+        elif c("AVAILABILITY_SCORE") and c("VISIBILITY_SCORE"):
+            out["AV"] = (_num(out[c("AVAILABILITY_SCORE")]) + _num(out[c("VISIBILITY_SCORE")])) / 2
+        if "AV" in out.columns:
+            notes["added_columns"].append("AV")
+        if c("SEGMENT") and c("USAGE"):
+            out["SEGMEN_USAGE"] = out[c("SEGMENT")].astype(str) + " " + out[c("USAGE")].astype(str)
+            out["IS_OLI_MESIN"] = out[c("SEGMENT")].isin(ENGINE_SEGMENTS) & \
+                ~out[c("VISCOSITY")].astype(str).isin(NON_ENGINE_VISC) if c("VISCOSITY") else out[c("SEGMENT")].isin(ENGINE_SEGMENTS)
+            notes["added_columns"] += ["SEGMEN_USAGE", "IS_OLI_MESIN"]
+        if c("DT_PR"):
+            d = pd.to_datetime(out[c("DT_PR")], errors="coerce")
+            out["KUARTAL"] = [f"{x.year}-Q{x.quarter}" if pd.notna(x) else None for x in d]
+            notes["added_columns"].append("KUARTAL")
     region = _col(out, "SALES_REGION_CUSTOMER")
     if region:
         out["ZONA"] = _region(out[region]).map(ZONE_OF_REGION)
@@ -368,6 +427,11 @@ def run_plan(frames: dict[str, pd.DataFrame], plan: dict[str, Any]) -> dict[str,
     df = _derive(df, plan.get("derive"))
     if plan.get("preset") == "gap_kimap":
         df = _gap_kimap(df, plan.get("preset_args") or {})
+    elif str(plan.get("preset", "")).startswith("planogram_"):
+        from .planogram_data import run_preset
+
+        args = plan.get("preset_args") or {}
+        df = run_preset(df, plan["preset"], args.get("group_by"), args.get("engine_oil_only", True))
     gb = plan.get("group_by") or []
     metrics = plan.get("metrics") or []
     if plan.get("pivot"):

@@ -1,4 +1,4 @@
-"""Tool ADK untuk Report sub-agent."""
+"""Tool ADK untuk Report sub-agent: laporan TEMPLATE (retail, industri, planogram) dan laporan CUSTOM."""
 from __future__ import annotations
 
 import logging
@@ -6,24 +6,10 @@ from typing import Any
 
 from google.adk.tools import ToolContext
 
-from .. import insights, report_engine, search
+from .. import insights, report_engine
 from ..clients import get_user_id
-from .library_tools import ACTIVE_KEY
 
 logger = logging.getLogger(__name__)
-
-
-def _with_dashboard(items: list) -> list:
-    return list(items) + [DASHBOARD_INFO]
-
-
-def list_report_templates() -> dict[str, Any]:
-    """Menampilkan template laporan resmi yang tersedia beserta bagian-bagiannya."""
-    try:
-        return {"status": "ok", "templates": _with_dashboard(report_engine.list_templates())}
-    except Exception as exc:  # noqa: BLE001
-        logger.exception("list template gagal")
-        return {"status": "error", "message": str(exc)}
 
 
 def _logged(func):
@@ -40,139 +26,6 @@ def _logged(func):
             logger.warning("%s -> %s: %s", func.__name__, result.get("status"), str(result.get("message"))[:300])
         return result
     return wrapper
-
-
-def generate_report(
-    template_id: str,
-    insight_ids: list[str],
-    tool_context: ToolContext,
-    output_format: str = "",
-    report_title: str = "",
-    extra_instructions: str = "",
-    use_document_excerpts: bool = True,
-    include_charts: bool = True,
-) -> dict[str, Any]:
-    """Membuat laporan dari insight tersimpan, mengikuti template resmi perusahaan.
-
-    Layout laporan dikunci oleh template. Model hanya mengisi konten sesuai skema.
-    Hanya SATU format yang dibuat, sesuai permintaan user.
-
-    Args:
-        template_id: ID template dari list_report_templates.
-        output_format: Format yang diminta user: "pdf", "pptx" (PowerPoint), atau "html".
-            Kosongkan jika user belum menyebut format; tool akan mengembalikan pilihan format.
-        insight_ids: ID insight yang dijadikan landasan (lihat list_insights). Kosongkan
-            untuk memakai semua insight di chat ini.
-        report_title: Judul laporan, misalnya "Laporan Studi CSLS Q3 2026".
-        extra_instructions: Instruksi tambahan dari user, misalnya fokus atau periode.
-        use_document_excerpts: True untuk menambah kutipan dari dokumen aktif sebagai sitasi pendukung.
-        include_charts: False jika user meminta laporan TANPA grafik. Jika True, grafik yang sudah
-            dibuat di chat (tersimpan bersama insight) dipakai apa adanya di laporan.
-
-    Returns:
-        Link laporan HTML (dan PDF jika tersedia).
-    """
-    user_id = get_user_id(tool_context)
-
-    try:
-        template = report_engine.load_template(template_id)
-    except Exception as exc:  # noqa: BLE001
-        return {"status": "error", "message": str(exc)}
-
-    fmt = report_engine.normalize_format(output_format)
-    if not fmt:
-        return {"status": "needs_input", "available_formats": template.outputs,
-                "message": "Tanyakan ke user format laporan yang diinginkan (PDF, PowerPoint, atau HTML)."}
-    if fmt not in template.outputs:
-        return {"status": "error", "available_formats": template.outputs,
-                "message": f"Template ini tidak mendukung format {fmt}."}
-
-    items = (insights.get_many(tool_context.state, insight_ids, full=True) if insight_ids
-             else insights.list_full(tool_context.state))
-    if not items:
-        return {"status": "error",
-                "message": "Belum ada insight di chat ini. Tanyakan data atau isi dokumen, simpan temuannya sebagai insight, lalu minta laporan lagi."}
-    if template.manifest.get("requires_source") == "bigquery" or template.manifest.get("hidden"):
-        return _dashboard_from_insights(items, tool_context, output_format, report_title)
-    problem = report_engine.source_requirement_problem(template, items)
-    if problem:
-        return {"status": "needs_input", "message": problem + (
-            " JANGAN mengganti dengan insight lain. Sampaikan ke user: tanyakan data yang dibutuhkan "
-            "(mis. gap harga per zona), simpan jawabannya sebagai insight, lalu buat laporan lagi. "
-            "Atau tawarkan template lain yang sesuai dengan insight yang ada.")}
-
-    excerpts: list[dict[str, Any]] = []
-    active = list(tool_context.state.get(ACTIVE_KEY, []))
-    if use_document_excerpts and active:
-        seen = set()
-        for item in [i for i in items if i.get("source", "dokumen") == "dokumen"][:8]:
-            try:
-                for ex in search.search_documents(item["title"], active, max_results=3):
-                    key = (ex["doc_key"], ex["page"], ex["content"][:80])
-                    if key not in seen:
-                        seen.add(key)
-                        excerpts.append(ex)
-            except Exception:  # noqa: BLE001
-                logger.exception("Gagal mengambil kutipan pendukung")
-
-    try:
-        content = report_engine.compose_content(template, items, excerpts, extra_instructions)
-        content = report_engine.apply_insight_charts(template, content, items, include_charts)
-    except ValueError as exc:
-        return {"status": "error", "message": str(exc)}
-
-    meta = report_engine.build_meta(template, user_id, report_title)
-    try:
-        data, ext, ctype = report_engine.render(template, content, meta, fmt)
-    except Exception as exc:  # noqa: BLE001
-        logger.exception("Render laporan gagal")
-        return {"status": "error", "message": f"Laporan gagal dibuat dalam format {fmt}: {exc}"}
-    links = report_engine.save_output(
-        user_id, template_id, meta["report_title"], data, ext, ctype,
-        record={"insight_ids": [i["insight_id"] for i in items], "doc_keys": active},
-    )
-    logger.info("Laporan dibuat: %s (%s)", meta["report_title"], fmt)
-    return {"status": "ok", "report_title": meta["report_title"], **links}
-
-
-def preview_report_template(template_id: str, tool_context: ToolContext, output_format: str = "") -> dict[str, Any]:
-    """Membuat CONTOH TAMPILAN laporan dari isi contoh bawaan template, TANPA data asli.
-
-    Gunakan saat user meminta "contoh laporan", "preview template", "seperti apa laporannya",
-    atau ingin melihat tampilan template sebelum ada data/insight. Tidak memakai insight,
-    BigQuery, ataupun dokumen. Hasilnya ditandai sebagai CONTOH.
-
-    Args:
-        template_id: ID template dari list_report_templates.
-        output_format: "pdf", "pptx" (PowerPoint), atau "html". Kosongkan jika user belum menyebut.
-    """
-    try:
-        template = report_engine.load_template(template_id)
-    except Exception as exc:  # noqa: BLE001
-        return {"status": "error", "message": str(exc)}
-    if template.manifest.get("hidden") or template.manifest.get("requires_source") == "bigquery":
-        return preview_price_dashboard(tool_context, output_format)
-    fmt = report_engine.normalize_format(output_format)
-    if not fmt:
-        return {"status": "needs_input", "available_formats": template.outputs,
-                "message": "Tanyakan ke user format contoh yang diinginkan (PDF, PowerPoint, atau HTML)."}
-    if fmt not in template.outputs:
-        return {"status": "error", "available_formats": template.outputs,
-                "message": f"Template ini tidak mendukung format {fmt}."}
-    sample = report_engine.load_sample(template_id)
-    if not sample:
-        return {"status": "error", "message": "Template ini belum punya isi contoh (sample.json)."}
-    user_id = get_user_id(tool_context)
-    meta = report_engine.preview_meta(template, user_id)
-    try:
-        data, ext, ctype = report_engine.render(template, sample, meta, fmt)
-    except Exception as exc:  # noqa: BLE001
-        logger.exception("Render contoh gagal")
-        return {"status": "error", "message": f"Contoh gagal dibuat: {exc}"}
-    links = report_engine.save_output(user_id, template_id, meta["report_title"], data, ext, ctype,
-                                      record={"preview": True})
-    return {"status": "ok", "report_title": meta["report_title"], **links,
-            "message": "Ini contoh tampilan dengan angka ilustrasi bawaan template, bukan hasil data atau insight."}
 
 
 DASHBOARD_ID = "dashboard_daya_saing_harga"
@@ -282,23 +135,6 @@ def generate_price_dashboard(tool_context: ToolContext, period: str = "", compar
     return {"status": "ok", "report_title": title, **links, "message": f"Dashboard siap.{note}"}
 
 
-def _dashboard_from_insights(items: list, tool_context: ToolContext, output_format: str, title: str) -> dict[str, Any]:
-    """Laporan data BigQuery selalu berupa dashboard; periode diambil dari insight di chat."""
-    from .. import price_data
-
-    texts = []
-    for it in items:
-        if it.get("source") == "bigquery":
-            texts += [it.get("title", ""), it.get("content", ""), " ".join(it.get("citations") or []),
-                      ((it.get("data") or {}).get("question") or "")]
-    period = price_data.infer_period(texts)
-    if not period:
-        return {"status": "needs_input", "message": ("Laporan data BigQuery dibuat sebagai dashboard daya saing harga. "
-                                                      "Tanyakan ke user periodenya (mis. Juli 2026, atau Q3 2026 vs Q2 2026), "
-                                                      "lalu panggil generate_price_dashboard.")}
-    return generate_price_dashboard(tool_context, period=period, output_format=output_format, title=title)
-
-
 def preview_price_dashboard(tool_context: ToolContext, output_format: str = "") -> dict[str, Any]:
     """Contoh tampilan dashboard daya saing harga dengan DATA ILUSTRASI (bukan data asli).
 
@@ -326,9 +162,7 @@ def preview_price_dashboard(tool_context: ToolContext, output_format: str = "") 
             "message": "Ini contoh tampilan dengan angka ilustrasi, bukan data asli."}
 
 
-generate_report = _logged(generate_report)
 generate_price_dashboard = _logged(generate_price_dashboard)
-preview_report_template = _logged(preview_report_template)
 preview_price_dashboard = _logged(preview_price_dashboard)
 INDUSTRY_ID = "daya_saing_harga_industri"
 
@@ -468,7 +302,385 @@ def preview_industry_report(tool_context: ToolContext, output_format: str = "") 
     return {"status": "ok", "report_title": title, **links, "message": "Ini contoh tampilan dengan angka ilustrasi, bukan data asli."}
 
 
-# Template laporan dokumen (BEI/CSLS) dinonaktifkan sementara.
 generate_industry_report = _logged(generate_industry_report)
 preview_industry_report = _logged(preview_industry_report)
-REPORT_TOOLS = [generate_price_dashboard, preview_price_dashboard, generate_industry_report, preview_industry_report]
+
+
+# ==========================================================================
+# Pilihan laporan
+# ==========================================================================
+def list_report_options() -> dict[str, Any]:
+    """Pilihan laporan yang tersedia: TEMPLATE (isi & tata letak tetap) atau CUSTOM (disusun bebas oleh model
+    utama dengan design system PTPL, mengikuti prompt laporan MIR). Tampilkan ke user saat jenis belum jelas."""
+    return {"status": "ok",
+            "template": [
+                {"nama": "Daya Saing Harga Retail", "sumber": "BigQuery retail / file survei retail",
+                 "format": ["pdf", "pptx", "html"], "tool": "generate_price_dashboard"},
+                {"nama": "Daya Saing Harga Industri (B2B)", "sumber": "BigQuery industri / file survei industri",
+                 "format": ["pdf", "pptx", "html"], "tool": "generate_industry_report"},
+                {"nama": "Kinerja Planogram PTPL vs Kompetitor", "sumber": "BigQuery planogram / file VM_PLANOGRAM",
+                 "isi": "sebaran outlet (carry & ND), availability & visibility, whitespace, rekomendasi per audiens",
+                 "format": ["pdf", "pptx", "html"], "tool": "generate_planogram_report"}],
+            "custom": {"sumber": ["retail", "industri", "planogram", "file unggahan"], "format": ["html"],
+                       "status": "DRAFT sampai user menyetujui (approve)", "tool": "generate_custom_report"}}
+
+
+# ==========================================================================
+# Template planogram
+# ==========================================================================
+PLANOGRAM_ID = "kinerja_planogram"
+PLANOGRAM_RENDER = {"html": "render_html", "pdf": "render_pdf", "pptx": "render_pptx"}
+
+
+def _planogram_file_rows(tool_context: ToolContext, file_id: str, pa: dict, pb: dict | None):
+    from .. import data_engine as de
+    from .. import planogram_data as pdm
+
+    entry = next((f for f in tool_context.state.get("data_files", []) if f["file_id"] == file_id), None)
+    if not entry:
+        return None, f"File {file_id} tidak ada di chat ini.", {}
+    df, _ = de.load_frame(entry["uri"], entry["filename"], entry.get("sheet"))
+    kind = entry.get("kind") if entry.get("kind_manual") else de.detect_kind(df)
+    if kind != "planogram":
+        return None, (f"File {entry['filename']} bukan format survei planogram VM_PLANOGRAM (terdeteksi: {kind}); "
+                      "template planogram tidak bisa dibuat dari file tersebut."), {}
+    prepared, notes = de.prepare(df, "planogram")
+    return pdm.to_rows(prepared, pa, pb), entry, notes
+
+
+def generate_planogram_report(tool_context: ToolContext, period: str = "", compare_period: str = "",
+                              output_format: str = "", title: str = "", file_id: str = "",
+                              focus: str = "") -> dict[str, Any]:
+    """Membuat laporan TEMPLATE "Kinerja Planogram PTPL vs Kompetitor" (6 halaman, gaya design system PTPL).
+
+    Isi: ringkasan eksekutif (KPI), sebaran outlet per SR (carry & ND), posisi per viskositas, availability &
+    visibility (matriks KIMAP), analisa whitespace, dan rekomendasi untuk Management, Brand Owner, Sales Region.
+
+    Args:
+        period: Kuartal utama, mis. "2026-Q3". Kosongkan untuk default (dari pengaturan, mis. Q3 2026).
+        compare_period: Kuartal pembanding. Kosongkan untuk kuartal sebelumnya secara otomatis.
+        output_format: "pdf", "pptx" (PowerPoint), atau "html". Kosongkan jika user belum menyebut.
+        title: Judul laporan (opsional).
+        file_id: Isi (mis. "f1") jika laporan dibuat dari FILE unggahan berformat VM_PLANOGRAM, bukan BigQuery.
+        focus: Penekanan tambahan dari user untuk narasi (opsional, mis. "fokus MCO Automatic di SR5").
+    """
+    from .. import data_engine as de
+    from .. import planogram_data as pdm
+    from .. import planogram_report as pr
+    from .. import ptpl_design
+    from ..config import live
+
+    fmt = report_engine.normalize_format(output_format)
+    if not fmt:
+        return {"status": "needs_input", "available_formats": ["pdf", "pptx", "html"],
+                "message": "Tanyakan ke user format yang diinginkan: PDF, PowerPoint, atau HTML."}
+    try:
+        pa = pdm.parse_period(period.strip() or live("planogram_default_period") or "2026-Q3")
+        pb = pdm.parse_period(compare_period) if compare_period.strip() else pdm.previous_period(pa)
+    except ValueError as exc:
+        return {"status": "error", "message": str(exc)}
+    entry, notes = None, {}
+    if file_id.strip():
+        rows, entry, notes = _planogram_file_rows(tool_context, file_id.strip(), pa, pb)
+        if rows is None:
+            return {"status": "error", "message": entry}
+    else:
+        try:
+            raw = pdm.fetch(pa, pb, live("planogram_table"))
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("Query planogram gagal")
+            hint = (" Service account agent belum punya akses ke tabel VM_PLANOGRAM."
+                    if "403" in str(exc) or "Access Denied" in str(exc) else "")
+            return {"status": "error", "message": f"Data planogram tidak bisa diambil.{hint}", "detail": str(exc)[:300]}
+        if raw.empty:
+            return {"status": "error", "message": f"Tidak ada data planogram untuk {pa['label']}. Coba periode lain."}
+        prepared, notes = de.prepare(raw, "planogram")
+        rows = pdm.to_rows(prepared, pa, pb)
+    keep = {k: v for k, v in notes.items() if k in ("excluded", "viskositas_2T_dinormalisasi")}
+    ds = pdm.build_dataset(rows, pa, pb, float(live("planogram_carry_ratio_line") or 70),
+                           int(live("planogram_min_carry") or 30), keep)
+    if entry:
+        ds["source_label"] = f"File unggahan {entry['filename']} (format VM_PLANOGRAM)"
+    if not ds["has_data"]:
+        return {"status": "error", "message": f"Tidak ada data oli mesin untuk {pa['label']}. Coba periode lain."}
+    narr = pr.generate_narrative(ds, live("company_name"), focus)
+    pages = pr.build_pages(ds, narr)
+    for p in pages:
+        p["draft"] = False
+    periode = f"{pb['label']} vs {pa['label']}" if ds["has_b"] else pa["label"]
+    title = title.strip() or f"Kinerja Planogram PTPL vs Kompetitor {periode}"
+    data = getattr(ptpl_design, PLANOGRAM_RENDER[fmt])(pages, title)
+    links = report_engine.save_output(get_user_id(tool_context), PLANOGRAM_ID, title, data, fmt,
+                                      report_engine.FORMATS[fmt][1],
+                                      record={"source": "file" if entry else "bigquery_planogram", "periode": pa["label"],
+                                              "pembanding": pb["label"] if pb else None})
+    note = "" if ds["has_b"] or not pb else f" Data pembanding {pb['label']} tidak ditemukan, jadi kolom perubahan berisi n/a."
+    return {"status": "ok", "report_title": title, **links, "message": f"Laporan planogram siap.{note}"}
+
+
+def preview_planogram_report(tool_context: ToolContext, output_format: str = "") -> dict[str, Any]:
+    """Contoh tampilan laporan planogram dengan DATA ILUSTRASI (bukan data asli).
+
+    Args:
+        output_format: "pdf", "pptx", atau "html". Kosongkan jika user belum menyebut.
+    """
+    from .. import data_engine as de
+    from .. import planogram_data as pdm
+    from .. import planogram_report as pr
+    from .. import ptpl_design, sample_planogram
+
+    fmt = report_engine.normalize_format(output_format)
+    if not fmt:
+        return {"status": "needs_input", "available_formats": ["pdf", "pptx", "html"],
+                "message": "Tanyakan ke user format contoh yang diinginkan (PDF, PowerPoint, atau HTML)."}
+    pa, pb = pdm.parse_period("2026-Q3"), pdm.parse_period("2026-Q2")
+    prepared, notes = de.prepare(sample_planogram.rows(), "planogram")
+    ds = pdm.build_dataset(pdm.to_rows(prepared, pa, pb), pa, pb, 70, 30,
+                           {"viskositas_2T_dinormalisasi": notes.get("viskositas_2T_dinormalisasi")})
+    ds["source_label"] = "CONTOH TAMPILAN — angka ilustrasi, bukan data asli"
+    pages = pr.build_pages(ds, pr.fallback_narrative(ds))
+    for p in pages:
+        p["draft"] = False
+    title = "CONTOH TAMPILAN - Kinerja Planogram PTPL vs Kompetitor (ILUSTRASI)"
+    data = getattr(ptpl_design, PLANOGRAM_RENDER[fmt])(pages, title)
+    links = report_engine.save_output(get_user_id(tool_context), PLANOGRAM_ID, title, data, fmt,
+                                      report_engine.FORMATS[fmt][1], record={"preview": True})
+    return {"status": "ok", "report_title": title, **links, "message": "Ini contoh tampilan dengan angka ilustrasi, bukan data asli."}
+
+
+# ==========================================================================
+# Laporan custom (prompt MIR + model utama)
+# ==========================================================================
+CUSTOM_ID = "laporan_custom"
+CUSTOM_KEY = "custom_reports"
+INSIGHT_DOMAIN = {"bigquery": "retail", "bigquery_industri": "industri", "bigquery_planogram": "planogram"}
+
+
+def _gcs_text(uri: str) -> str:
+    from ..clients import parse_gcs_uri, storage_client
+
+    bucket, path = parse_gcs_uri(uri)
+    return storage_client().bucket(bucket).blob(path).download_as_text()
+
+
+def _gcs_put(uri: str, text: str, content_type: str = "text/plain; charset=utf-8") -> None:
+    from ..clients import parse_gcs_uri, storage_client
+
+    bucket, path = parse_gcs_uri(uri)
+    storage_client().bucket(bucket).blob(path).upload_from_string(text, content_type=content_type)
+
+
+def _insight_blocks(tool_context: ToolContext, domain: str = "", file_based: bool = False) -> list[str]:
+    from .. import custom_report as cr
+
+    out = []
+    for it in insights.list_full(tool_context.state):
+        src = it.get("source", "")
+        if file_based and not str(src).startswith("file"):
+            continue
+        if not file_based and INSIGHT_DOMAIN.get(src) != domain:
+            continue
+        data = it.get("data") or {}
+        tables = [data] if data.get("columns") else []
+        out.append(cr.data_block(f"Insight tersimpan: {it.get('title', '')}", it.get("content", ""), tables))
+    return out
+
+
+def _file_auto_analyses(kind: str) -> list[tuple[str, dict]]:
+    """Analisis standar per jenis file untuk bahan laporan custom (dihitung pandas)."""
+    if kind == "planogram":
+        return [("ND PTPL per kuartal & SR", {"preset": "planogram_nd", "preset_args": {"group_by": ["SR"]}}),
+                ("ND PTPL per segmen & viskositas", {"preset": "planogram_nd",
+                                                      "preset_args": {"group_by": ["SEGMEN_USAGE", "VISCOSITY"]}}),
+                ("Skor AV PTPL vs kompetitor per SR (dalam KIMAP)", {"preset": "planogram_av", "preset_args": {"group_by": ["SR"]}}),
+                ("Skor AV per KIMAP", {"preset": "planogram_av", "preset_args": {"group_by": ["PAIR_KIMAP"]}}),
+                ("Whitespace per SR", {"preset": "planogram_whitespace", "preset_args": {"group_by": ["SR"]}})]
+    if kind == "retail":
+        return [("Gap harga PTPL vs kompetitor (KIMAP) per zona", {"preset": "gap_kimap",
+                                                                   "preset_args": {"metrics": ["HJ_L", "HTO_L", "MARG_L"],
+                                                                                   "group_by": ["ZONA"]}}),
+                ("Gap harga Product Hero per zona", {"preset": "gap_kimap", "preset_args": {
+                    "metrics": ["HJ_L", "HTO_L"], "group_by": ["ZONA"], "hero_only": True}})]
+    if kind == "industri":
+        return [("Gap % per channel", {"group_by": ["channel"], "metrics": [{"column": "GAP_PCT", "agg": "mean",
+                                                                              "name": "GAP_PCT_RATA2"}]}),
+                ("Gap % per zona", {"group_by": ["ZONA"], "metrics": [{"column": "GAP_PCT", "agg": "mean",
+                                                                         "name": "GAP_PCT_RATA2"}]})]
+    return []
+
+
+def _file_data_text(tool_context: ToolContext, file_id: str) -> tuple[str, str, str]:
+    """(teks data, jenis file, sumber) dari file unggahan: analisis standar + hasil analisis & insight di chat."""
+    from .. import custom_report as cr
+    from .. import data_engine as de
+    from .data_tools import LAST_KEY
+    from .file_tools import _prepared
+
+    files = tool_context.state.get("data_files", [])
+    entry = next((f for f in files if f["file_id"] == file_id), None) if file_id else (files[-1] if files else None)
+    if not entry:
+        return "", "", ""
+    frame, notes, kind = _prepared(entry)
+    blocks = [f"### File: {entry['filename']} (jenis data: {kind}; baris dipakai {notes.get('rows_used')}; "
+              f"dikecualikan: {notes.get('excluded') or 'tidak ada'})"]
+    for label, plan in _file_auto_analyses(kind):
+        try:
+            res = de.run_plan({"f": frame}, {"file": "f", "limit": 200, **plan})
+            blocks.append(cr.data_block(label, "", [{"columns": res["columns"], "rows": res["rows"],
+                                                     "total_rows": res["rows_total"]}]))
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Analisis standar '%s' gagal: %s", label, str(exc)[:200])
+    last = tool_context.state.get(LAST_KEY) or {}
+    if last.get("domain") == "file" and last.get("file_id") == entry["file_id"]:
+        blocks.append(cr.data_block(f"Analisis terakhir di chat: {last.get('question', '')}", "", last.get("tables")))
+    blocks += _insight_blocks(tool_context, file_based=True)
+    return "\n\n".join(blocks) if len(blocks) > 1 else "", kind, f"File unggahan {entry['filename']}"
+
+
+def _save_custom(tool_context: ToolContext, result: dict, domain: str, request: str, data_text: str, source: str,
+                 parent: str = "") -> dict[str, Any]:
+    from .. import custom_report as cr
+
+    title = result["title"]
+    links = report_engine.save_output(get_user_id(tool_context), CUSTOM_ID, title, cr.to_html(title, result["body"]),
+                                      "html", report_engine.FORMATS["html"][1],
+                                      record={"source": source, "domain": domain, "status": "DRAFT", "parent": parent,
+                                              "angka_tidak_terverifikasi": result["unverified"]})
+    data_uri = links["gcs_uri"].rsplit(".", 1)[0] + ".data.txt"
+    _gcs_put(data_uri, data_text)
+    reports = list(tool_context.state.get(CUSTOM_KEY, []))
+    rid = f"r{len(reports) + 1}"
+    reports.append({"report_id": rid, "title": title, "domain": domain, "request": request, "source": source,
+                    "html_uri": links["gcs_uri"], "data_uri": data_uri, "status": "DRAFT", "parent": parent})
+    tool_context.state[CUSTOM_KEY] = reports[-10:]
+    msg = ("Laporan custom berstatus DRAFT. Minta user meninjau, lalu ketik 'approve' untuk menerbitkan versi FINAL "
+           "atau berikan masukan untuk revisi.")
+    if result["unverified"]:
+        msg += (" Pemeriksa angka menemukan angka yang tidak cocok dengan data sumber dan sudah diberi catatan di "
+                "halaman terakhir: " + ", ".join(result["unverified"][:8]) + ". Sampaikan ini ke user.")
+    return {"status": "ok", "report_id": rid, "report_title": title, **links, "status_laporan": "DRAFT",
+            "angka_tidak_terverifikasi": result["unverified"], "penjelasan_model": result.get("explanation", ""),
+            "message": msg}
+
+
+def generate_custom_report(request: str, source: str, tool_context: ToolContext,
+                           data_questions: list[str] | None = None, file_id: str = "") -> dict[str, Any]:
+    """Membuat laporan CUSTOM (HTML, gaya design system PTPL) yang disusun model utama sesuai permintaan user,
+    memakai prompt laporan MIR (Retail Only / Industry Only / Planogram). Status awal DRAFT.
+
+    Data diambil lebih dulu: dari Data Agent BigQuery (source retail/industri/planogram) atau dari file unggahan
+    (source "file"). Angka di laporan diperiksa otomatis terhadap data tersebut.
+
+    Args:
+        request: Permintaan laporan user selengkap mungkin (fokus produk/segmen/wilayah/periode, audiens).
+        source: "retail", "industri", "planogram", atau "file".
+        data_questions: 1-3 pertanyaan data untuk Data Agent yang bersama-sama mencakup permintaan (opsional;
+            default: request). Abaikan jika source "file".
+        file_id: ID file (mis. "f1") jika source "file"; kosongkan untuk file terakhir.
+    """
+    from .. import custom_report as cr
+    from .. import data_agent
+    from .data_tools import pull
+
+    if not request.strip():
+        return {"status": "needs_input", "message": "Tanyakan ke user isi laporan yang diinginkan (fokus, periode, audiens)."}
+    src = source.strip().lower()
+    if src in ("file", "upload", "unggahan", "csv", "excel"):
+        data_text, kind, label = _file_data_text(tool_context, file_id.strip())
+        if not data_text:
+            return {"status": "needs_input",
+                    "message": ("Belum ada file CSV/Excel atau hasil analisis yang bisa dipakai. Minta user mengunggah file "
+                                "atau menganalisisnya dulu.") if not label else
+                               ("Format file tidak dikenali sehingga belum ada angka untuk laporan. Minta user menganalisis "
+                                "file dulu (mis. cross-tab) atau menyimpan hasilnya sebagai insight.")}
+        domain = kind if kind in ("retail", "industri", "planogram") else "umum"
+    else:
+        domain = data_agent.normalize_domain(src)
+        blocks, errors = [], []
+        for q in (data_questions or [request])[:3]:
+            res = pull(q, tool_context, domain)
+            if res.get("status") == "needs_authorization":
+                return res
+            if res.get("status") != "ok":
+                errors.append(res.get("message", "gagal"))
+                continue
+            blocks.append(cr.data_block(f"Hasil {data_agent.SOURCE_LABELS[domain]} — {q}", res["answer"], res["tables"]))
+        blocks += _insight_blocks(tool_context, domain)
+        if not blocks:
+            return {"status": "error", "message": "Data tidak bisa diambil dari Data Agent: " + "; ".join(errors)[:300]}
+        data_text = "\n\n".join(blocks)
+        label = data_agent.SOURCE_LABELS[domain]
+    result = cr.generate(domain, request, data_text)
+    if result["status"] == "no_data":
+        return {"status": "error", "message": "Data dari sumber tidak berisi angka yang bisa dipakai untuk laporan. "
+                                              + result["message"][:200]}
+    return _save_custom(tool_context, result, domain, request, data_text, label)
+
+
+def _find_report(tool_context: ToolContext, report_id: str) -> dict | None:
+    reports = tool_context.state.get(CUSTOM_KEY, [])
+    if report_id:
+        return next((r for r in reports if r["report_id"] == report_id), None)
+    return reports[-1] if reports else None
+
+
+def revise_custom_report(feedback: str, tool_context: ToolContext, report_id: str = "") -> dict[str, Any]:
+    """Menulis ulang laporan CUSTOM dengan masukan user (data sama, status kembali DRAFT).
+
+    Args:
+        feedback: Masukan revisi dari user, persis seperti yang diminta.
+        report_id: ID laporan (mis. "r1"); kosongkan untuk laporan custom terakhir.
+    """
+    from .. import custom_report as cr
+
+    rec = _find_report(tool_context, report_id.strip())
+    if not rec:
+        return {"status": "error", "message": "Belum ada laporan custom di chat ini untuk direvisi."}
+    html_doc = _gcs_text(rec["html_uri"])
+    body = cr.parse_output("```html\n" + html_doc + "\n```")["body"]
+    data_text = _gcs_text(rec["data_uri"])
+    result = cr.generate(rec["domain"], rec["request"], data_text, previous_body=body, feedback=feedback)
+    if result["status"] != "ok":
+        return {"status": "error", "message": result.get("message", "Revisi gagal dibuat.")}
+    return _save_custom(tool_context, result, rec["domain"], rec["request"], data_text, rec["source"], parent=rec["report_id"])
+
+
+def approve_report(tool_context: ToolContext, report_id: str = "") -> dict[str, Any]:
+    """Menyetujui laporan CUSTOM: label DRAFT diganti "FINAL · Disetujui <user> · <tanggal>" dan file FINAL diterbitkan.
+
+    Panggil HANYA jika user secara eksplisit menyetujui (mis. "approve", "setuju", "ok final").
+
+    Args:
+        report_id: ID laporan (mis. "r2"); kosongkan untuk laporan custom terakhir.
+    """
+    from .. import custom_report as cr
+
+    rec = _find_report(tool_context, report_id.strip())
+    if not rec:
+        return {"status": "error", "message": "Belum ada laporan custom di chat ini untuk disetujui."}
+    if rec["status"] == "FINAL":
+        return {"status": "ok", "report_title": rec["title"], "url": rec.get("final_url"), "message": "Laporan ini sudah FINAL."}
+    user = get_user_id(tool_context)
+    label = cr.approved_label(user)
+    doc = _gcs_text(rec["html_uri"]).replace("<body>", f'<body class="final" data-approved="{label}">', 1)
+    title = f"{rec['title']} (FINAL)"
+    links = report_engine.save_output(user, CUSTOM_ID, title, doc.encode("utf-8"), "html", report_engine.FORMATS["html"][1],
+                                      record={"source": rec["source"], "domain": rec["domain"], "status": "FINAL",
+                                              "approved_by": user, "draft": rec["html_uri"]})
+    reports = list(tool_context.state.get(CUSTOM_KEY, []))
+    for r in reports:
+        if r["report_id"] == rec["report_id"]:
+            r.update(status="FINAL", final_url=links["url"])
+    tool_context.state[CUSTOM_KEY] = reports
+    return {"status": "ok", "report_id": rec["report_id"], "report_title": title, **links, "status_laporan": "FINAL",
+            "message": f"Laporan disetujui ({label})."}
+
+
+generate_planogram_report = _logged(generate_planogram_report)
+preview_planogram_report = _logged(preview_planogram_report)
+generate_custom_report = _logged(generate_custom_report)
+revise_custom_report = _logged(revise_custom_report)
+approve_report = _logged(approve_report)
+REPORT_TOOLS = [list_report_options, generate_price_dashboard, preview_price_dashboard, generate_industry_report,
+                preview_industry_report, generate_planogram_report, preview_planogram_report, generate_custom_report,
+                revise_custom_report, approve_report]

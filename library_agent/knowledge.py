@@ -1,4 +1,4 @@
-"""Pengetahuan bisnis dari Data Agent (retail & industri) untuk dipakai agent ADK.
+"""Pengetahuan bisnis dari Data Agent (retail, industri, planogram) untuk dipakai agent ADK.
 
 Instruksi, glossary, dan contoh query resmi dibaca langsung dari definisi Data Agent lewat API,
 sehingga aturan bisnis tetap dikelola tim data di satu tempat. Hasil dibaca disimpan sementara di
@@ -12,16 +12,24 @@ import logging
 import time
 from typing import Any
 
-from .config import live, settings
+from .config import settings
 
 logger = logging.getLogger(__name__)
 TTL_SECONDS = 1800
 _cache: dict[str, tuple[float, dict]] = {}
-DOMAINS = ("retail", "industri")
+DOMAINS = ("retail", "industri", "planogram")
+
+
+def _norm(domain: str) -> str:
+    from .data_agent import normalize_domain
+
+    return normalize_domain(domain)
 
 
 def _agent_for(domain: str) -> str:
-    return live("data_agent_industry") if domain == "industri" else live("data_agent")
+    from .data_agent import agent_for
+
+    return agent_for(domain)
 
 
 def _snapshot_path(domain: str) -> str:
@@ -126,10 +134,11 @@ def _fetch_api(agent: str) -> dict[str, Any]:
 
 
 def _read_snapshot(domain: str) -> dict | None:
-    from .store import read_json
+    from .clients import storage_client
 
     try:
-        return read_json(_snapshot_path(domain), dict) or None
+        raw = storage_client().bucket(settings.bucket).blob(_snapshot_path(domain)).download_as_bytes()
+        return json.loads(raw) or None
     except Exception:  # noqa: BLE001
         return None
 
@@ -146,6 +155,7 @@ def _write_snapshot(domain: str, data: dict) -> None:
 
 def save_from_card(domain: str, card: dict) -> dict[str, Any]:
     """Buat salinan pengetahuan dari file agent card (cadangan jika API belum bisa diakses)."""
+    domain = _norm(domain)
     data = parse_definition(card)
     data.update(source="agent_card", agent=card.get("url", ""), name=card.get("name", ""))
     _write_snapshot(domain, data)
@@ -154,8 +164,8 @@ def save_from_card(domain: str, card: dict) -> dict[str, Any]:
 
 
 def get(domain: str, force: bool = False) -> dict[str, Any]:
-    """Pengetahuan untuk domain 'retail' atau 'industri'. Selalu mengembalikan dict (bisa kosong)."""
-    domain = "industri" if domain == "industri" else "retail"
+    """Pengetahuan untuk domain 'retail', 'industri', atau 'planogram'. Selalu mengembalikan dict (bisa kosong)."""
+    domain = _norm(domain)
     now = time.time()
     if not force and domain in _cache and now - _cache[domain][0] < TTL_SECONDS:
         return _cache[domain][1]
@@ -183,6 +193,7 @@ def get(domain: str, force: bool = False) -> dict[str, Any]:
 
 def as_text(domain: str, max_chars: int = 60000) -> str:
     """Pengetahuan dalam bentuk teks untuk instruksi agent."""
+    domain = _norm(domain)
     k = get(domain)
     if not k or not (k.get("instruction") or k.get("examples")):
         return f"(Pengetahuan Data Agent {domain} belum tersedia; gunakan aturan bawaan.)"
@@ -198,3 +209,13 @@ def as_text(domain: str, max_chars: int = 60000) -> str:
         parts.append("\n".join(lines))
     text = "\n\n".join(parts)
     return text[:max_chars]
+
+
+def summary(domain: str) -> dict[str, Any]:
+    """Ringkasan pengetahuan yang terserap (untuk disampaikan ke user saat file diunggah)."""
+    domain = _norm(domain)
+    k = get(domain)
+    return {"domain": domain, "sumber": k.get("source") or "aturan bawaan",
+            "instruksi_karakter": len(k.get("instruction") or ""), "glossary": len(k.get("glossary") or []),
+            "contoh_query": len(k.get("examples") or []), "tabel": k.get("tables") or [],
+            "tersedia": has_content(k)}

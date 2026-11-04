@@ -1,4 +1,4 @@
-"""Cek & siapkan pengetahuan Data Agent (retail & industri) untuk ADK.
+"""Cek & siapkan pengetahuan Data Agent (retail, industri, planogram) untuk ADK.
 
 1) Cek baca lewat API:            python scripts/check_knowledge.py
 2) Diagnosa struktur definisi:     python scripts/check_knowledge.py --dump retail

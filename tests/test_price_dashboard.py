@@ -144,12 +144,6 @@ class InferPeriodTest(unittest.TestCase):
         self.assertIsNone(pdm.infer_period(["harga Fastron di pasaran"]))
 
 
-class ReportAgentToolsTest(unittest.TestCase):
-    def test_active_template_folder_is_empty(self):
-        folder = os.path.join(ROOT, "templates")
-        self.assertEqual([f for f in os.listdir(folder) if not f.startswith(".")], [])
-
-
 class SampleReportStructureTest(unittest.TestCase):
     """Struktur mengikuti laporan contoh PTPL (C-Suite Exec Dashboard Q2–Q3 2026)."""
 
