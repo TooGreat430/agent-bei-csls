@@ -85,3 +85,29 @@ class AgentNameTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SettingsReferenceTest(unittest.TestCase):
+    """Regresi: setiap settings.<nama> yang dipakai kode harus ada (bug 'report_prefix' tidak boleh terulang)."""
+
+    def test_all_settings_attributes_exist(self):
+        import glob
+        import re
+
+        root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        missing = set()
+        for f in glob.glob(os.path.join(root, "library_agent", "**", "*.py"), recursive=True):
+            for name in re.findall(r"\bsettings\.([a-z_]+)\b", open(f, encoding="utf-8").read()):
+                if name != "json" and not hasattr(config.settings, name):
+                    missing.add(f"{os.path.basename(f)}: settings.{name}")
+        self.assertEqual(sorted(missing), [])
+
+    def test_live_keys_registered(self):
+        import glob
+        import re
+
+        root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        keys = set()
+        for f in glob.glob(os.path.join(root, "library_agent", "**", "*.py"), recursive=True):
+            keys.update(re.findall(r'live\("([a-z_]+)"\)', open(f, encoding="utf-8").read()))
+        self.assertEqual(sorted(k for k in keys if k not in config.RUNTIME_KEYS), [])

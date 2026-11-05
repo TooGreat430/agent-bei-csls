@@ -29,6 +29,7 @@
   "planogram_default_period": "2026-Q3",
   "planogram_carry_ratio_line": 70,
   "planogram_min_carry": 30,
+  "battlefield_min_price_n": 10,
   "industry_table": "ptpl-curated-prd.DATAMART.survey_industry",
   "industry_htd_column": "htd_ptpl_plus",
   "industry_focus_products": [

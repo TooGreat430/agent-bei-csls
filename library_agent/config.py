@@ -39,6 +39,10 @@ class Settings:
     # --- Cloud Storage ------------------------------------------------------
     bucket: str = field(default_factory=lambda: _env("LIB_BUCKET", ""))
     data_file_prefix: str = field(default_factory=lambda: _env("LIB_DATA_FILE_PREFIX") or _internal("data-files"))
+    # Dokumen unggahan per chat (PDF, Word, PowerPoint, teks, gambar, dll.) + teks hasil ekstraksinya
+    doc_file_prefix: str = field(default_factory=lambda: _env("LIB_DOC_FILE_PREFIX") or _internal("doc-files"))
+    # Laporan & grafik hasil agent
+    report_prefix: str = field(default_factory=lambda: _env("LIB_REPORT_PREFIX") or _internal("reports"))
     # Bucket terpisah untuk laporan (disarankan): user diberi izin baca HANYA di bucket ini,
     # sehingga katalog dan insight milik user lain di bucket utama tidak ikut terbuka.
     report_bucket: str = field(default_factory=lambda: _env("LIB_REPORT_BUCKET") or _env("LIB_BUCKET", ""))
@@ -83,6 +87,8 @@ class Settings:
     planogram_default_period: str = field(default_factory=lambda: _env("LIB_PLANOGRAM_DEFAULT_PERIOD", "2026-Q3"))
     # Ambang kuadran matriks KIMAP: rasio carry PTPL / leader kompetitor (%).
     planogram_carry_ratio_line: float = field(default_factory=lambda: float(_env("LIB_PLANOGRAM_CARRY_RATIO_LINE", "70")))
+    # Laporan gabungan Retail x Planogram (Competitive Battlefield): batas sampel harga per sisi.
+    battlefield_min_price_n: int = field(default_factory=lambda: int(_env("LIB_BATTLEFIELD_MIN_PRICE_N", "10")))
     # Sel dengan total carry di bawah angka ini ditandai "sampel kecil".
     planogram_min_carry: int = field(default_factory=lambda: int(_env("LIB_PLANOGRAM_MIN_CARRY", "30")))
 
@@ -139,6 +145,7 @@ RUNTIME_KEYS: dict[str, type] = {
     "planogram_default_period": str,
     "planogram_carry_ratio_line": float,
     "planogram_min_carry": int,
+    "battlefield_min_price_n": int,
     "industry_table": str,
     "industry_htd_column": str,
     "industry_segment_column": str,

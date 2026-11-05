@@ -129,7 +129,10 @@ DATA
 """
 
 
-def clean_narrative(raw: dict[str, Any], nums: list[float]) -> tuple[dict[str, Any], int]:
+CARD_KEYS = ("ringkasan", "sebaran", "viskositas", "av", "whitespace")
+
+
+def clean_narrative(raw: dict[str, Any], nums: list[float], card_keys: tuple[str, ...] = CARD_KEYS) -> tuple[dict[str, Any], int]:
     from .price_dashboard import ungrounded_numbers
 
     dropped = 0
@@ -142,7 +145,7 @@ def clean_narrative(raw: dict[str, Any], nums: list[float]) -> tuple[dict[str, A
         return True
 
     out: dict[str, Any] = {"judul_utama": raw.get("judul_utama", "") if ok(raw.get("judul_utama", "")) else ""}
-    for key in ("ringkasan", "sebaran", "viskositas", "av", "whitespace"):
+    for key in card_keys:
         out[key] = [c for c in raw.get(key) or [] if ok(f"{c.get('judul', '')} {c.get('isi', '')}")]
     out["rekomendasi"] = [r for r in raw.get("rekomendasi") or []
                           if r.get("owner") in OWNERS and ok(" ".join(str(r.get(k, "")) for k in ("temuan", "implikasi", "aksi")))]

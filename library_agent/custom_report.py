@@ -28,7 +28,8 @@ logger = logging.getLogger(__name__)
 PROMPT_DIR = os.path.join(ASSET_DIR, "custom_prompts")
 NO_DATA = "DATA TIDAK DITERIMA DARI DATA AGENT"
 FIRST_LINE = {"retail": "LAPORAN RETAIL ONLY", "industri": "LAPORAN INDUSTRY ONLY", "planogram": "LAPORAN PLANOGRAM",
-              "umum": "LAPORAN DATA"}
+              "retail_planogram": "LAPORAN RETAIL × PLANOGRAM", "umum": "LAPORAN DATA"}
+PROMPT_FILES = ("retail", "industri", "planogram", "retail_planogram")
 MAX_DATA_CHARS = 120_000
 
 OUTPUT_CONTRACT = """FORMAT OUTPUT (KHUSUS AGENT — MENGGANTIKAN "FORMAT OUTPUT" DAN PERINTAH MENYALIN DESIGN SYSTEM DI ATAS)
@@ -52,7 +53,7 @@ Jika INPUT tidak berisi data angka, tulis HANYA kalimat "DATA TIDAK DITERIMA DAR
 # Prompt
 # ==========================================================================
 def load_prompt(domain: str) -> str:
-    name = domain if domain in ("retail", "industri", "planogram") else "retail"
+    name = domain if domain in PROMPT_FILES else "retail"
     with open(os.path.join(PROMPT_DIR, f"{name}.txt"), encoding="utf-8") as fh:
         text = fh.read()
     if domain == "umum":   # file format umum: tanpa knowledge retail
@@ -64,13 +65,18 @@ def load_prompt(domain: str) -> str:
 
 
 def build_prompt(domain: str, request: str, data_text: str, previous_body: str = "", feedback: str = "",
-                 problems: list[str] | None = None) -> str:
+                 problems: list[str] | None = None, extra_instructions: str = "") -> str:
     base = load_prompt(domain)
     base = base.replace("SISIPKAN_VARIABEL_Description", request.strip() or "(tidak ada)")
     base = re.sub(r"SISIPKAN_VARIABEL_\w+_output", lambda _m: data_text.strip() or "(kosong)", base, count=1)
+    base = re.sub(r"SISIPKAN_VARIABEL_\w+_output", "(sudah termasuk pada data di atas)", base)
     cut = base.find("FORMAT OUTPUT")
     if cut >= 0:
         base = base[:cut]
+    if extra_instructions.strip():
+        base += ("\nINSTRUKSI TAMBAHAN DARI DOKUMEN USER (ikuti selama tidak bertentangan dengan LARANGAN SUMBER DATA dan "
+                 "ATURAN ANGKA; jika dokumen berupa contoh laporan, tiru struktur dan gaya narasinya, bukan angkanya):\n"
+                 + extra_instructions.strip()[:20000] + "\n")
     base += "\n" + OUTPUT_CONTRACT.format(first=FIRST_LINE.get(domain, "LAPORAN DATA"))
     if previous_body and feedback:
         base += ("\n\nREVISI (WAJIB): Berikut laporan sebelumnya. Tulis ulang SELURUH laporan dengan menerapkan masukan "
@@ -102,6 +108,34 @@ def data_block(title: str, answer: str = "", tables: list[dict] | None = None) -
     for t in tables or []:
         parts.append(table_text(t.get("columns") or [], t.get("rows") or [], t.get("total_rows")))
     return "\n\n".join(parts)
+
+
+def battlefield_block(ds: dict[str, Any]) -> str:
+    """Tabel analisis silang Retail × Planogram (dihitung kode) sebagai bagian data INPUT laporan custom."""
+    pa, pb = ds["period"]["a"], ds["period"]["b"] or "-"
+    pairs = ds.get("pairs", [])[:20]
+    cols = ["KIMAP", "Segmen", "Viskositas", "Produk PTPL", "Head-to-head", "Outlet PTPL", "Outlet komp", "Rasio carry %",
+            "AV PTPL", "AV komp", "Gap AV", "HJ/L PTPL", "HJ/L komp", "Keunggulan harga %", "Gap margin/L", "Status",
+            f"Δ keunggulan harga pp ({pb}→{pa})", "Δ gap AV", "SR lemah"]
+    rows = [[p["kimap"], p["segmen"], p["viscosity"], p["ptpl"], f"{p['h2h']} {p['h2h_series']}", p["out_ptpl"], p["out_comp"],
+             p["ratio"], p["av_ptpl"], p["av_comp"], p["av_gap"], p["hj_ptpl"], p["hj_comp"], p["price_adv"], p["eco_gap"],
+             p["status"], p["price_adv_delta"], p["av_gap_delta"], ", ".join(p["weak_sr"])] for p in pairs]
+    cats = ds.get("categories", [])[:12]
+    ccols = ["Kategori", "Exposure", "Δ outlet %", "AV", "Δ AV", "Leader", "Outlet leader", "Outlet PTPL", "White space"]
+    crows = [[c["label"], c["exposure"], c["delta_pct"], c["av"], c["delta_av"], c["leader"], c["leader_carry"],
+              c["ptpl_carry"], "ya" if c["white_space"] else "tidak"] for c in cats]
+    th = ds.get("threats", [])[:10]
+    tcols = ["Brand", "Series", "KIMAP", f"Outlet {pb}", f"Outlet {pa}", "Δ outlet", "Growth %", "Δ AV", "Tipe"]
+    trows = [[t["brand"], t["series"], t["kimap"], t["out_b"], t["out_a"], t["delta"], t["growth_pct"], t["delta_av"],
+              t["type"]] for t in th]
+    rcols = ["SR", "Double weakness MCO", "PCO", "Commercial", "Total"]
+    rrows = [[r["sr"], r["double_weakness"].get("MCO", 0), r["double_weakness"].get("PCO", 0),
+              r["double_weakness"].get("COMMERCIAL", 0), r["dw_total"]] for r in ds.get("regions", [])]
+    status = ", ".join(f"{k}: {v}" for k, v in (ds.get("status_counts") or {}).items())
+    return data_block(f"Analisis silang Retail × Planogram (dihitung kode) — {pa} vs {pb}",
+                      f"Jumlah status head-to-head: {status}.",
+                      [{"columns": cols, "rows": rows}, {"columns": ccols, "rows": crows},
+                       {"columns": tcols, "rows": trows}, {"columns": rcols, "rows": rrows}])
 
 
 # ==========================================================================
@@ -195,13 +229,15 @@ def add_checker_note(body: str, bad: list[str]) -> str:
 # ==========================================================================
 # Generate / approve
 # ==========================================================================
-def generate(domain: str, request: str, data_text: str, previous_body: str = "", feedback: str = "") -> dict[str, Any]:
+def generate(domain: str, request: str, data_text: str, previous_body: str = "", feedback: str = "",
+             extra_instructions: str = "") -> dict[str, Any]:
     """Panggil model utama, bungkus design system, dan periksa angka (maks 1 perbaikan)."""
     from .report_engine import generate_text
 
     data_text = data_text[:MAX_DATA_CHARS]
     pool = number_pool(data_text + "\n" + request)
-    out = parse_output(generate_text(build_prompt(domain, request, data_text, previous_body, feedback)))
+    out = parse_output(generate_text(build_prompt(domain, request, data_text, previous_body, feedback,
+                                                  extra_instructions=extra_instructions)))
     if out["no_data"]:
         return {"status": "no_data", "message": out["explanation"] or NO_DATA}
     if not out["body"]:
@@ -210,7 +246,8 @@ def generate(domain: str, request: str, data_text: str, previous_body: str = "",
     revised = False
     if bad:
         logger.warning("Laporan custom: %d angka tidak terverifikasi, minta tulis ulang: %s", len(bad), bad[:10])
-        retry = parse_output(generate_text(build_prompt(domain, request, data_text, previous_body, feedback, bad)))
+        retry = parse_output(generate_text(build_prompt(domain, request, data_text, previous_body, feedback, bad,
+                                                        extra_instructions)))
         if retry["body"]:
             revised = True
             out = retry

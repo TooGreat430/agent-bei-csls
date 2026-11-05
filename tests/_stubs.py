@@ -70,6 +70,8 @@ def install() -> None:
             self.function_call = None
             self.function_response = None
             self.thought = False
+            self.inline_data = None
+            self.file_data = None
             for k, v in kwargs.items():
                 setattr(self, k, v)
 
@@ -77,6 +79,7 @@ def install() -> None:
         def from_bytes(cls, data=None, mime_type=None):
             return cls(inline_data=SimpleNamespace(data=data, mime_type=mime_type))
 
-    genai.types = mod("google.genai.types", Content=_Obj, Part=_Obj, FunctionCall=_Obj, GenerateContentConfig=_Any)
+    genai.types = mod("google.genai.types", Content=_Obj, Part=_Obj, FunctionCall=_Obj, GenerateContentConfig=_Any,
+                      Blob=SimpleNamespace)
     google.adk = sys.modules["google.adk"]
     google.genai = genai

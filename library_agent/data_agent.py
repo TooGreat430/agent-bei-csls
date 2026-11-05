@@ -22,10 +22,12 @@ logger = logging.getLogger(__name__)
 
 SOURCE_LABEL = "Survey Response Report Retail"
 SOURCE_LABELS = {"retail": "Survey Response Report Retail", "industri": "Survey Response Report Industry",
-                 "planogram": "Planogram Marketing Intelligence (VM_PLANOGRAM)"}
+                 "planogram": "Planogram Marketing Intelligence (VM_PLANOGRAM)",
+                 "retail_planogram": "Survey Response Report Retail × Planogram Marketing Intelligence (VM_PLANOGRAM)"}
 DOMAINS = ("retail", "industri", "planogram")
 DOMAIN_SETTING = {"retail": "data_agent", "industri": "data_agent_industry", "planogram": "data_agent_planogram"}
-INSIGHT_SOURCE = {"retail": "bigquery", "industri": "bigquery_industri", "planogram": "bigquery_planogram"}
+INSIGHT_SOURCE = {"retail": "bigquery", "industri": "bigquery_industri", "planogram": "bigquery_planogram",
+                  "retail_planogram": "bigquery_retail_planogram"}
 
 
 def normalize_domain(value: str) -> str:

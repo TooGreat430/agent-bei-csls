@@ -142,7 +142,7 @@ class TemplateTest(unittest.TestCase):
 
     def test_ungrounded_narrative_dropped(self):
         raw = pr.fallback_narrative(self.ds)
-        raw["ringkasan"].append({"label": "X", "judul": "ND naik ke 97,3%", "isi": "angka karangan", "nada": "info"})
+        raw["ringkasan"].append({"label": "X", "judul": "Carry naik ke 12.345 outlet", "isi": "angka karangan", "nada": "info"})
         narr, dropped = pr.clean_narrative(raw, pdm.dataset_numbers(self.ds))
         self.assertEqual(dropped, 1)
 

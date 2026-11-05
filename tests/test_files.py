@@ -211,11 +211,11 @@ class VerifyNumbersTest(unittest.TestCase):
 
 class UploadRoutingTest(unittest.TestCase):
     def test_data_file_detection(self):
-        from library_agent.callbacks import _is_data_file
+        from library_agent.documents import sniff
 
-        self.assertTrue(_is_data_file("Data_Retail.csv", "text/plain"))
-        self.assertTrue(_is_data_file("x", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"))
-        self.assertFalse(_is_data_file("studi.pdf", "application/pdf"))
+        self.assertEqual(sniff(b"a,b\n1,2", "Data_Retail.csv", "text/plain")[0], "data")
+        self.assertEqual(sniff(b"PK..", "x", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")[0], "data")
+        self.assertEqual(sniff(b"%PDF-1.4", "studi.pdf", "application/pdf")[0], "dokumen")
 
 
 if __name__ == "__main__":

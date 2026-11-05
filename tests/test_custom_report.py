@@ -111,21 +111,16 @@ class WrapApproveTest(unittest.TestCase):
         self.assertIn('<body class="final" data-approved="FINAL · Disetujui jason.kusuma', final)
 
 
-class UploadRejectTest(unittest.TestCase):
-    def _ctx(self, parts):
-        return NS(user_content=NS(parts=parts), state={}, _invocation_context=None)
-
-    def test_pdf_rejected(self):
-        part = NS(text=None, file_data=None,
-                  inline_data=NS(data=b"%PDF-1.4", mime_type="application/pdf", display_name="studi_bei.pdf"))
-        out = callbacks.capture_uploads(self._ctx([part]))
-        self.assertIsNotNone(out)
-        self.assertIn("studi_bei.pdf", out.parts[0].text)
-        self.assertIn("CSV atau Excel", out.parts[0].text)
-
-    def test_text_only_passes(self):
-        part = NS(text="halo", file_data=None, inline_data=None)
-        self.assertIsNone(callbacks.capture_uploads(self._ctx([part])))
+class PromptCombinedTest(unittest.TestCase):
+    def test_combined_prompt(self):
+        p = cr.build_prompt("retail_planogram", "Battlefield PCO 10W-40", DATA, extra_instructions="Ikuti struktur V7.")
+        self.assertIn("KNOWLEDGE RETAIL", p)
+        self.assertIn("KNOWLEDGE PLANOGRAM", p)
+        self.assertIn("ATURAN GABUNGAN RETAIL × PLANOGRAM", p)
+        self.assertIn("LAPORAN RETAIL × PLANOGRAM — <judul singkat>", p)
+        self.assertIn("Ikuti struktur V7.", p)
+        self.assertNotIn("SISIPKAN_VARIABEL", p)
+        self.assertEqual(p.count("| SR1 | 58.1 | 62.4 | 1329 |"), 1)
 
 
 if __name__ == "__main__":

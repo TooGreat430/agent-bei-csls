@@ -219,11 +219,61 @@ def ask_planogram_intelligence(question: str, tool_context: ToolContext) -> dict
     return ask_marketing_intelligence(question, tool_context, domain="planogram")
 
 
+def analyze_retail_planogram(tool_context: ToolContext, period: str = "", compare_period: str = "",
+                             segment: str = "", kimap: str = "") -> dict[str, Any]:
+    """Analisis SILANG Retail (harga) × Planogram (rak) per KIMAP — dihitung kode dari BigQuery.
+
+    Pakai untuk pertanyaan yang butuh harga DAN kondisi rak sekaligus, mis. "daya saing PCO 10W-40 dari sisi harga dan
+    planogram", "produk mana yang murah tapi kalah di rak", "double jeopardy", "white space". Hanya Retail × Planogram
+    yang bisa digabung; Industri tidak.
+
+    Args:
+        period: Kuartal utama, mis. "2026-Q3" (kosongkan untuk default).
+        compare_period: Kuartal pembanding (kosongkan untuk kuartal sebelumnya).
+        segment: Filter opsional, mis. "PCO", "MCO", "COMMERCIAL", atau "PCO 10W-40".
+        kimap: Filter opsional satu KIMAP.
+    """
+    from .report_tools import battlefield_dataset
+
+    ds, err = battlefield_dataset(tool_context, period, compare_period)
+    if not ds:
+        return {"status": "error", "message": err}
+    seg = segment.strip().upper()
+    words = seg.split()
+
+    def keep(item: dict) -> bool:
+        if kimap.strip() and item.get("kimap") != kimap.strip():
+            return False
+        if not words:
+            return True
+        text = f"{item.get('segmen', '')} {item.get('usage', '')} {item.get('viscosity', '')}".upper()
+        return all(w in text for w in words)
+    keys = ("kimap", "segmen", "usage", "viscosity", "ptpl", "h2h", "h2h_series", "out_ptpl", "out_comp", "ratio",
+            "av_ptpl", "av_comp", "av_gap", "hj_ptpl", "hj_comp", "price_basis", "price_adv", "eco_gap", "status",
+            "price_adv_delta", "av_gap_delta", "comp_threat", "weak_sr")
+    pairs = [{k: p.get(k) for k in keys} for p in ds.get("pairs", []) if keep(p)]
+    cats = [c for c in ds.get("categories", []) if keep(c)][:10]
+    threats = [t for t in ds.get("threats", []) if not words or words[0] in str(t.get("segmen", "")).upper()][:8]
+    tool_context.state[CHART_KEY] = None
+    tool_context.state[LAST_KEY] = {"domain": "retail_planogram", "question": f"Retail × Planogram {segment} {kimap}".strip(),
+                                    "answer": "", "tables": [{"columns": list(keys), "rows": [[p[k] for k in keys] for p in pairs],
+                                                              "total_rows": len(pairs)}]}
+    return {"status": "ok", "periode": ds["period"], "source": ds["source_label"],
+            "definisi": {"price_adv": "keunggulan harga jual PTPL % (positif = PTPL lebih murah)",
+                         "av_gap": "AV PTPL − AV kompetitor head-to-head (positif = PTPL lebih baik)",
+                         "eco_gap": "margin outlet/L PTPL − kompetitor (positif = baik)",
+                         "ratio": "outlet PTPL / outlet kompetitor × 100"},
+            "jumlah_status": {s: sum(1 for p in pairs if p["status"] == s) for s in {p["status"] for p in pairs}},
+            "head_to_head": pairs[:20], "head_to_head_total": len(pairs), "kategori": cats,
+            "white_space": [c for c in ds.get("white_space", []) if keep(c)][:6], "ancaman_kompetitor": threats}
+
+
 ask_marketing_intelligence = _safe(ask_marketing_intelligence)
+analyze_retail_planogram = _safe(analyze_retail_planogram)
 ask_retail_intelligence = _safe(ask_retail_intelligence)
 ask_industry_intelligence = _safe(ask_industry_intelligence)
 ask_planogram_intelligence = _safe(ask_planogram_intelligence)
 create_chart = _safe(create_chart)
 save_data_insight = _safe(save_data_insight)
-DATA_TOOLS = [ask_retail_intelligence, ask_industry_intelligence, ask_planogram_intelligence, create_chart,
-              save_data_insight]
+DATA_TOOLS = [ask_retail_intelligence, ask_industry_intelligence, ask_planogram_intelligence, analyze_retail_planogram,
+              create_chart, save_data_insight]

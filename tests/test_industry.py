@@ -98,7 +98,8 @@ class RoutingTest(unittest.TestCase):
         self.assertEqual([t.__name__ for t in REPORT_TOOLS],
                          ["list_report_options", "generate_price_dashboard", "preview_price_dashboard",
                           "generate_industry_report", "preview_industry_report", "generate_planogram_report",
-                          "preview_planogram_report", "generate_custom_report", "revise_custom_report",
+                          "preview_planogram_report", "generate_battlefield_report", "preview_battlefield_report",
+                          "generate_custom_report", "revise_custom_report",
                           "approve_report"])
 
     def test_industry_settings_keep_case(self):

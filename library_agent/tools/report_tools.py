@@ -320,8 +320,15 @@ def list_report_options() -> dict[str, Any]:
                  "format": ["pdf", "pptx", "html"], "tool": "generate_industry_report"},
                 {"nama": "Kinerja Planogram PTPL vs Kompetitor", "sumber": "BigQuery planogram / file VM_PLANOGRAM",
                  "isi": "sebaran outlet (carry & ND), availability & visibility, whitespace, rekomendasi per audiens",
-                 "format": ["pdf", "pptx", "html"], "tool": "generate_planogram_report"}],
-            "custom": {"sumber": ["retail", "industri", "planogram", "file unggahan"], "format": ["html"],
+                 "format": ["pdf", "pptx", "html"], "tool": "generate_planogram_report"},
+                {"nama": "Competitive Battlefield (Retail × Planogram)",
+                 "sumber": "BigQuery retail + planogram (atau file retail + file planogram)",
+                 "isi": "battlefield kategori, head-to-head harga × ekonomi × rak per KIMAP, momentum kompetitor, "
+                        "white space, Sales Region, action matrix",
+                 "format": ["pdf", "pptx", "html"], "tool": "generate_battlefield_report"}],
+            "catatan": "Gabungan sumber hanya Retail × Planogram; Industri tidak bisa digabung (kunci produk berbeda).",
+            "custom": {"sumber": ["retail", "industri", "planogram", "retail + planogram (gabungan)", "file unggahan"],
+                       "format": ["html"], "instruksi_tambahan": "dokumen unggahan (prompt/template) bisa dipakai lewat instruction_doc_id",
                        "status": "DRAFT sampai user menyetujui (approve)", "tool": "generate_custom_report"}}
 
 
@@ -449,11 +456,156 @@ def preview_planogram_report(tool_context: ToolContext, output_format: str = "")
 
 
 # ==========================================================================
+# Template gabungan Retail × Planogram (Competitive Battlefield)
+# ==========================================================================
+BATTLEFIELD_ID = "competitive_battlefield"
+
+
+def _file_entry(tool_context: ToolContext, file_id: str) -> dict | None:
+    return next((f for f in tool_context.state.get("data_files", []) if f["file_id"] == file_id), None)
+
+
+def battlefield_dataset(tool_context: ToolContext, period: str = "", compare_period: str = "",
+                        retail_file_id: str = "", planogram_file_id: str = "") -> tuple[dict | None, str]:
+    """Dataset Retail × Planogram dari BigQuery (default) atau dari dua file unggahan. (dataset, pesan error)."""
+    import pandas as pd
+
+    from .. import battlefield_data as bd
+    from .. import data_engine as de
+    from .. import planogram_data as pdm
+    from ..config import live
+
+    try:
+        pa = pdm.parse_period(period.strip() or live("planogram_default_period") or "2026-Q3")
+        pb = pdm.parse_period(compare_period) if compare_period.strip() else pdm.previous_period(pa)
+    except ValueError as exc:
+        return None, str(exc)
+    notes: dict = {}
+    # planogram
+    if planogram_file_id.strip():
+        rows, entry, pnotes = _planogram_file_rows(tool_context, planogram_file_id.strip(), pa, pb)
+        if rows is None:
+            return None, entry
+        plan_src = f"file {entry['filename']}"
+    else:
+        try:
+            raw = pdm.fetch(pa, pb, live("planogram_table"))
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("Query planogram gagal")
+            return None, "Data planogram tidak bisa diambil" + (
+                " (service account belum punya akses ke VM_PLANOGRAM)." if "403" in str(exc) or "Access Denied" in str(exc) else ".")
+        prepared, pnotes = de.prepare(raw, "planogram") if not raw.empty else (raw, {})
+        rows = pdm.to_rows(prepared, pa, pb) if not raw.empty else pd.DataFrame()
+        plan_src = "BigQuery VM_PLANOGRAM"
+    if rows is None or rows.empty:
+        return None, f"Tidak ada data planogram untuk {pa['label']}."
+    # retail
+    if retail_file_id.strip():
+        entry = _file_entry(tool_context, retail_file_id.strip())
+        if not entry:
+            return None, f"File {retail_file_id} tidak ada di chat ini."
+        df, _ = de.load_frame(entry["uri"], entry["filename"], entry.get("sheet"))
+        kind = entry.get("kind") if entry.get("kind_manual") else de.detect_kind(df)
+        if kind != "retail":
+            return None, f"File {entry['filename']} bukan format survei retail (terdeteksi: {kind})."
+        rprep, rnotes = de.prepare(df, "retail", live("hero_products"))
+        price = bd.retail_rows_from_frame(rprep, pa, pb)
+        retail_src = f"file {entry['filename']}"
+    else:
+        try:
+            price = bd.fetch_retail(pa, pb, live("price_table"))
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("Query retail gagal")
+            return None, f"Data harga retail tidak bisa diambil: {str(exc)[:150]}"
+        rnotes = {}
+        retail_src = "BigQuery SURVEY_PRODUCTS"
+    notes = {"planogram_dikecualikan": (pnotes or {}).get("excluded"), "retail_dikecualikan": (rnotes or {}).get("excluded"),
+             "sumber": f"Planogram: {plan_src} · Retail: {retail_src}"}
+    ds = bd.build_dataset(rows, price, pa, pb, float(live("planogram_carry_ratio_line") or 70),
+                          int(live("battlefield_min_price_n") or 10), int(live("planogram_min_carry") or 30), notes)
+    if not ds.get("pairs") and not ds.get("categories"):
+        return None, f"Tidak ada KIMAP yang bisa dibandingkan untuk {pa['label']}."
+    if retail_file_id.strip() or planogram_file_id.strip():
+        ds["source_label"] = notes["sumber"]
+    return ds, ""
+
+
+def generate_battlefield_report(tool_context: ToolContext, period: str = "", compare_period: str = "",
+                                output_format: str = "", title: str = "", retail_file_id: str = "",
+                                planogram_file_id: str = "", focus: str = "") -> dict[str, Any]:
+    """Membuat laporan TEMPLATE gabungan "Competitive Battlefield: Planogram × Price Competitiveness" (6 halaman).
+
+    Menggabungkan survei harga RETAIL dan survei rak PLANOGRAM per KIMAP: battlefield kategori, head-to-head
+    harga × ekonomi outlet × planogram (status Pemenang / Gap Eksekusi / Gap Ekonomi / Gap Harga / Double Jeopardy),
+    momentum kompetitor, white space, Sales Region, dan action matrix untuk Management, Brand Owner, Sales Region.
+
+    Args:
+        period: Kuartal utama, mis. "2026-Q3". Kosongkan untuk default.
+        compare_period: Kuartal pembanding. Kosongkan untuk kuartal sebelumnya.
+        output_format: "pdf", "pptx" (PowerPoint), atau "html". Kosongkan jika user belum menyebut.
+        title: Judul laporan (opsional).
+        retail_file_id: ID file survei retail unggahan (opsional; default BigQuery).
+        planogram_file_id: ID file VM_PLANOGRAM unggahan (opsional; default BigQuery).
+        focus: Penekanan tambahan dari user untuk narasi (opsional).
+    """
+    from .. import battlefield_report as br
+    from .. import ptpl_design
+    from ..config import live
+
+    fmt = report_engine.normalize_format(output_format)
+    if not fmt:
+        return {"status": "needs_input", "available_formats": ["pdf", "pptx", "html"],
+                "message": "Tanyakan ke user format yang diinginkan: PDF, PowerPoint, atau HTML."}
+    ds, err = battlefield_dataset(tool_context, period, compare_period, retail_file_id, planogram_file_id)
+    if not ds:
+        return {"status": "error", "message": err}
+    pages = br.build_pages(ds, br.generate_narrative(ds, live("company_name"), focus))
+    periode = f"{ds['period']['b']} vs {ds['period']['a']}" if ds["has_b"] else ds["period"]["a"]
+    title = title.strip() or f"Competitive Battlefield: Planogram × Price Competitiveness {periode}"
+    data = getattr(ptpl_design, PLANOGRAM_RENDER[fmt])(pages, title)
+    links = report_engine.save_output(get_user_id(tool_context), BATTLEFIELD_ID, title, data, fmt,
+                                      report_engine.FORMATS[fmt][1],
+                                      record={"source": "retail_planogram", "periode": ds["period"]})
+    return {"status": "ok", "report_title": title, **links, "jumlah_status": ds.get("status_counts"),
+            "message": "Laporan gabungan Retail × Planogram siap."}
+
+
+def preview_battlefield_report(tool_context: ToolContext, output_format: str = "") -> dict[str, Any]:
+    """Contoh tampilan laporan Competitive Battlefield dengan DATA ILUSTRASI (bukan data asli).
+
+    Args:
+        output_format: "pdf", "pptx", atau "html". Kosongkan jika user belum menyebut.
+    """
+    from .. import battlefield_data as bd
+    from .. import battlefield_report as br
+    from .. import data_engine as de
+    from .. import planogram_data as pdm
+    from .. import ptpl_design, sample_planogram, sample_retail
+
+    fmt = report_engine.normalize_format(output_format)
+    if not fmt:
+        return {"status": "needs_input", "available_formats": ["pdf", "pptx", "html"],
+                "message": "Tanyakan ke user format contoh yang diinginkan (PDF, PowerPoint, atau HTML)."}
+    pa, pb = pdm.parse_period("2026-Q3"), pdm.parse_period("2026-Q2")
+    prep, _ = de.prepare(sample_planogram.rows(), "planogram")
+    rprep, _ = de.prepare(sample_retail.rows(), "retail")
+    ds = bd.build_dataset(pdm.to_rows(prep, pa, pb), bd.retail_rows_from_frame(rprep, pa, pb), pa, pb)
+    ds["source_label"] = "CONTOH TAMPILAN — angka ilustrasi, bukan data asli"
+    pages = br.build_pages(ds, br.fallback_narrative(ds))
+    title = "CONTOH TAMPILAN - Competitive Battlefield (ILUSTRASI)"
+    data = getattr(ptpl_design, PLANOGRAM_RENDER[fmt])(pages, title)
+    links = report_engine.save_output(get_user_id(tool_context), BATTLEFIELD_ID, title, data, fmt,
+                                      report_engine.FORMATS[fmt][1], record={"preview": True})
+    return {"status": "ok", "report_title": title, **links, "message": "Ini contoh tampilan dengan angka ilustrasi, bukan data asli."}
+
+
+# ==========================================================================
 # Laporan custom (prompt MIR + model utama)
 # ==========================================================================
 CUSTOM_ID = "laporan_custom"
 CUSTOM_KEY = "custom_reports"
-INSIGHT_DOMAIN = {"bigquery": "retail", "bigquery_industri": "industri", "bigquery_planogram": "planogram"}
+INSIGHT_DOMAIN = {"bigquery": "retail", "bigquery_industri": "industri", "bigquery_planogram": "planogram",
+                  "bigquery_retail_planogram": "retail_planogram"}
 
 
 def _gcs_text(uri: str) -> str:
@@ -538,7 +690,7 @@ def _file_data_text(tool_context: ToolContext, file_id: str) -> tuple[str, str, 
 
 
 def _save_custom(tool_context: ToolContext, result: dict, domain: str, request: str, data_text: str, source: str,
-                 parent: str = "") -> dict[str, Any]:
+                 parent: str = "", extra: str = "") -> dict[str, Any]:
     from .. import custom_report as cr
 
     title = result["title"]
@@ -548,10 +700,15 @@ def _save_custom(tool_context: ToolContext, result: dict, domain: str, request: 
                                               "angka_tidak_terverifikasi": result["unverified"]})
     data_uri = links["gcs_uri"].rsplit(".", 1)[0] + ".data.txt"
     _gcs_put(data_uri, data_text)
+    extra_uri = ""
+    if extra:
+        extra_uri = data_uri.replace(".data.txt", ".instruksi.txt")
+        _gcs_put(extra_uri, extra)
     reports = list(tool_context.state.get(CUSTOM_KEY, []))
     rid = f"r{len(reports) + 1}"
     reports.append({"report_id": rid, "title": title, "domain": domain, "request": request, "source": source,
-                    "html_uri": links["gcs_uri"], "data_uri": data_uri, "status": "DRAFT", "parent": parent})
+                    "html_uri": links["gcs_uri"], "data_uri": data_uri, "status": "DRAFT", "parent": parent,
+                    "extra_uri": extra_uri})
     tool_context.state[CUSTOM_KEY] = reports[-10:]
     msg = ("Laporan custom berstatus DRAFT. Minta user meninjau, lalu ketik 'approve' untuk menerbitkan versi FINAL "
            "atau berikan masukan untuk revisi.")
@@ -564,7 +721,8 @@ def _save_custom(tool_context: ToolContext, result: dict, domain: str, request: 
 
 
 def generate_custom_report(request: str, source: str, tool_context: ToolContext,
-                           data_questions: list[str] | None = None, file_id: str = "") -> dict[str, Any]:
+                           data_questions: list[str] | None = None, file_id: str = "",
+                           instruction_doc_id: str = "", period: str = "") -> dict[str, Any]:
     """Membuat laporan CUSTOM (HTML, gaya design system PTPL) yang disusun model utama sesuai permintaan user,
     memakai prompt laporan MIR (Retail Only / Industry Only / Planogram). Status awal DRAFT.
 
@@ -573,10 +731,13 @@ def generate_custom_report(request: str, source: str, tool_context: ToolContext,
 
     Args:
         request: Permintaan laporan user selengkap mungkin (fokus produk/segmen/wilayah/periode, audiens).
-        source: "retail", "industri", "planogram", atau "file".
+        source: "retail", "industri", "planogram", "retail_planogram" (gabungan Retail × Planogram), atau "file".
+            Gabungan hanya Retail × Planogram; Industri tidak bisa digabung.
         data_questions: 1-3 pertanyaan data untuk Data Agent yang bersama-sama mencakup permintaan (opsional;
-            default: request). Abaikan jika source "file".
+            default: request). Untuk "retail_planogram" pertanyaan dikirim ke kedua Data Agent. Abaikan jika "file".
         file_id: ID file (mis. "f1") jika source "file"; kosongkan untuk file terakhir.
+        instruction_doc_id: ID dokumen unggahan (mis. "d1") berisi prompt/template/arahan laporan dari user (opsional).
+        period: Kuartal utama untuk analisis silang Retail × Planogram (opsional, mis. "2026-Q3").
     """
     from .. import custom_report as cr
     from .. import data_agent
@@ -584,8 +745,35 @@ def generate_custom_report(request: str, source: str, tool_context: ToolContext,
 
     if not request.strip():
         return {"status": "needs_input", "message": "Tanyakan ke user isi laporan yang diinginkan (fokus, periode, audiens)."}
-    src = source.strip().lower()
-    if src in ("file", "upload", "unggahan", "csv", "excel"):
+    src = source.strip().lower().replace(" ", "")
+    combined = src in ("retail_planogram", "retail+planogram", "planogram+retail", "gabungan", "retailxplanogram",
+                       "retail×planogram", "battlefield")
+    if src in ("industri+retail", "retail+industri", "industri+planogram", "planogram+industri"):
+        return {"status": "invalid", "message": "Gabungan sumber hanya bisa Retail × Planogram. Data Industri tidak "
+                                                "punya kunci produk yang sama dengan Retail/Planogram."}
+    if combined:
+        blocks, errors = [], []
+        for dom in ("retail", "planogram"):
+            for q in (data_questions or [request])[:3]:
+                res = pull(q, tool_context, dom)
+                if res.get("status") == "needs_authorization":
+                    return res
+                if res.get("status") != "ok":
+                    errors.append(f"{dom}: {res.get('message', 'gagal')}")
+                    continue
+                blocks.append(cr.data_block(f"Hasil {data_agent.SOURCE_LABELS[dom]} — {q}", res["answer"], res["tables"]))
+            blocks += _insight_blocks(tool_context, dom)
+        blocks += _insight_blocks(tool_context, "retail_planogram")
+        ds, err = battlefield_dataset(tool_context, period)
+        if ds:
+            blocks.append(cr.battlefield_block(ds))
+        elif err:
+            errors.append(f"analisis silang: {err}")
+        if not blocks:
+            return {"status": "error", "message": "Data tidak bisa diambil: " + "; ".join(errors)[:300]}
+        data_text, domain = "\n\n".join(blocks), "retail_planogram"
+        label = "Survey Response Report Retail × Planogram Marketing Intelligence (VM_PLANOGRAM)"
+    elif src in ("file", "upload", "unggahan", "csv", "excel"):
         data_text, kind, label = _file_data_text(tool_context, file_id.strip())
         if not data_text:
             return {"status": "needs_input",
@@ -610,11 +798,18 @@ def generate_custom_report(request: str, source: str, tool_context: ToolContext,
             return {"status": "error", "message": "Data tidak bisa diambil dari Data Agent: " + "; ".join(errors)[:300]}
         data_text = "\n\n".join(blocks)
         label = data_agent.SOURCE_LABELS[domain]
-    result = cr.generate(domain, request, data_text)
+    extra = ""
+    if instruction_doc_id.strip():
+        from .doc_tools import document_instructions
+
+        extra = document_instructions(instruction_doc_id.strip(), tool_context.state)
+        if not extra:
+            return {"status": "error", "message": f"Dokumen {instruction_doc_id} tidak ada atau tidak bisa dibaca."}
+    result = cr.generate(domain, request, data_text, extra_instructions=extra)
     if result["status"] == "no_data":
         return {"status": "error", "message": "Data dari sumber tidak berisi angka yang bisa dipakai untuk laporan. "
                                               + result["message"][:200]}
-    return _save_custom(tool_context, result, domain, request, data_text, label)
+    return _save_custom(tool_context, result, domain, request, data_text, label, extra=extra)
 
 
 def _find_report(tool_context: ToolContext, report_id: str) -> dict | None:
@@ -639,10 +834,13 @@ def revise_custom_report(feedback: str, tool_context: ToolContext, report_id: st
     html_doc = _gcs_text(rec["html_uri"])
     body = cr.parse_output("```html\n" + html_doc + "\n```")["body"]
     data_text = _gcs_text(rec["data_uri"])
-    result = cr.generate(rec["domain"], rec["request"], data_text, previous_body=body, feedback=feedback)
+    extra = _gcs_text(rec["extra_uri"]) if rec.get("extra_uri") else ""
+    result = cr.generate(rec["domain"], rec["request"], data_text, previous_body=body, feedback=feedback,
+                         extra_instructions=extra)
     if result["status"] != "ok":
         return {"status": "error", "message": result.get("message", "Revisi gagal dibuat.")}
-    return _save_custom(tool_context, result, rec["domain"], rec["request"], data_text, rec["source"], parent=rec["report_id"])
+    return _save_custom(tool_context, result, rec["domain"], rec["request"], data_text, rec["source"],
+                        parent=rec["report_id"], extra=extra)
 
 
 def approve_report(tool_context: ToolContext, report_id: str = "") -> dict[str, Any]:
@@ -678,9 +876,12 @@ def approve_report(tool_context: ToolContext, report_id: str = "") -> dict[str, 
 
 generate_planogram_report = _logged(generate_planogram_report)
 preview_planogram_report = _logged(preview_planogram_report)
+generate_battlefield_report = _logged(generate_battlefield_report)
+preview_battlefield_report = _logged(preview_battlefield_report)
 generate_custom_report = _logged(generate_custom_report)
 revise_custom_report = _logged(revise_custom_report)
 approve_report = _logged(approve_report)
 REPORT_TOOLS = [list_report_options, generate_price_dashboard, preview_price_dashboard, generate_industry_report,
-                preview_industry_report, generate_planogram_report, preview_planogram_report, generate_custom_report,
+                preview_industry_report, generate_planogram_report, preview_planogram_report,
+                generate_battlefield_report, preview_battlefield_report, generate_custom_report,
                 revise_custom_report, approve_report]
