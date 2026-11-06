@@ -15,6 +15,8 @@ import re
 from collections import OrderedDict
 from typing import Any
 
+import logging
+
 import pandas as pd
 
 RETAIL_KEYS = {"HARGA_JUAL", "HARGA_TEBUS", "HET", "HTO", "CONTENT", "KIMAP", "BRAND", "QNR", "SALES_REGION_CUSTOMER"}
@@ -31,6 +33,8 @@ MAX_RESULT_ROWS = 200
 _EXPR_OK = re.compile(r"^[A-Za-z0-9_ .+\-*/()`]+$")
 PACKAGE_SIZE = r"\b([0-9]+(?:\.[0-9]+)?)\s*(?:LITER|L)\b"   # sama dengan verified query Data Agent retail
 _frames: "OrderedDict[str, pd.DataFrame]" = OrderedDict()
+
+logger = logging.getLogger(__name__)
 
 
 class PlanError(ValueError):
@@ -98,6 +102,41 @@ def detect_kind(df: pd.DataFrame) -> str:
     if len({k.lower() for k in PLANOGRAM_KEYS} & cols) >= 7:
         return "planogram"
     return "lainnya"
+
+
+def _is_date(series: pd.Series) -> bool:
+    if pd.api.types.is_datetime64_any_dtype(series):
+        return True
+    if pd.api.types.is_numeric_dtype(series):
+        return False
+    sample = series.dropna().astype(str).head(200)
+    if sample.empty:
+        return False
+    parsed = pd.to_datetime(sample, errors="coerce")
+    return parsed.notna().mean() >= 0.9
+
+
+def total_rows(df: pd.DataFrame) -> pd.Series:
+    """Baris total/subtotal di file umum: kolom kunci kosong DAN nilai numerik terbesar ≈ jumlah baris lain."""
+    keyish = [c for c in df.columns
+              if re.search(r"(^|[\s_])(code|kode|id|outlet|customer|pelanggan|nama|name)([\s_]|$)", str(c), re.I)]
+    keys = keyish or [df.columns[0]]
+    blank = df[keys].isna().all(axis=1) | df[keys].astype(str).apply(lambda s: s.str.strip().isin(["", "nan", "None"])).all(axis=1)
+    flag = pd.Series(False, index=df.index)
+    if not blank.any():
+        return flag
+    nums = [c for c in df.columns if pd.api.types.is_numeric_dtype(df[c]) and c not in keys]
+    if not nums:
+        return flag
+    main = max(nums, key=lambda c: df[c].abs().sum())
+    for i in df.index[blank]:
+        v = df.at[i, main]
+        rest = df.loc[df.index != i, main].sum()
+        if pd.notna(v) and rest and abs(v - rest) <= max(0.005 * abs(rest), 1e-6):
+            flag.at[i] = True
+        elif pd.notna(v) and re.search(r"total|jumlah|grand", " ".join(map(str, df.loc[i].values)), re.I):
+            flag.at[i] = True
+    return flag
 
 
 def region_number(series: pd.Series) -> pd.Series:
@@ -231,6 +270,11 @@ def prepare(df: pd.DataFrame, kind: str, heroes: list[str] | None = None) -> tup
             d = pd.to_datetime(out[c("DT_PR")], errors="coerce")
             out["KUARTAL"] = [f"{x.year}-Q{x.quarter}" if pd.notna(x) else None for x in d]
             notes["added_columns"].append("KUARTAL")
+    if kind == "lainnya" and len(out) > 1:
+        try:
+            drop(~total_rows(out), "baris total/subtotal (kolom kunci kosong, nilai = jumlah baris lain)")
+        except Exception:  # noqa: BLE001
+            logger.warning("Deteksi baris total gagal", exc_info=True)
     region = _col(out, "SALES_REGION_CUSTOMER")
     if region:
         out["ZONA"] = _region(out[region]).map(ZONE_OF_REGION)
@@ -451,7 +495,12 @@ def run_plan(frames: dict[str, pd.DataFrame], plan: dict[str, Any]) -> dict[str,
                 raise PlanError(f"Agregasi tidak dikenal: {agg}")
             col = _require(df, [m.get("column")])[0]
             name = m.get("name") or f"{agg}_{col}"
-            series = pd.to_numeric(df[col], errors="coerce") if agg not in ("count", "nunique") else df[col]
+            if agg in ("count", "nunique"):
+                series = df[col]
+            elif agg in ("min", "max") and _is_date(df[col]):
+                series = pd.to_datetime(df[col], errors="coerce")       # tanggal tetap tanggal, bukan angka
+            else:
+                series = pd.to_numeric(df[col], errors="coerce")
             named[name] = (series, agg)
         work = df[gb].copy() if gb else pd.DataFrame(index=df.index)
         for name, (series, _) in named.items():

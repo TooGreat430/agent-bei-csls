@@ -7,9 +7,11 @@ from google.adk.agents import LlmAgent
 from ..callbacks import capture_uploads, sanitize_request, data_after_agent, verify_numbers
 from ..config import settings
 from ..llm import make_model
+from ..usage import chain, record_model_usage
 from ..prompts import file_instruction_provider
 from ..tools.data_tools import (ask_industry_intelligence, ask_planogram_intelligence, ask_retail_intelligence,
                                 create_chart, save_data_insight)
+from ..tools.code_tools import CODE_TOOLS
 from ..tools.doc_tools import DOC_TOOLS
 from ..tools.file_tools import FILE_TOOLS
 from ..tools.insight_tools import list_insights
@@ -23,11 +25,11 @@ file_agent = LlmAgent(
         "dianalisis setelah menyerap pengetahuan Data Agent yang sesuai: profil, cross-tab, gabung file, grafik, insight."
     ),
     instruction=file_instruction_provider,
-    tools=[*FILE_TOOLS, *DOC_TOOLS, create_chart, save_data_insight, ask_retail_intelligence, ask_industry_intelligence,
+    tools=[*FILE_TOOLS, *DOC_TOOLS, *CODE_TOOLS, create_chart, save_data_insight, ask_retail_intelligence, ask_industry_intelligence,
            ask_planogram_intelligence, list_insights],
     before_agent_callback=capture_uploads,
     before_model_callback=sanitize_request,
-    after_model_callback=verify_numbers,
+    after_model_callback=chain(record_model_usage, verify_numbers),
     after_agent_callback=data_after_agent,
     disallow_transfer_to_parent=True,
 )

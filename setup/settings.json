@@ -54,5 +54,18 @@
     "Marine",
     "Mining"
   ],
-  "chat_inline_chart": 0
+  "chat_inline_chart": 0,
+  "code_execution_enabled": false,
+  "code_execution_users": [],
+  "code_execution_max_steps": 25,
+  "code_execution_daily_budget_usd": 5,
+  "code_execution_ttl_seconds": 1800,
+  "price_pro_input": 4.0,
+  "price_pro_output": 20.0,
+  "price_pro_cached": 0.2,
+  "price_fast_input": 0.5,
+  "price_fast_output": 3.0,
+  "price_fast_cached": 0.05,
+  "price_sandbox_vcpu_hour": 0.0864,
+  "price_sandbox_gib_hour": 0.009
 }

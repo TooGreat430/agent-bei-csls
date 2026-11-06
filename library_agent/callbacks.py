@@ -401,6 +401,7 @@ def _number_pool(callback_context: CallbackContext) -> list[float]:
                 texts.append(part.text)
     if callback_context.user_content and callback_context.user_content.parts:
         texts += [p.text for p in callback_context.user_content.parts if getattr(p, "text", None)]
+    texts += [t for t in (callback_context.state.get("temp:code_outputs") or []) if t]   # stdout eksekusi kode
     for doc in callback_context.state.get(DOCS_KEY, []) or []:   # angka yang dikutip dari dokumen unggahan
         if doc.get("text_uri"):
             try:

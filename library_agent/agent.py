@@ -11,6 +11,7 @@ from google.adk.agents import LlmAgent
 from .callbacks import capture_uploads, sanitize_request, ensure_reply
 from .config import settings
 from .llm import make_model
+from .usage import record_model_usage
 from .prompts import ROOT_INSTRUCTION, with_agent_name
 from .subagents.data import data_agent
 from .subagents.files import file_agent
@@ -28,5 +29,6 @@ root_agent = LlmAgent(
     sub_agents=[data_agent, file_agent, report_agent],
     before_agent_callback=capture_uploads,
     before_model_callback=sanitize_request,
+    after_model_callback=record_model_usage,
     after_agent_callback=ensure_reply,
 )

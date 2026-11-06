@@ -53,7 +53,7 @@ library_agent/
   price_*.py, dashboard_render.py, industry_*.py   template retail & industri (tidak berubah)
 scripts/   update_agent.sh (redeploy di tempat), deploy_agent_engine.py, check_knowledge.py, enable_user_auth.py
 setup/settings.json              nilai awal pengaturan tanpa deploy
-tests/                           119 uji unit (tanpa GCP)
+tests/                           137 uji unit (tanpa GCP)
 ```
 
 ## Template planogram
@@ -134,6 +134,28 @@ Sumber: BigQuery (default) atau dua file unggahan (`retail_file_id` + `planogram
 Mengubah prompt custom: edit file di `report_assets/custom_prompts/`, lalu redeploy. Bagian FORMAT OUTPUT di file
 boleh dibiarkan (selalu diganti otomatis).
 
+## Analisis berbasis kode (Agent Engine Code Execution) — MATI secara default
+
+Untuk analisis file yang bebas (metodologi dari user seperti prompt RFM, perhitungan khusus, file output sesuai
+permintaan), agent analisis file bisa menulis dan menjalankan Python di **sandbox terisolasi** Agent Engine Code
+Execution: tanpa internet, tanpa kredensial, hanya melihat file data chat (Excel dikonversi ke CSV per sheet).
+Sandbox dibuat di bawah resource agent ini sendiri (region sama, `asia-southeast2`), satu per chat, TTL 30 menit.
+
+| Pengaman | Pengaturan (`settings.json`) |
+|---|---|
+| Saklar fitur | `code_execution_enabled` (default `false`) |
+| Hanya user tertentu | `code_execution_users` (daftar ID user GE; kosong = semua user bila fitur menyala) |
+| Batas langkah per pesan | `code_execution_max_steps` (default 25), lalu agent melapor & bertanya |
+| **Batas biaya harian** | `code_execution_daily_budget_usd` (default 5) — dari meteran; tercapai → eksekusi berhenti sampai besok |
+| Umur sandbox | `code_execution_ttl_seconds` (default 1800) |
+| Tarif meteran | `price_*` (USD per 1 juta token / per jam) — sesuaikan dengan harga resmi |
+
+**Meteran biaya** (`usage.py`) mencatat setiap panggilan model (token input/cache/output/thinking) dan setiap eksekusi
+sandbox, per hari & per user, di `ge-docs-agent/usage/YYYY-MM-DD.json`. Lihat dengan `python scripts/usage_report.py`.
+Angkanya estimasi; tagihan resmi tetap di Cloud Billing.
+
+Uji end-to-end sandbox: `python scripts/check_code_execution.py`. Panduan uji coba: `PANDUAN_UJI_COBA_CODE_EXECUTION.md`.
+
 ## Pengaturan tanpa deploy
 
 `gs://ptpl-ge-bucket/ge-docs-agent/config/settings.json` — edit lewat Konsol (Download → edit → Upload, timpa).
@@ -164,7 +186,7 @@ Berlaku maks. 5 menit kemudian. `update_agent.sh` menambahkan kunci baru tanpa m
 ## Uji lokal
 
 ```bash
-python -m unittest discover tests      # 119 uji, tanpa GCP
+python -m unittest discover tests      # 137 uji, tanpa GCP
 ```
 
 ## Log diagnostik (unggahan file & error)

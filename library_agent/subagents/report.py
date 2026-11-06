@@ -4,6 +4,7 @@ from google.adk.agents import LlmAgent
 from ..callbacks import capture_uploads, sanitize_request, ensure_reply
 from ..config import settings
 from ..llm import make_model
+from ..usage import record_model_usage
 from ..prompts import REPORT_INSTRUCTION, with_agent_name
 from ..tools.doc_tools import DOC_TOOLS
 from ..tools.file_tools import list_data_files
@@ -23,6 +24,7 @@ report_agent = LlmAgent(
     tools=[*REPORT_TOOLS, list_insights, list_data_files, *DOC_TOOLS],
     before_agent_callback=capture_uploads,
     before_model_callback=sanitize_request,
+    after_model_callback=record_model_usage,
     after_agent_callback=ensure_reply,
     disallow_transfer_to_parent=True,
 )

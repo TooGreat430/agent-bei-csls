@@ -197,6 +197,48 @@ Jawab dalam Bahasa Indonesia formal dan ringkas.
 """
 
 
+CODE_MODE = """
+MODE ANALIS (EKSEKUSI KODE) — AKTIF UNTUK USER INI
+Anda bisa menulis dan menjalankan Python di sandbox terisolasi (tool jalankan_python). Gunakan mode ini bila
+permintaan user tidak bisa dijawab tool analisis baku: metodologi dari dokumen user (mis. prompt RFM), perhitungan
+khusus (kuintil, kohort, migrasi, rasio, ranking), pembersihan data, atau user meminta file output (CSV, XLSX, PNG, HTML,
+script). Untuk pertanyaan sederhana pada file survei retail/industri/planogram, tetap utamakan tool baku agar aturan
+bisnisnya konsisten.
+
+CARA KERJA SEPERTI ANALIS
+1. Panggil siapkan_sandbox sekali (dan lagi bila ada file data baru). Pakai nama file CSV persis dari hasilnya.
+2. Jika user memberi metodologi/prompt, ikuti langkahnya berurutan. Jika metodologi meminta berhenti untuk
+   persetujuan (validation gate, review metodologi), BERHENTI, laporkan, dan tunggu jawaban user.
+3. Kerjakan bertahap: satu langkah = satu tujuan jelas (audit, transformasi, perhitungan, validasi, output).
+   Variabel tetap ada antar langkah; jangan membaca ulang file besar tanpa perlu.
+4. Setiap angka yang akan Anda tulis ke user WAJIB dicetak (print) oleh kode lebih dulu. Jangan menghitung di kepala,
+   jangan menebak, jangan mengarang angka. Tampilkan tabel dengan df.to_string(); untuk tabel besar cetak ringkasan/Top N.
+5. Jika stderr berisi error, baca pesannya, perbaiki kode, dan jalankan lagi. Jika data tidak sesuai asumsi
+   (kolom hilang, duplikasi, baris total/subtotal, satuan tidak jelas), laporkan dan minta keputusan user.
+6. Simpan setiap output yang diminta sebagai file di direktori kerja (df.to_csv('nama.csv', index=False),
+   plt.savefig('nama.png', dpi=150, bbox_inches='tight'), HTML via string/jinja2). File baru otomatis dikirim sebagai
+   link; sebutkan link-link tersebut di jawaban. Script tiap langkah juga tersimpan sebagai jejak audit.
+7. Hemat langkah: gabungkan pekerjaan sejenis dalam satu langkah. Ada batas langkah per pesan; jika status
+   step_limit, laporkan progres dan tanyakan apakah dilanjutkan. Jika status budget_limit atau disabled, sampaikan
+   pesannya apa adanya dan berhenti.
+8. Jawaban akhir: ringkasan temuan (fakta dari output kode), keterbatasan data, hipotesis yang perlu divalidasi
+   (dipisah dari fakta), dan daftar file output beserta link-nya.
+9. Tidak ada internet di sandbox dan tidak bisa menginstal library. Jangan mencoba mengakses BigQuery dari kode.
+"""
+
+
+def code_mode_note(ctx) -> str:
+    """Instruksi mode analis hanya untuk user yang diizinkan (fitur mati -> tidak ada tambahan)."""
+    try:
+        from .clients import get_user_id
+        from .code_exec import allowed
+
+        ok, _ = allowed(get_user_id(ctx))
+        return CODE_MODE if ok else ""
+    except Exception:  # noqa: BLE001
+        return ""
+
+
 def with_agent_name(template: str, uploads: bool = False):
     """InstructionProvider ADK: menyisipkan nama agent terkini dari settings.json/.env.
 
@@ -246,7 +288,7 @@ def file_instruction_provider(ctx=None) -> str:
     base = FILE_INSTRUCTION.replace("__AGENT_NAME__", live("agent_name") or "Marketing Insight Assistant")
     state = _state(ctx)
     domains = list(state.get("file_knowledge_domains", []) or [])
-    base += _uploads_note(state)
+    base += _uploads_note(state) + code_mode_note(ctx)
     if not domains:
         return base + ("\n\nPENGETAHUAN BISNIS: belum ada file data yang diprofil di chat ini. Panggil profile_data_file "
                        "untuk setiap file data baru SEBELUM analisis apa pun.")

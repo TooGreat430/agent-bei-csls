@@ -113,6 +113,34 @@ class Settings:
     model_fast: str = field(default_factory=lambda: _env("LIB_MODEL_FAST", "gemini-3.5-flash"))
     model_pro: str = field(default_factory=lambda: _env("LIB_MODEL_PRO", "gemini-4-argon"))
 
+    # --- Code Execution (analisis file berbasis kode) — MATI secara default ------------
+    code_execution_enabled: bool = field(default_factory=lambda: _env("LIB_CODE_EXECUTION_ENABLED", "false").lower()
+                                         in ("1", "true", "ya", "yes", "on"))
+    # Daftar user (ID/email Gemini Enterprise) yang boleh memakai fitur ini. Kosong = semua user (jika enabled).
+    code_execution_users: tuple = field(default_factory=lambda: tuple(
+        u.strip() for u in _env("LIB_CODE_EXECUTION_USERS", "").split(",") if u.strip()))
+    code_execution_max_steps: int = field(default_factory=lambda: int(_env("LIB_CODE_EXECUTION_MAX_STEPS", "25")))
+    # Batas biaya harian (USD) untuk SEMUA pemakaian model + sandbox yang tercatat meteran; tercapai -> fitur berhenti.
+    code_execution_daily_budget_usd: float = field(default_factory=lambda: float(
+        _env("LIB_CODE_EXECUTION_DAILY_BUDGET_USD", "5")))
+    code_execution_ttl_seconds: int = field(default_factory=lambda: int(_env("LIB_CODE_EXECUTION_TTL_SECONDS", "1800")))
+    code_execution_machine: str = field(default_factory=lambda: _env("LIB_CODE_EXECUTION_MACHINE",
+                                                                      "MACHINE_CONFIG_VCPU4_RAM4GIB"))
+    # Resource Agent Engine induk sandbox (default: agent ini sendiri)
+    code_execution_engine: str = field(default_factory=lambda: _env("LIB_CODE_EXECUTION_ENGINE")
+                                       or _env("LIB_AGENT_RESOURCE", ""))
+    # --- Tarif untuk meteran biaya (USD per 1 juta token / per jam) — ESTIMASI, sesuaikan dengan harga resmi ----
+    price_pro_input: float = field(default_factory=lambda: float(_env("LIB_PRICE_PRO_INPUT", "4.0")))
+    price_pro_output: float = field(default_factory=lambda: float(_env("LIB_PRICE_PRO_OUTPUT", "20.0")))
+    price_pro_cached: float = field(default_factory=lambda: float(_env("LIB_PRICE_PRO_CACHED", "0.2")))
+    price_fast_input: float = field(default_factory=lambda: float(_env("LIB_PRICE_FAST_INPUT", "0.5")))
+    price_fast_output: float = field(default_factory=lambda: float(_env("LIB_PRICE_FAST_OUTPUT", "3.0")))
+    price_fast_cached: float = field(default_factory=lambda: float(_env("LIB_PRICE_FAST_CACHED", "0.05")))
+    price_sandbox_vcpu_hour: float = field(default_factory=lambda: float(_env("LIB_PRICE_SANDBOX_VCPU_HOUR", "0.0864")))
+    price_sandbox_gib_hour: float = field(default_factory=lambda: float(_env("LIB_PRICE_SANDBOX_GIB_HOUR", "0.009")))
+    sandbox_vcpu: float = field(default_factory=lambda: float(_env("LIB_SANDBOX_VCPU", "4")))
+    sandbox_gib: float = field(default_factory=lambda: float(_env("LIB_SANDBOX_GIB", "4")))
+
     # --- Identitas ---------------------------------------------------------------
     max_file_mb: float = field(default_factory=lambda: float(_env("LIB_MAX_FILE_MB", "100")))
     company_name: str = field(default_factory=lambda: _env("LIB_COMPANY_NAME", "Nama Perusahaan"))
@@ -144,6 +172,19 @@ RUNTIME_KEYS: dict[str, type] = {
     "planogram_table": str,
     "planogram_default_period": str,
     "planogram_carry_ratio_line": float,
+    "code_execution_enabled": bool,
+    "code_execution_users": CaseList,
+    "code_execution_max_steps": int,
+    "code_execution_daily_budget_usd": float,
+    "code_execution_ttl_seconds": int,
+    "price_pro_input": float,
+    "price_pro_output": float,
+    "price_pro_cached": float,
+    "price_fast_input": float,
+    "price_fast_output": float,
+    "price_fast_cached": float,
+    "price_sandbox_vcpu_hour": float,
+    "price_sandbox_gib_hour": float,
     "planogram_min_carry": int,
     "battlefield_min_price_n": int,
     "industry_table": str,
@@ -193,6 +234,10 @@ def coerce(name: str, value: Any) -> Any:
     """Ubah nilai dari JSON ke tipe yang benar. Nilai tidak valid -> None (pakai .env)."""
     kind = RUNTIME_KEYS.get(name)
     try:
+        if kind is bool:
+            if isinstance(value, bool):
+                return value
+            return str(value).strip().lower() in ("1", "true", "ya", "yes", "on")
         if kind is CaseList:
             items = value.split(",") if isinstance(value, str) else list(value)
             out = tuple(str(v).strip() for v in items if str(v).strip())

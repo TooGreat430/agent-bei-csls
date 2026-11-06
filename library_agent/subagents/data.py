@@ -4,6 +4,7 @@ from google.adk.agents import LlmAgent
 from ..callbacks import capture_uploads, sanitize_request, data_after_agent, verify_numbers
 from ..config import settings
 from ..llm import make_model
+from ..usage import chain, record_model_usage
 from ..prompts import DATA_INSTRUCTION, with_agent_name
 from ..tools.data_tools import DATA_TOOLS
 from ..tools.file_tools import periksa_angka
@@ -22,7 +23,7 @@ data_agent = LlmAgent(
     tools=[*DATA_TOOLS, list_insights, periksa_angka],
     before_agent_callback=capture_uploads,
     before_model_callback=sanitize_request,
-    after_model_callback=verify_numbers,
+    after_model_callback=chain(record_model_usage, verify_numbers),
     after_agent_callback=data_after_agent,
     disallow_transfer_to_parent=True,
 )
