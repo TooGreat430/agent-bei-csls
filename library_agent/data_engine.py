@@ -446,7 +446,7 @@ def _gap_kimap(df: pd.DataFrame, spec: dict) -> pd.DataFrame:
     return m
 
 
-def run_plan(frames: dict[str, pd.DataFrame], plan: dict[str, Any]) -> dict[str, Any]:
+def run_plan(frames: dict[str, pd.DataFrame], plan: dict[str, Any], max_rows: int | None = None) -> dict[str, Any]:
     """Jalankan rencana: {file, join?, filters?, derive?, preset?, group_by?, metrics?, pivot?, sort?, limit?}."""
     fid = plan.get("file")
     if fid not in frames:
@@ -516,7 +516,10 @@ def run_plan(frames: dict[str, pd.DataFrame], plan: dict[str, Any]) -> dict[str,
         (col,) = _require(df, [s.get("column")])
         df = df.sort_values(col, ascending=not s.get("desc", False), kind="stable")
     total = len(df)
-    limit = min(int(plan.get("limit") or 50), MAX_RESULT_ROWS)
+    if max_rows is None:
+        limit = min(int(plan.get("limit") or 50), MAX_RESULT_ROWS)
+    else:                                                    # ekspor: semua baris (batas Excel), abaikan limit tampilan
+        limit = max_rows
     df = df.head(limit)
     rows = [[_clean(v) for v in r] for r in df.itertuples(index=False, name=None)]
     return {"columns": [str(c) for c in df.columns], "rows": rows, "rows_total": int(total),

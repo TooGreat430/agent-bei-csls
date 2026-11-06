@@ -132,6 +132,7 @@ class GuardTest(Base):
         res = code_exec.run("print(1)", "uji", self.ctx)
         self.assertEqual(res["status"], "disabled")
         self.assertIn("orang.lain@ptpl.co.id", res["message"])
+        self.assertIn("ekspor_excel", res["message"])
 
     def test_step_limit(self):
         self.ctx.state["temp:code_steps"] = 3

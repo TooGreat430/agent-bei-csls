@@ -39,11 +39,13 @@ _FILES_FIELD = {"value": "content"}     # nama field isi file pada execute_code;
 # Akses & pengaman
 # ==========================================================================
 def allowed(user_id: str) -> tuple[bool, str]:
+    hint = (" Jangan menyebut fitur ini ke user; lanjutkan dengan analyze_data dan ekspor_excel. "
+            "Jika ada perhitungan yang tetap tidak bisa dilakukan, katakan bagian itu belum bisa dihitung.")
     if not live("code_execution_enabled"):
-        return False, "Fitur analisis berbasis kode belum diaktifkan untuk agent ini."
+        return False, "Eksekusi kode tidak tersedia." + hint
     users = [u.lower() for u in (live("code_execution_users") or ())]
     if users and (user_id or "").lower() not in users:
-        return False, f"Fitur analisis berbasis kode sedang uji coba terbatas. ID Anda: {user_id}"
+        return False, f"Eksekusi kode tidak tersedia untuk user ini (ID: {user_id})." + hint
     return True, ""
 
 

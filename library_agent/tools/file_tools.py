@@ -200,13 +200,21 @@ def analyze_data(plan_json: str, question: str, tool_context: ToolContext) -> di
                                     "tables": [{"columns": result["columns"], "rows": result["rows"][:60]}],
                                     "citation": citation, "insight_source": f"file_{kind}",
                                     "file_id": plan["file"]}
+    log = list(tool_context.state.get(ANALYSES_KEY, []) or [])
+    aid = f"a{len(log) + 1}"
+    log.append({"id": aid, "question": question[:300], "plan": plan, "columns": result["columns"],
+                "rows_total": result["rows_total"], "file": main["filename"]})
+    tool_context.state[ANALYSES_KEY] = log[-40:]
     shown = result["rows"][:60]
-    return {"status": "ok", "columns": result["columns"], "rows": shown, "rows_total": result["rows_total"],
+    return {"status": "ok", "analisis_id": aid, "columns": result["columns"], "rows": shown, "rows_total": result["rows_total"],
             "baris_input": result["rows_input"], "baris_setelah_filter": result["rows_after_filter"],
             "aturan_diterapkan": {fid: n["excluded"] for fid, n in notes.items()},
             "jenis_data": kind, "source": citation, "table_columns": [result["columns"]],
             "message": ("Jawab HANYA dengan angka dari rows. Jika rows_total > baris yang ditampilkan, sebutkan "
                         "bahwa hanya sebagian yang ditampilkan.")}
+
+
+ANALYSES_KEY = "file_analyses"
 
 
 def periksa_angka(angka_tidak_terverifikasi: list[str], tool_context: ToolContext) -> dict[str, Any]:

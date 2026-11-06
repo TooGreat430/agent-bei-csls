@@ -13,6 +13,7 @@ from ..tools.data_tools import (ask_industry_intelligence, ask_planogram_intelli
                                 create_chart, save_data_insight)
 from ..tools.code_tools import CODE_TOOLS
 from ..tools.doc_tools import DOC_TOOLS
+from ..tools.export_tools import EXPORT_TOOLS
 from ..tools.file_tools import FILE_TOOLS
 from ..tools.insight_tools import list_insights
 
@@ -25,7 +26,7 @@ file_agent = LlmAgent(
         "dianalisis setelah menyerap pengetahuan Data Agent yang sesuai: profil, cross-tab, gabung file, grafik, insight."
     ),
     instruction=file_instruction_provider,
-    tools=[*FILE_TOOLS, *DOC_TOOLS, *CODE_TOOLS, create_chart, save_data_insight, ask_retail_intelligence, ask_industry_intelligence,
+    tools=[*FILE_TOOLS, *DOC_TOOLS, *EXPORT_TOOLS, *CODE_TOOLS, create_chart, save_data_insight, ask_retail_intelligence, ask_industry_intelligence,
            ask_planogram_intelligence, list_insights],
     before_agent_callback=capture_uploads,
     before_model_callback=sanitize_request,

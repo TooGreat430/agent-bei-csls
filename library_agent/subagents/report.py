@@ -7,6 +7,7 @@ from ..llm import make_model
 from ..usage import record_model_usage
 from ..prompts import REPORT_INSTRUCTION, with_agent_name
 from ..tools.doc_tools import DOC_TOOLS
+from ..tools.export_tools import EXPORT_TOOLS
 from ..tools.file_tools import list_data_files
 from ..tools.insight_tools import list_insights
 from ..tools.report_tools import REPORT_TOOLS
@@ -21,7 +22,7 @@ report_agent = LlmAgent(
         "disetujui); termasuk contoh tampilan, revisi, dan approval laporan."
     ),
     instruction=with_agent_name(REPORT_INSTRUCTION, uploads=True),
-    tools=[*REPORT_TOOLS, list_insights, list_data_files, *DOC_TOOLS],
+    tools=[*REPORT_TOOLS, list_insights, list_data_files, *DOC_TOOLS, *EXPORT_TOOLS],
     before_agent_callback=capture_uploads,
     before_model_callback=sanitize_request,
     after_model_callback=record_model_usage,

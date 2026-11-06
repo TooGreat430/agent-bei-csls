@@ -1,6 +1,11 @@
-# Panduan Deploy Aman — v2.3 (dengan cadangan & rollback)
+# Panduan Deploy Aman — v2.4 (dengan cadangan & rollback)
 
-**Baru di v2.3:** cadangan otomatis saat kapasitas model penuh (error 429 `RESOURCE_EXHAUSTED` yang membuat analisis
+**Baru di v2.4:** user bisa meminta **file Excel** hasil analisis file ("generate excel"). Agent menjalankan ulang
+analisis dengan seluruh baris (mis. 5.918 outlet, bukan Top 50) dan memberi link unduhan .xlsx multi-sheet — tanpa
+Code Execution dan tanpa biaya tambahan. Agent tidak lagi menyuruh user menjalankan Python sendiri, dan tidak lagi
+menyebut fitur sandbox kepada user yang belum diaktifkan.
+
+**Dari v2.3:** cadangan otomatis saat kapasitas model penuh (error 429 `RESOURCE_EXHAUSTED` yang membuat analisis
 RFM gagal): Argon `asia-southeast1` → Argon `global` → model cepat `global`, dan bila semua penuh agent membalas pesan
 "layanan padat" alih-alih error 400. Tracing dimatikan (menghilangkan log `Failed to export span … 403`).
 
@@ -55,7 +60,7 @@ mkdir %TEMP%\gla
 tar -xf %USERPROFILE%\Downloads\ge-library-agent.zip -C %TEMP%\gla
 xcopy /e /h /y /q %TEMP%\gla\ge-library-agent\* .
 git add -A
-git commit -m "v2.3: cadangan kapasitas model (429), perbaikan unggah file, Code Execution (mati)"
+git commit -m "v2.4: ekspor Excel hasil analisis, cadangan kapasitas model (429), Code Execution (mati)"
 git push
 ```
 
@@ -71,7 +76,7 @@ Jika muncul daftar file, jalankan `git reset --hard @{u}` dulu. Lalu:
 git pull && find . -name __pycache__ -prune -exec rm -rf {} + && bash scripts/update_agent.sh
 ```
 
-Hasil yang diharapkan: langkah 5 `OK` (143 uji), langkah 6 berakhir `Selesai.` **Jalankan sekali saja** dan jangan tekan
+Hasil yang diharapkan: langkah 5 `OK` (146 uji), langkah 6 berakhir `Selesai.` **Jalankan sekali saja** dan jangan tekan
 `Ctrl+C`. Jika uji di langkah 5 gagal, script berhenti sendiri dan agent **tidak berubah** — kirim outputnya ke tim teknis.
 
 ## Langkah 4 — Cek cepat di Gemini Enterprise (chat baru, ±10 menit)
@@ -83,6 +88,7 @@ Hasil yang diharapkan: langkah 5 `OK` (143 uji), langkah 6 berakhir `Selesai.` *
 | 3 | `Berapa gap HTO Product Hero vs kompetitor di Zona 1 Q3 2026?` | Ada tabel dan link grafik yang bisa dibuka |
 | 4 | Unggah **1** file Excel + `profil file ini` | Jenis data, jumlah baris, periode disebut; tidak ada error 400 |
 | 5 | Unggah 1 PDF + `rangkum` | Ringkasan isi PDF |
+| 6 | Lanjut di chat no. 4: `Hitung volume dan jumlah bulan aktif per outlet`, lalu `Generate excel dari hasil analisa ini` | Link .xlsx; sheet berisi **seluruh** outlet (bukan hanya yang tampil di chat) + sheet Keterangan; agent tidak menyuruh menjalankan Python |
 
 Lalu ambil log untuk memastikan cara Gemini Enterprise mengirim lampiran:
 
@@ -96,7 +102,7 @@ gcloud logging read 'resource.type="aiplatform.googleapis.com/ReasoningEngine"
 
 Lulus jika ada baris `File data disimpan: …xlsx` untuk uji no. 4 dan tidak ada `ERROR`.
 
-Setelah 5 uji lulus, coba bertahap: 3 file Excel sekaligus, lalu 7 file sekaligus. Kirim log di atas setelahnya.
+Setelah 6 uji lulus, coba bertahap: 3 file Excel sekaligus, lalu 7 file sekaligus. Kirim log di atas setelahnya.
 
 ---
 

@@ -53,7 +53,7 @@ library_agent/
   price_*.py, dashboard_render.py, industry_*.py   template retail & industri (tidak berubah)
 scripts/   update_agent.sh (redeploy di tempat), deploy_agent_engine.py, check_knowledge.py, enable_user_auth.py
 setup/settings.json              nilai awal pengaturan tanpa deploy
-tests/                           143 uji unit (tanpa GCP)
+tests/                           146 uji unit (tanpa GCP)
 ```
 
 ## Template planogram
@@ -156,6 +156,15 @@ Angkanya estimasi; tagihan resmi tetap di Cloud Billing.
 
 Uji end-to-end sandbox: `python scripts/check_code_execution.py`. Panduan uji coba: `PANDUAN_UJI_COBA_CODE_EXECUTION.md`.
 
+## Ekspor Excel hasil analisis file (tanpa Code Execution)
+
+Setiap `analyze_data` di chat dicatat (`file_analyses`, dengan `analisis_id`). Tool `ekspor_excel` menjalankan ulang
+rencana analisis itu dengan kode baku yang sama **tanpa batas baris tampilan** (mis. 5.918 outlet SR1, bukan Top 50),
+lalu menulis satu workbook multi-sheet: sheet *Keterangan* (isi tiap sheet, sumber file, jumlah baris, baris yang
+dikecualikan aturan data) + satu sheet per analisis (header berwarna, baris judul dibekukan, filter, lebar kolom
+otomatis). File disimpan di folder laporan dan dibagikan sebagai link. Agent dilarang menyuruh user menjalankan
+Python/script sendiri.
+
 ## Ketahanan kapasitas model (429 RESOURCE_EXHAUSTED)
 
 Jika endpoint model utama penuh (429/503), panggilan yang sama otomatis dicoba ke daftar cadangan `model_fallbacks`
@@ -199,7 +208,7 @@ Berlaku maks. 5 menit kemudian. `update_agent.sh` menambahkan kunci baru tanpa m
 ## Uji lokal
 
 ```bash
-python -m unittest discover tests      # 143 uji, tanpa GCP
+python -m unittest discover tests      # 146 uji, tanpa GCP
 ```
 
 ## Log diagnostik (unggahan file & error)
