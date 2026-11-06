@@ -1,6 +1,15 @@
-# Panduan Deploy Aman — v2.4 (dengan cadangan & rollback)
+# Panduan Deploy Aman — v2.6 (dengan cadangan & rollback)
 
-**Baru di v2.4:** user bisa meminta **file Excel** hasil analisis file ("generate excel"). Agent menjalankan ulang
+**Baru di v2.6:** laporan custom kini tersedia dalam **HTML, PDF, dan PowerPoint** (sebelumnya hanya HTML). Agent
+selalu menanyakan format bila user belum menyebutnya, user bisa memilih beberapa sekaligus, dan laporan yang sudah
+jadi bisa dikonversi ke format lain tanpa ditulis ulang. Dependensi baru: `beautifulsoup4` (terpasang otomatis).
+
+**Dari v2.5:** file Excel hasil **PivotTable** (header bertingkat, seperti data Mesrania 2T) dibaca dengan
+benar; harga otomatis dibandingkan **per liter** bila kemasan berbeda ukuran; laporan custom bisa langsung dibuat dari
+file format umum; dan laporan custom bisa dibangun **di dalam template HTML milik user** (mis.
+`MIR_Master_HTML_Report_Template.html`).
+
+**Dari v2.4:** user bisa meminta **file Excel** hasil analisis file ("generate excel"). Agent menjalankan ulang
 analisis dengan seluruh baris (mis. 5.918 outlet, bukan Top 50) dan memberi link unduhan .xlsx multi-sheet — tanpa
 Code Execution dan tanpa biaya tambahan. Agent tidak lagi menyuruh user menjalankan Python sendiri, dan tidak lagi
 menyebut fitur sandbox kepada user yang belum diaktifkan.
@@ -60,7 +69,7 @@ mkdir %TEMP%\gla
 tar -xf %USERPROFILE%\Downloads\ge-library-agent.zip -C %TEMP%\gla
 xcopy /e /h /y /q %TEMP%\gla\ge-library-agent\* .
 git add -A
-git commit -m "v2.4: ekspor Excel hasil analisis, cadangan kapasitas model (429), Code Execution (mati)"
+git commit -m "v2.6: laporan custom HTML/PDF/PowerPoint, file pivot, harga per liter, template HTML user"
 git push
 ```
 
@@ -76,7 +85,7 @@ Jika muncul daftar file, jalankan `git reset --hard @{u}` dulu. Lalu:
 git pull && find . -name __pycache__ -prune -exec rm -rf {} + && bash scripts/update_agent.sh
 ```
 
-Hasil yang diharapkan: langkah 5 `OK` (146 uji), langkah 6 berakhir `Selesai.` **Jalankan sekali saja** dan jangan tekan
+Hasil yang diharapkan: langkah 5 `OK` (161 uji), langkah 6 berakhir `Selesai.` **Jalankan sekali saja** dan jangan tekan
 `Ctrl+C`. Jika uji di langkah 5 gagal, script berhenti sendiri dan agent **tidak berubah** — kirim outputnya ke tim teknis.
 
 ## Langkah 4 — Cek cepat di Gemini Enterprise (chat baru, ±10 menit)
@@ -88,6 +97,8 @@ Hasil yang diharapkan: langkah 5 `OK` (146 uji), langkah 6 berakhir `Selesai.` *
 | 3 | `Berapa gap HTO Product Hero vs kompetitor di Zona 1 Q3 2026?` | Ada tabel dan link grafik yang bisa dibuka |
 | 4 | Unggah **1** file Excel + `profil file ini` | Jenis data, jumlah baris, periode disebut; tidak ada error 400 |
 | 5 | Unggah 1 PDF + `rangkum` | Ringkasan isi PDF |
+| 7 | Chat baru: unggah `MIR_Mesrania2T_PriceCompetitiveness_Q1-Q32026.xlsx` + `MIR_Master_HTML_Report_Template.html`, kirim prompt yang sama seperti sebelumnya | Agent langsung membuat laporan custom (tanpa meminta analisis dulu); link HTML memakai desain template Anda; harga dibandingkan **per liter** (Mesrania Q3 Rp65.129/L vs Castrol Rp91.571/L), bukan per kemasan |
+| 8 | Chat baru: `Buatkan laporan custom planogram: ND per SR Q3 vs Q2 2026` (tanpa menyebut format) | Agent menanyakan format (HTML/PDF/PowerPoint). Jawab `PDF dan PowerPoint` → dua link; lalu `buat juga versi HTML` → link HTML tanpa laporan ditulis ulang; `approve` → FINAL dalam ketiga format |
 | 6 | Lanjut di chat no. 4: `Hitung volume dan jumlah bulan aktif per outlet`, lalu `Generate excel dari hasil analisa ini` | Link .xlsx; sheet berisi **seluruh** outlet (bukan hanya yang tampil di chat) + sheet Keterangan; agent tidak menyuruh menjalankan Python |
 
 Lalu ambil log untuk memastikan cara Gemini Enterprise mengirim lampiran:
@@ -102,7 +113,7 @@ gcloud logging read 'resource.type="aiplatform.googleapis.com/ReasoningEngine"
 
 Lulus jika ada baris `File data disimpan: …xlsx` untuk uji no. 4 dan tidak ada `ERROR`.
 
-Setelah 6 uji lulus, coba bertahap: 3 file Excel sekaligus, lalu 7 file sekaligus. Kirim log di atas setelahnya.
+Setelah 8 uji lulus, coba bertahap: 3 file Excel sekaligus, lalu 7 file sekaligus. Kirim log di atas setelahnya.
 
 ---
 

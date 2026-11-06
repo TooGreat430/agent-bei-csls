@@ -53,7 +53,7 @@ library_agent/
   price_*.py, dashboard_render.py, industry_*.py   template retail & industri (tidak berubah)
 scripts/   update_agent.sh (redeploy di tempat), deploy_agent_engine.py, check_knowledge.py, enable_user_auth.py
 setup/settings.json              nilai awal pengaturan tanpa deploy
-tests/                           146 uji unit (tanpa GCP)
+tests/                           161 uji unit (tanpa GCP)
 ```
 
 ## Template planogram
@@ -116,7 +116,32 @@ Sumber: BigQuery (default) atau dua file unggahan (`retail_file_id` + `planogram
   apa adanya karena Gemini bisa membacanya.
 - Dokumen bisa dipakai sebagai prompt/template laporan custom (`instruction_doc_id`). Angka laporan tetap hanya dari
   BigQuery atau file data.
+- **File hasil PivotTable / header bertingkat** (mis. `Quarters → Qtr1/Qtr2/Qtr3 → Average of HTO`) dikenali otomatis:
+  header digabung menjadi satu nama kolom (`Qtr1 · HTO (rata-rata)`), kolom pengelompokan yang kosong diisi ke bawah,
+  angka dikonversi. Berlaku untuk Excel maupun CSV hasil konversi Gemini Enterprise.
+- **Harga per liter otomatis**: bila nama produk memuat ukuran kemasan (`1 LITER`, `0.7 LITER`, `800 ML`), kolom
+  `ISI_KEMASAN_L` dan `<kolom harga> /L` ditambahkan, dan agent diinstruksikan membandingkan harga memakai kolom /L
+  (aturan Retail PTPL). Contoh Mesrania 2T Q3: per kemasan terlihat termahal, per liter justru termurah.
+- **Laporan custom dari file format umum** langsung bisa dibuat: tabel kecil (≤ 300 baris) dikirim utuh ke model,
+  tabel besar dikirim sebagai 100 baris contoh + ringkasan angka seluruh baris, ditambah analisis yang sudah dijalankan.
+- **Template HTML dari user**: jika dokumen yang dirujuk `instruction_doc_id` adalah halaman HTML, laporan custom
+  dibangun DI DALAM template itu (head, CSS, dan script template dipertahankan; model hanya menulis isi body dengan
+  struktur & class template). Revisi dan approve tetap berlaku.
 - Belum didukung: `.doc`/`.ppt` lama (minta simpan ulang sebagai DOCX/PPTX/PDF), skor kuantil khusus (mis. RFM).
+
+## Format laporan
+
+Semua laporan tersedia dalam **HTML, PDF, dan PowerPoint**. Bila user belum menyebut format, agent menanyakannya
+(boleh lebih dari satu, mis. "PDF dan PowerPoint") dan setelah laporan jadi menyebut bahwa format lain bisa dibuat.
+
+| Laporan | HTML | PDF / PowerPoint |
+|---|---|---|
+| Template (Retail, Industri, Planogram, Battlefield) | Ya | Ya — dirender langsung dari data |
+| Custom (design system PTPL) | Ya — asli | Ya — HTML dikonversi komponen per komponen (KPI, grafik, tabel, insight, catatan) ke renderer PDF/PPTX yang sama dengan template |
+| Custom dengan **template HTML milik user** | Ya — desain template | Ya — isi sama, tampilan disusun ulang bergaya PTPL (tidak identik dengan template) |
+
+Laporan custom yang sudah ada bisa dibuat dalam format lain tanpa ditulis ulang (`konversi_laporan_custom`);
+approve menerbitkan FINAL dalam semua format yang dipilih.
 
 ## Laporan custom
 
@@ -208,7 +233,7 @@ Berlaku maks. 5 menit kemudian. `update_agent.sh` menambahkan kunci baru tanpa m
 ## Uji lokal
 
 ```bash
-python -m unittest discover tests      # 146 uji, tanpa GCP
+python -m unittest discover tests      # 161 uji, tanpa GCP
 ```
 
 ## Log diagnostik (unggahan file & error)

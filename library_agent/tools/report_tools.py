@@ -328,7 +328,7 @@ def list_report_options() -> dict[str, Any]:
                  "format": ["pdf", "pptx", "html"], "tool": "generate_battlefield_report"}],
             "catatan": "Gabungan sumber hanya Retail × Planogram; Industri tidak bisa digabung (kunci produk berbeda).",
             "custom": {"sumber": ["retail", "industri", "planogram", "retail + planogram (gabungan)", "file unggahan"],
-                       "format": ["html"], "instruksi_tambahan": "dokumen unggahan (prompt/template) bisa dipakai lewat instruction_doc_id",
+                       "format": ["html", "pdf", "pptx"], "instruksi_tambahan": "dokumen unggahan (prompt/template) bisa dipakai lewat instruction_doc_id",
                        "status": "DRAFT sampai user menyetujui (approve)", "tool": "generate_custom_report"}}
 
 
@@ -673,8 +673,13 @@ def _file_data_text(tool_context: ToolContext, file_id: str) -> tuple[str, str, 
     if not entry:
         return "", "", ""
     frame, notes, kind = _prepared(entry)
-    blocks = [f"### File: {entry['filename']} (jenis data: {kind}; baris dipakai {notes.get('rows_used')}; "
-              f"dikecualikan: {notes.get('excluded') or 'tidak ada'})"]
+    head = (f"### File: {entry['filename']} (jenis data: {kind}; baris dipakai {notes.get('rows_used')}; "
+            f"dikecualikan: {notes.get('excluded') or 'tidak ada'})")
+    if notes.get("tata_letak"):
+        head += f"\nTata letak: {notes['tata_letak'].get('jenis')} — header bertingkat sudah digabung menjadi nama kolom."
+    if notes.get("harga_per_liter"):
+        head += "\nPENTING: " + notes["harga_per_liter"]
+    blocks = [head]
     for label, plan in _file_auto_analyses(kind):
         try:
             res = de.run_plan({"f": frame}, {"file": "f", "limit": 200, **plan})
@@ -682,22 +687,79 @@ def _file_data_text(tool_context: ToolContext, file_id: str) -> tuple[str, str, 
                                                      "total_rows": res["rows_total"]}]))
         except Exception as exc:  # noqa: BLE001
             logger.warning("Analisis standar '%s' gagal: %s", label, str(exc)[:200])
+    if kind not in ("retail", "industri", "planogram"):
+        blocks.append(_frame_block(frame))
+    from .file_tools import ANALYSES_KEY
+
+    for a in [x for x in tool_context.state.get(ANALYSES_KEY, []) or [] if x.get("file") == entry["filename"]][-6:]:
+        try:
+            res = de.run_plan({a["plan"]["file"]: frame}, a["plan"], max_rows=200)
+            blocks.append(cr.data_block(f"Analisis di chat: {a['question']}", "",
+                                        [{"columns": res["columns"], "rows": res["rows"], "total_rows": res["rows_total"]}]))
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Analisis %s tidak bisa dijalankan ulang: %s", a.get("id"), str(exc)[:200])
     last = tool_context.state.get(LAST_KEY) or {}
-    if last.get("domain") == "file" and last.get("file_id") == entry["file_id"]:
+    if not tool_context.state.get(ANALYSES_KEY) and last.get("domain") == "file" and last.get("file_id") == entry["file_id"]:
         blocks.append(cr.data_block(f"Analisis terakhir di chat: {last.get('question', '')}", "", last.get("tables")))
     blocks += _insight_blocks(tool_context, file_based=True)
     return "\n\n".join(blocks) if len(blocks) > 1 else "", kind, f"File unggahan {entry['filename']}"
 
 
-def _save_custom(tool_context: ToolContext, result: dict, domain: str, request: str, data_text: str, source: str,
-                 parent: str = "", extra: str = "") -> dict[str, Any]:
+FULL_TABLE_ROWS = 300
+FULL_TABLE_CHARS = 60000
+
+
+def _frame_block(frame) -> str:
+    """Isi file (format umum) untuk laporan: utuh bila kecil; bila besar, 100 baris pertama + ringkasan angka."""
     from .. import custom_report as cr
 
+    df = frame.copy()
+    for c in df.columns:
+        if df[c].dtype.kind == "f":
+            df[c] = df[c].round(2)
+    df = df.astype(object).where(df.notna(), None)
+    rows = df.values.tolist()
+    full = cr.data_block("Data lengkap file (sudah dirapikan kode)", "", [{"columns": [str(c) for c in df.columns],
+                                                                         "rows": rows}])
+    if len(df) <= FULL_TABLE_ROWS and len(full) <= FULL_TABLE_CHARS:
+        return full
+    num = frame.select_dtypes("number")
+    parts = [cr.data_block(f"Contoh 100 baris pertama dari {len(df)} baris", "",
+                           [{"columns": [str(c) for c in df.columns], "rows": rows[:100], "total_rows": len(df)}])]
+    if not num.empty:
+        desc = num.describe().T.round(2).reset_index()
+        parts.append(cr.data_block("Ringkasan angka seluruh baris (dihitung kode)", "",
+                                   [{"columns": ["kolom"] + [str(c) for c in desc.columns[1:]],
+                                     "rows": desc.astype(object).where(desc.notna(), None).values.tolist()}]))
+    return "\n\n".join(parts)
+
+
+def _render_and_save(tool_context: ToolContext, title: str, body: str, formats: list[str], template_html: str,
+                     record: dict, approved_label: str = "", source: str = "") -> dict[str, dict]:
+    """Simpan HTML induk (selalu, untuk revisi/approve) + setiap format yang diminta. -> {format: links}."""
+    from .. import custom_report as cr
+
+    user = get_user_id(tool_context)
+    out = {"html": report_engine.save_output(user, CUSTOM_ID, title,
+                                             cr.render_format(title, body, "html", template_html, approved_label),
+                                             "html", cr.FORMAT_TYPES["html"], record=record)}
+    for fmt in formats:
+        if fmt != "html":
+            out[fmt] = report_engine.save_output(user, CUSTOM_ID, title,
+                                                 cr.render_format(title, body, fmt, template_html, approved_label, source),
+                                                 fmt, cr.FORMAT_TYPES[fmt], record=record)
+    return out
+
+
+def _save_custom(tool_context: ToolContext, result: dict, domain: str, request: str, data_text: str, source: str,
+                 parent: str = "", extra: str = "", template_uri: str = "", formats: list[str] | None = None) -> dict[str, Any]:
+    formats = formats or ["html"]
     title = result["title"]
-    links = report_engine.save_output(get_user_id(tool_context), CUSTOM_ID, title, cr.to_html(title, result["body"]),
-                                      "html", report_engine.FORMATS["html"][1],
-                                      record={"source": source, "domain": domain, "status": "DRAFT", "parent": parent,
-                                              "angka_tidak_terverifikasi": result["unverified"]})
+    template_html = _gcs_text(template_uri) if template_uri else ""
+    saved = _render_and_save(tool_context, title, result["body"], formats, template_html,
+                             {"source": source, "domain": domain, "status": "DRAFT", "parent": parent,
+                              "angka_tidak_terverifikasi": result["unverified"]}, source=source)
+    links = saved["html"]
     data_uri = links["gcs_uri"].rsplit(".", 1)[0] + ".data.txt"
     _gcs_put(data_uri, data_text)
     extra_uri = ""
@@ -708,21 +770,24 @@ def _save_custom(tool_context: ToolContext, result: dict, domain: str, request: 
     rid = f"r{len(reports) + 1}"
     reports.append({"report_id": rid, "title": title, "domain": domain, "request": request, "source": source,
                     "html_uri": links["gcs_uri"], "data_uri": data_uri, "status": "DRAFT", "parent": parent,
-                    "extra_uri": extra_uri})
+                    "extra_uri": extra_uri, "template_uri": template_uri, "formats": formats})
     tool_context.state[CUSTOM_KEY] = reports[-10:]
     msg = ("Laporan custom berstatus DRAFT. Minta user meninjau, lalu ketik 'approve' untuk menerbitkan versi FINAL "
            "atau berikan masukan untuk revisi.")
     if result["unverified"]:
         msg += (" Pemeriksa angka menemukan angka yang tidak cocok dengan data sumber dan sudah diberi catatan di "
                 "halaman terakhir: " + ", ".join(result["unverified"][:8]) + ". Sampaikan ini ke user.")
-    return {"status": "ok", "report_id": rid, "report_title": title, **links, "status_laporan": "DRAFT",
+    if [f for f in formats if f != "html"]:
+        msg += " Format lain (HTML/PDF/PowerPoint) bisa dibuat kapan saja dengan konversi_laporan_custom."
+    return {"status": "ok", "report_id": rid, "report_title": title, "file": {f: saved[f]["url"] for f in formats},
+            "status_laporan": "DRAFT",
             "angka_tidak_terverifikasi": result["unverified"], "penjelasan_model": result.get("explanation", ""),
             "message": msg}
 
 
 def generate_custom_report(request: str, source: str, tool_context: ToolContext,
                            data_questions: list[str] | None = None, file_id: str = "",
-                           instruction_doc_id: str = "", period: str = "") -> dict[str, Any]:
+                           instruction_doc_id: str = "", period: str = "", output_format: str = "") -> dict[str, Any]:
     """Membuat laporan CUSTOM (HTML, gaya design system PTPL) yang disusun model utama sesuai permintaan user,
     memakai prompt laporan MIR (Retail Only / Industry Only / Planogram). Status awal DRAFT.
 
@@ -738,6 +803,8 @@ def generate_custom_report(request: str, source: str, tool_context: ToolContext,
         file_id: ID file (mis. "f1") jika source "file"; kosongkan untuk file terakhir.
         instruction_doc_id: ID dokumen unggahan (mis. "d1") berisi prompt/template/arahan laporan dari user (opsional).
         period: Kuartal utama untuk analisis silang Retail × Planogram (opsional, mis. "2026-Q3").
+        output_format: "html", "pdf", "pptx", atau gabungan (mis. "pdf,pptx"). Kosongkan jika user belum memilih —
+            tool akan meminta Anda menanyakannya.
     """
     from .. import custom_report as cr
     from .. import data_agent
@@ -745,6 +812,11 @@ def generate_custom_report(request: str, source: str, tool_context: ToolContext,
 
     if not request.strip():
         return {"status": "needs_input", "message": "Tanyakan ke user isi laporan yang diinginkan (fokus, periode, audiens)."}
+    formats = cr.parse_formats(output_format)
+    if not formats:
+        return {"status": "needs_input", "available_formats": ["html", "pdf", "pptx"],
+                "message": ("Tanyakan ke user format laporan yang diinginkan (boleh lebih dari satu): HTML (interaktif, "
+                            "grafik bisa disorot), PDF (siap cetak/kirim), atau PowerPoint (siap presentasi).")}
     src = source.strip().lower().replace(" ", "")
     combined = src in ("retail_planogram", "retail+planogram", "planogram+retail", "gabungan", "retailxplanogram",
                        "retail×planogram", "battlefield")
@@ -798,18 +870,26 @@ def generate_custom_report(request: str, source: str, tool_context: ToolContext,
             return {"status": "error", "message": "Data tidak bisa diambil dari Data Agent: " + "; ".join(errors)[:300]}
         data_text = "\n\n".join(blocks)
         label = data_agent.SOURCE_LABELS[domain]
-    extra = ""
+    extra, template_uri, template_html = "", "", ""
     if instruction_doc_id.strip():
-        from .doc_tools import document_instructions
+        from .doc_tools import DOCS_KEY, document_instructions
 
-        extra = document_instructions(instruction_doc_id.strip(), tool_context.state)
-        if not extra:
-            return {"status": "error", "message": f"Dokumen {instruction_doc_id} tidak ada atau tidak bisa dibaca."}
-    result = cr.generate(domain, request, data_text, extra_instructions=extra)
+        doc = next((d for d in tool_context.state.get(DOCS_KEY, []) if d["doc_id"] == instruction_doc_id.strip()), None)
+        if doc and doc.get("jenis") == "HTML":
+            template_uri = doc["uri"]                       # template desain: laporan dibangun di dalam template ini
+            template_html = _gcs_text(template_uri)
+            if not cr.template_parts(template_html):
+                template_uri, template_html = "", ""
+        if not template_html:
+            extra = document_instructions(instruction_doc_id.strip(), tool_context.state)
+            if not extra:
+                return {"status": "error", "message": f"Dokumen {instruction_doc_id} tidak ada atau tidak bisa dibaca."}
+    result = cr.generate(domain, request, data_text, extra_instructions=extra, template_html=template_html)
     if result["status"] == "no_data":
         return {"status": "error", "message": "Data dari sumber tidak berisi angka yang bisa dipakai untuk laporan. "
                                               + result["message"][:200]}
-    return _save_custom(tool_context, result, domain, request, data_text, label, extra=extra)
+    return _save_custom(tool_context, result, domain, request, data_text, label, extra=extra, template_uri=template_uri,
+                        formats=formats)
 
 
 def _find_report(tool_context: ToolContext, report_id: str) -> dict | None:
@@ -832,19 +912,32 @@ def revise_custom_report(feedback: str, tool_context: ToolContext, report_id: st
     if not rec:
         return {"status": "error", "message": "Belum ada laporan custom di chat ini untuk direvisi."}
     html_doc = _gcs_text(rec["html_uri"])
-    body = cr.parse_output("```html\n" + html_doc + "\n```")["body"]
+    template_html = _gcs_text(rec["template_uri"]) if rec.get("template_uri") else ""
+    body = cr.parse_output("```html\n" + html_doc + "\n```", template_mode=bool(template_html))["body"]
     data_text = _gcs_text(rec["data_uri"])
     extra = _gcs_text(rec["extra_uri"]) if rec.get("extra_uri") else ""
     result = cr.generate(rec["domain"], rec["request"], data_text, previous_body=body, feedback=feedback,
-                         extra_instructions=extra)
+                         extra_instructions=extra, template_html=template_html)
     if result["status"] != "ok":
         return {"status": "error", "message": result.get("message", "Revisi gagal dibuat.")}
     return _save_custom(tool_context, result, rec["domain"], rec["request"], data_text, rec["source"],
-                        parent=rec["report_id"], extra=extra)
+                        parent=rec["report_id"], extra=extra, template_uri=rec.get("template_uri", ""),
+                        formats=rec.get("formats") or ["html"])
+
+
+def _report_body(rec: dict) -> tuple[str, str]:
+    """(isi body, template_html) dari HTML induk laporan custom yang tersimpan."""
+    from .. import custom_report as cr
+
+    template_html = _gcs_text(rec["template_uri"]) if rec.get("template_uri") else ""
+    doc = _gcs_text(rec["html_uri"])
+    body = cr.parse_output("```html\n" + doc + "\n```", template_mode=bool(template_html))["body"]
+    return body, template_html
 
 
 def approve_report(tool_context: ToolContext, report_id: str = "") -> dict[str, Any]:
-    """Menyetujui laporan CUSTOM: label DRAFT diganti "FINAL · Disetujui <user> · <tanggal>" dan file FINAL diterbitkan.
+    """Menyetujui laporan CUSTOM: label DRAFT diganti "FINAL · Disetujui <user> · <tanggal>" dan file FINAL diterbitkan
+    dalam semua format yang dipilih user (HTML/PDF/PowerPoint).
 
     Panggil HANYA jika user secara eksplisit menyetujui (mis. "approve", "setuju", "ok final").
 
@@ -857,21 +950,61 @@ def approve_report(tool_context: ToolContext, report_id: str = "") -> dict[str, 
     if not rec:
         return {"status": "error", "message": "Belum ada laporan custom di chat ini untuk disetujui."}
     if rec["status"] == "FINAL":
-        return {"status": "ok", "report_title": rec["title"], "url": rec.get("final_url"), "message": "Laporan ini sudah FINAL."}
+        return {"status": "ok", "report_title": rec["title"], "file": rec.get("final_files") or {"html": rec.get("final_url")},
+                "message": "Laporan ini sudah FINAL."}
     user = get_user_id(tool_context)
     label = cr.approved_label(user)
-    doc = _gcs_text(rec["html_uri"]).replace("<body>", f'<body class="final" data-approved="{label}">', 1)
+    body, template_html = _report_body(rec)
     title = f"{rec['title']} (FINAL)"
-    links = report_engine.save_output(user, CUSTOM_ID, title, doc.encode("utf-8"), "html", report_engine.FORMATS["html"][1],
-                                      record={"source": rec["source"], "domain": rec["domain"], "status": "FINAL",
-                                              "approved_by": user, "draft": rec["html_uri"]})
+    formats = rec.get("formats") or ["html"]
+    saved = _render_and_save(tool_context, title, body, formats, template_html,
+                             {"source": rec["source"], "domain": rec["domain"], "status": "FINAL", "approved_by": user,
+                              "draft": rec["html_uri"]}, approved_label=label, source=rec.get("source", ""))
+    files = {f: saved[f]["url"] for f in formats}
     reports = list(tool_context.state.get(CUSTOM_KEY, []))
     for r in reports:
         if r["report_id"] == rec["report_id"]:
-            r.update(status="FINAL", final_url=links["url"])
+            r.update(status="FINAL", final_url=saved["html"]["url"], final_html_uri=saved["html"]["gcs_uri"],
+                     final_files=files)
     tool_context.state[CUSTOM_KEY] = reports
-    return {"status": "ok", "report_id": rec["report_id"], "report_title": title, **links, "status_laporan": "FINAL",
-            "message": f"Laporan disetujui ({label})."}
+    return {"status": "ok", "report_id": rec["report_id"], "report_title": title, "file": files,
+            "status_laporan": "FINAL", "message": f"Laporan disetujui ({label})."}
+
+
+def konversi_laporan_custom(output_format: str, tool_context: ToolContext, report_id: str = "") -> dict[str, Any]:
+    """Membuat laporan CUSTOM yang sudah ada dalam format lain: HTML, PDF, atau PowerPoint (bisa beberapa sekaligus).
+
+    Isi laporan tidak ditulis ulang; status DRAFT/FINAL mengikuti laporan aslinya.
+
+    Args:
+        output_format: "html", "pdf", "pptx", atau gabungan (mis. "pdf,pptx").
+        report_id: ID laporan (mis. "r2"); kosongkan untuk laporan custom terakhir.
+    """
+    from .. import custom_report as cr
+
+    formats = cr.parse_formats(output_format)
+    if not formats:
+        return {"status": "needs_input", "available_formats": ["html", "pdf", "pptx"],
+                "message": "Tanyakan format yang diinginkan: HTML, PDF, atau PowerPoint."}
+    rec = _find_report(tool_context, report_id.strip())
+    if not rec:
+        return {"status": "error", "message": "Belum ada laporan custom di chat ini."}
+    final = rec["status"] == "FINAL"
+    body, template_html = _report_body(rec if not final else {**rec, "html_uri": rec.get("final_html_uri") or rec["html_uri"]})
+    label = cr.approved_label(get_user_id(tool_context)) if final else ""
+    title = rec["title"] + (" (FINAL)" if final else "")
+    user = get_user_id(tool_context)
+    files = {}
+    for fmt in formats:
+        links = report_engine.save_output(user, CUSTOM_ID, title,
+                                          cr.render_format(title, body, fmt, template_html, label, rec.get("source", "")),
+                                          fmt, cr.FORMAT_TYPES[fmt],
+                                          record={"source": rec["source"], "status": rec["status"], "konversi_dari": rec["html_uri"]})
+        files[fmt] = links["url"]
+    note = (" PDF/PowerPoint dari laporan bertemplate desain user disusun ulang bergaya PTPL (isi sama, tampilan tidak "
+            "identik dengan template)." if template_html and set(formats) - {"html"} else "")
+    return {"status": "ok", "report_id": rec["report_id"], "report_title": title, "file": files,
+            "status_laporan": rec["status"], "message": "Berikan link file ke user." + note}
 
 
 generate_planogram_report = _logged(generate_planogram_report)
@@ -881,7 +1014,8 @@ preview_battlefield_report = _logged(preview_battlefield_report)
 generate_custom_report = _logged(generate_custom_report)
 revise_custom_report = _logged(revise_custom_report)
 approve_report = _logged(approve_report)
+konversi_laporan_custom = _logged(konversi_laporan_custom)
 REPORT_TOOLS = [list_report_options, generate_price_dashboard, preview_price_dashboard, generate_industry_report,
                 preview_industry_report, generate_planogram_report, preview_planogram_report,
                 generate_battlefield_report, preview_battlefield_report, generate_custom_report,
-                revise_custom_report, approve_report]
+                revise_custom_report, approve_report, konversi_laporan_custom]

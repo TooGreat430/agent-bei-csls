@@ -44,6 +44,69 @@ class PlanError(ValueError):
 # ==========================================================================
 # Membaca file
 # ==========================================================================
+def _looks_pivot(df: pd.DataFrame) -> bool:
+    """Header pandas banyak 'Unnamed' -> kemungkinan ekspor PivotTable / header bertingkat."""
+    cols = [str(c) for c in df.columns]
+    return len(cols) >= 3 and sum(c.startswith("Unnamed") for c in cols) >= max(2, 0.3 * len(cols))
+
+
+def _clean_label(v: Any) -> str:
+    t = re.sub(r"\s+", " ", str(v)).strip()
+    m = re.match(r"(?i)^(average|sum|count|max|min) of (.+)$", t)
+    if m:
+        t = f"{m.group(2)} ({ {'average': 'rata-rata', 'sum': 'jumlah', 'count': 'jumlah data'}.get(m.group(1).lower(), m.group(1).lower())})"
+    return t
+
+
+def fix_layout(raw: pd.DataFrame) -> pd.DataFrame:
+    """Rapikan tabel hasil PivotTable: header bertingkat -> satu baris nama kolom, kelompok kosong diisi ke bawah.
+
+    raw dibaca dengan header=None. Baris header = baris pertama (dalam 15 baris) yang hampir penuh; baris di atasnya
+    yang berisi label berselang (mis. Qtr1 ... Qtr2 ... Qtr3) menjadi awalan nama kolom.
+    """
+    raw = raw.dropna(how="all").dropna(axis=1, how="all").reset_index(drop=True)
+    raw.columns = range(raw.shape[1])
+    ncol = raw.shape[1]
+    h = next((i for i in range(min(15, len(raw)))
+              if raw.iloc[i].notna().sum() >= 0.8 * ncol
+              and sum(isinstance(v, str) for v in raw.iloc[i].dropna()) >= 0.6 * raw.iloc[i].notna().sum()), 0)
+    header = [_clean_label(v) if pd.notna(v) else "" for v in raw.iloc[h]]
+    prefixes = [""] * ncol
+    group_start = ncol
+    for b in range(h):
+        row = raw.iloc[b]
+        idx = [j for j in range(ncol) if pd.notna(row[j])]
+        spaced = len(idx) >= 2 and all(idx[k + 1] - idx[k] > 1 for k in range(len(idx) - 1))
+        if not spaced:
+            continue                                   # baris meta pivot (mis. "Quarters | SURVEY_WAVE | Values")
+        group_start = min(group_start, idx[0])
+        cur = ""
+        for j in range(idx[0], ncol):
+            if pd.notna(row[j]):
+                cur = _clean_label(row[j])
+            prefixes[j] = f"{prefixes[j]} · {cur}".strip(" ·") if cur else prefixes[j]
+    names, seen = [], {}
+    for j in range(ncol):
+        name = " · ".join(p for p in (prefixes[j], header[j]) if p) or f"Kolom {j + 1}"
+        seen[name] = seen.get(name, 0) + 1
+        names.append(name if seen[name] == 1 else f"{name} ({seen[name]})")
+    data = raw.iloc[h + 1:].reset_index(drop=True)
+    data.columns = names
+    filled = []
+    for col in names[:min(group_start, ncol - 1)]:     # kolom pengelompokan pivot: sel kosong = sama dengan di atas
+        nums = pd.to_numeric(data[col], errors="coerce")
+        if data[col].isna().any() and data[col].notna().any() and nums.notna().sum() < 0.5 * data[col].notna().sum():
+            data[col] = data[col].ffill()
+            filled.append(col)
+    for col in names:
+        conv = pd.to_numeric(data[col], errors="coerce")
+        if data[col].notna().sum() and conv.notna().sum() >= 0.8 * data[col].notna().sum():
+            data[col] = conv
+    data.attrs["tata_letak"] = {"jenis": "pivot / header bertingkat", "baris_header": h + 1,
+                                "baris_label_kelompok": h, "kolom_diisi_ke_bawah": filled}
+    return data
+
+
 def read_bytes(data: bytes, filename: str, sheet: str | None = None) -> tuple[pd.DataFrame, list[str]]:
     """Baca CSV/XLSX/XLS menjadi DataFrame. Mengembalikan (frame, daftar sheet)."""
     name = (filename or "").lower()
@@ -53,7 +116,10 @@ def read_bytes(data: bytes, filename: str, sheet: str | None = None) -> tuple[pd
         if not sheets:
             raise PlanError("File Excel tidak memiliki sheet.")
         pick = sheet if sheet in book else next((s for s in sheets if not book[s].empty), sheets[0])
-        return book[pick], sheets
+        df = book[pick]
+        if _looks_pivot(df):
+            df = fix_layout(pd.read_excel(io.BytesIO(data), sheet_name=pick, header=None))
+        return df, sheets
     text = None
     for enc in ("utf-8-sig", "latin-1"):
         try:
@@ -66,7 +132,10 @@ def read_bytes(data: bytes, filename: str, sheet: str | None = None) -> tuple[pd
         delim = csv.Sniffer().sniff(sample, delimiters=",;\t|").delimiter
     except csv.Error:
         delim = ","
-    return pd.read_csv(io.StringIO(text), sep=delim, low_memory=False), []
+    df = pd.read_csv(io.StringIO(text), sep=delim, low_memory=False)
+    if _looks_pivot(df):
+        df = fix_layout(pd.read_csv(io.StringIO(text), sep=delim, low_memory=False, header=None))
+    return df, []
 
 
 def load_frame(uri: str, filename: str, sheet: str | None = None) -> tuple[pd.DataFrame, list[str]]:
@@ -114,6 +183,45 @@ def _is_date(series: pd.Series) -> bool:
         return False
     parsed = pd.to_datetime(sample, errors="coerce")
     return parsed.notna().mean() >= 0.9
+
+
+_PACK = re.compile(r"(\d+(?:[.,]\d+)?)\s*(LITER|LITRE|LTR|LT|L|ML)\b", re.I)
+_PRICE_COL = re.compile(r"HTO|HET|HARGA|MARGIN|PROMO|LOYALTY|PRICE|\bHT\b|\bHJ\b", re.I)
+
+
+def pack_liters(text: Any) -> float | None:
+    """'MESRANIA 2T SUPER 1 LITER' -> 1.0 · 'ACTIV 2T 0.7 LITER' -> 0.7 · '800 ML' -> 0.8."""
+    if not isinstance(text, str):
+        return None
+    hits = _PACK.findall(text)
+    if not hits:
+        return None
+    num, unit = hits[-1]
+    v = float(num.replace(",", "."))
+    return v / 1000 if unit.upper() == "ML" else v
+
+
+def add_per_liter(df: pd.DataFrame) -> tuple[pd.DataFrame, list[str]]:
+    """Tambah kolom harga per liter bila ada kolom nama produk berisi ukuran kemasan (aturan Retail PTPL)."""
+    text_cols = [c for c in df.columns
+                 if not pd.api.types.is_numeric_dtype(df[c]) and not pd.api.types.is_datetime64_any_dtype(df[c])]
+    best, share = None, 0.0
+    for c in text_cols:
+        vals = df[c].dropna()
+        if len(vals):
+            frac = vals.map(lambda x: pack_liters(x) is not None).mean()
+            if frac > share:
+                best, share = c, frac
+    if best is None or share < 0.8:
+        return df, []
+    out = df.copy()
+    out["ISI_KEMASAN_L"] = out[best].map(pack_liters)
+    added = ["ISI_KEMASAN_L"]
+    for c in df.columns:
+        if c != best and _PRICE_COL.search(str(c)) and pd.api.types.is_numeric_dtype(df[c]) and not str(c).endswith("/L"):
+            out[f"{c} /L"] = (df[c] / out["ISI_KEMASAN_L"]).round(2)
+            added.append(f"{c} /L")
+    return (out, added) if len(added) > 1 else (df, [])
 
 
 def total_rows(df: pd.DataFrame) -> pd.Series:
@@ -275,6 +383,17 @@ def prepare(df: pd.DataFrame, kind: str, heroes: list[str] | None = None) -> tup
             drop(~total_rows(out), "baris total/subtotal (kolom kunci kosong, nilai = jumlah baris lain)")
         except Exception:  # noqa: BLE001
             logger.warning("Deteksi baris total gagal", exc_info=True)
+    if kind == "lainnya":
+        if df.attrs.get("tata_letak"):
+            notes["tata_letak"] = df.attrs["tata_letak"]
+        try:
+            out, per_l = add_per_liter(out)
+            if per_l:
+                notes["added_columns"] += per_l
+                notes["harga_per_liter"] = ("Kolom harga /L ditambahkan (harga ÷ isi kemasan dari nama produk). "
+                                            "Bandingkan antar produk dengan kolom /L, bukan harga per kemasan.")
+        except Exception:  # noqa: BLE001
+            logger.warning("Kolom per liter gagal ditambahkan", exc_info=True)
     region = _col(out, "SALES_REGION_CUSTOMER")
     if region:
         out["ZONA"] = _region(out[region]).map(ZONE_OF_REGION)
@@ -410,7 +529,7 @@ def _derive(df: pd.DataFrame, derive: list[dict]) -> pd.DataFrame:
             raise PlanError(f"Ekspresi turunan tidak valid: {expr!r} (hanya kolom, angka, dan + - * / ( )).")
         tmp = df.copy()
         for c in tmp.columns:
-            if tmp[c].dtype == object:
+            if not pd.api.types.is_numeric_dtype(tmp[c]) and not pd.api.types.is_datetime64_any_dtype(tmp[c]):
                 conv = pd.to_numeric(tmp[c], errors="coerce")
                 if conv.notna().sum() >= max(1, int(0.5 * tmp[c].notna().sum())):
                     tmp[c] = conv

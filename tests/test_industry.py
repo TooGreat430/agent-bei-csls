@@ -100,7 +100,7 @@ class RoutingTest(unittest.TestCase):
                           "generate_industry_report", "preview_industry_report", "generate_planogram_report",
                           "preview_planogram_report", "generate_battlefield_report", "preview_battlefield_report",
                           "generate_custom_report", "revise_custom_report",
-                          "approve_report"])
+                          "approve_report", "konversi_laporan_custom"])
 
     def test_industry_settings_keep_case(self):
         from library_agent import config

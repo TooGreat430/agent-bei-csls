@@ -49,6 +49,45 @@ Jika INPUT tidak berisi data angka, tulis HANYA kalimat "DATA TIDAK DITERIMA DAR
 """
 
 
+TEMPLATE_CONTRACT = """FORMAT OUTPUT — TEMPLATE DESAIN DARI USER (MENGGANTIKAN "FORMAT OUTPUT", DESIGN SYSTEM PTPL, DAN DAFTAR
+KOMPONEN DI ATAS)
+
+User melampirkan template HTML. Sistem akan membungkus laporanmu dengan <head>, CSS, dan script dari template itu.
+Tulis HANYA isi <body> yang memakai struktur, class, dan komponen dari CONTOH BODY TEMPLATE di bawah: pertahankan
+susunan bagian, gaya kartu/tabel/judul, dan nama class-nya; ganti teks dan angka contoh dengan isi laporan dari data
+INPUT. Jangan menulis <!DOCTYPE>, <html>, <head>, <style>, <script>, atau <body>. Jika template punya komponen grafik
+(atribut data/elemen khusus), pakai dengan cara yang sama; jika tidak ada, gunakan tabel dan kartu angka.
+Semua ATURAN ANGKA di atas tetap berlaku. Letakkan penanda status di bagian kepala laporan, persis:
+<span class="draft">DRAFT - menunggu approval</span>
+
+Baris pertama: "{first} — <judul singkat> · <periode>".
+Lalu SATU blok kode ```html berisi isi body.
+Setelah blok kode (maksimal 4 baris): data yang dipakai dan data yang tidak tersedia.
+Jika INPUT tidak berisi data angka, tulis HANYA kalimat "DATA TIDAK DITERIMA DARI DATA AGENT." tanpa blok kode.
+
+CONTOH BODY TEMPLATE (struktur & class yang harus diikuti; angkanya hanya contoh, JANGAN disalin):
+```html
+{example}
+```
+"""
+DRAFT_TEXT = "DRAFT - menunggu approval"
+
+
+def template_parts(template_html: str) -> dict[str, str] | None:
+    """Pisahkan template HTML user: kepala (s.d. <body>), contoh isi body, serta style/script yang harus dipertahankan."""
+    m = re.search(r"<body\b[^>]*>", template_html or "", re.I)
+    if not m:
+        return None
+    rest = template_html[m.end():]
+    end = rest.lower().rfind("</body>")
+    inner = rest[:end] if end >= 0 else rest
+    scripts = "".join(re.findall(r"<script\b.*?</script>", inner, flags=re.S | re.I))
+    styles = "".join(re.findall(r"<style\b.*?</style>", inner, flags=re.S | re.I))
+    example = re.sub(r"<(script|style)\b.*?</\1>", "", inner, flags=re.S | re.I)
+    example = re.sub(r"\n\s*\n+", "\n", example).strip()
+    return {"head": template_html[:m.end()], "styles": styles, "scripts": scripts, "example": example[:25000]}
+
+
 # ==========================================================================
 # Prompt
 # ==========================================================================
@@ -65,7 +104,7 @@ def load_prompt(domain: str) -> str:
 
 
 def build_prompt(domain: str, request: str, data_text: str, previous_body: str = "", feedback: str = "",
-                 problems: list[str] | None = None, extra_instructions: str = "") -> str:
+                 problems: list[str] | None = None, extra_instructions: str = "", template_example: str = "") -> str:
     base = load_prompt(domain)
     base = base.replace("SISIPKAN_VARIABEL_Description", request.strip() or "(tidak ada)")
     base = re.sub(r"SISIPKAN_VARIABEL_\w+_output", lambda _m: data_text.strip() or "(kosong)", base, count=1)
@@ -77,7 +116,11 @@ def build_prompt(domain: str, request: str, data_text: str, previous_body: str =
         base += ("\nINSTRUKSI TAMBAHAN DARI DOKUMEN USER (ikuti selama tidak bertentangan dengan LARANGAN SUMBER DATA dan "
                  "ATURAN ANGKA; jika dokumen berupa contoh laporan, tiru struktur dan gaya narasinya, bukan angkanya):\n"
                  + extra_instructions.strip()[:20000] + "\n")
-    base += "\n" + OUTPUT_CONTRACT.format(first=FIRST_LINE.get(domain, "LAPORAN DATA"))
+    if template_example:
+        base += "\n" + TEMPLATE_CONTRACT.replace("{first}", FIRST_LINE.get(domain, "LAPORAN DATA")).replace(
+            "{example}", template_example)
+    else:
+        base += "\n" + OUTPUT_CONTRACT.format(first=FIRST_LINE.get(domain, "LAPORAN DATA"))
     if previous_body and feedback:
         base += ("\n\nREVISI (WAJIB): Berikut laporan sebelumnya. Tulis ulang SELURUH laporan dengan menerapkan masukan "
                  f"user ini: \"{feedback.strip()}\". Data INPUT tetap sama; jangan menambah angka di luar data.\n\n"
@@ -141,7 +184,7 @@ def battlefield_block(ds: dict[str, Any]) -> str:
 # ==========================================================================
 # Output model -> isi halaman
 # ==========================================================================
-def parse_output(text: str) -> dict[str, Any]:
+def parse_output(text: str, template_mode: bool = False) -> dict[str, Any]:
     """{'no_data': bool, 'title': str, 'body': str, 'explanation': str}."""
     raw = (text or "").strip()
     if not raw or (NO_DATA in raw[:300] and "<section" not in raw):
@@ -156,6 +199,11 @@ def parse_output(text: str) -> dict[str, Any]:
     body = re.sub(r"<script\b.*?</script>", "", body, flags=re.S | re.I)
     body = re.sub(r"<style\b.*?</style>", "", body, flags=re.S | re.I)
     body = body.replace("ISI_LAPORAN_HTML", "")
+    if template_mode:
+        body = re.sub(r"<!DOCTYPE[^>]*>|</?html[^>]*>|<head\b.*?</head>|</?body[^>]*>", "", body, flags=re.S | re.I)
+        title = first if first.upper().startswith("LAPORAN") else ""
+        return {"no_data": False, "title": title, "body": body.strip() if "<" in body else "",
+                "explanation": explanation[:800]}
     start = body.find("<section")
     end = body.rfind("</section>")
     body = body[start:end + len("</section>")] if start >= 0 and end > start else ""
@@ -230,24 +278,28 @@ def add_checker_note(body: str, bad: list[str]) -> str:
 # Generate / approve
 # ==========================================================================
 def generate(domain: str, request: str, data_text: str, previous_body: str = "", feedback: str = "",
-             extra_instructions: str = "") -> dict[str, Any]:
+             extra_instructions: str = "", template_html: str = "") -> dict[str, Any]:
     """Panggil model utama, bungkus design system, dan periksa angka (maks 1 perbaikan)."""
     from .report_engine import generate_text
 
     data_text = data_text[:MAX_DATA_CHARS]
     pool = number_pool(data_text + "\n" + request)
+    parts = template_parts(template_html) if template_html else None
+    example = parts["example"] if parts else ""
+    tmode = bool(parts)
     out = parse_output(generate_text(build_prompt(domain, request, data_text, previous_body, feedback,
-                                                  extra_instructions=extra_instructions)))
+                                                  extra_instructions=extra_instructions, template_example=example)),
+                       template_mode=tmode)
     if out["no_data"]:
         return {"status": "no_data", "message": out["explanation"] or NO_DATA}
     if not out["body"]:
-        raise RuntimeError("Model tidak menghasilkan halaman laporan (<section class=\"page\">).")
+        raise RuntimeError("Model tidak menghasilkan isi laporan HTML.")
     bad = check_numbers(out["body"], pool)
     revised = False
     if bad:
         logger.warning("Laporan custom: %d angka tidak terverifikasi, minta tulis ulang: %s", len(bad), bad[:10])
         retry = parse_output(generate_text(build_prompt(domain, request, data_text, previous_body, feedback, bad,
-                                                        extra_instructions)))
+                                                        extra_instructions, example)), template_mode=tmode)
         if retry["body"]:
             revised = True
             out = retry
@@ -258,11 +310,46 @@ def generate(domain: str, request: str, data_text: str, previous_body: str = "",
             "explanation": out["explanation"]}
 
 
-def to_html(title: str, body: str, approved_label: str = "") -> bytes:
-    return wrap(body, title, approved_label).encode("utf-8")
+def to_html(title: str, body: str, approved_label: str = "", template_html: str = "") -> bytes:
+    parts = template_parts(template_html) if template_html else None
+    if not parts:
+        return wrap(body, title, approved_label).encode("utf-8")
+    head = re.sub(r"<title>.*?</title>", f"<title>{_html.escape(title)}</title>", parts["head"], count=1,
+                  flags=re.S | re.I)
+    if approved_label:
+        body = body.replace(DRAFT_TEXT, _html.escape(approved_label))
+    return (head + "\n" + parts["styles"] + body + "\n" + parts["scripts"] + "\n</body>\n</html>\n").encode("utf-8")
 
 
 def approved_label(user: str) -> str:
     stamp = datetime.now(timezone.utc).strftime("%d-%m-%Y")
     who = user.split("@")[0] if user and "@" in user else (user or "")
     return f"FINAL · Disetujui {who} · {stamp}".replace("  ", " ")
+
+
+FORMAT_TYPES = {"html": "text/html; charset=utf-8", "pdf": "application/pdf",
+                "pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation"}
+
+
+def parse_formats(value: str) -> list[str]:
+    """'pdf dan pptx' / 'html,pdf' / 'PowerPoint' -> ['pdf', 'pptx'] (urutan tetap, tanpa duplikat)."""
+    from .report_engine import normalize_format
+
+    out = []
+    for token in re.split(r"[,;/+&]|\s+dan\s+|\s+and\s+|\s+", (value or "").lower()):
+        f = normalize_format(token.strip())
+        if f and f not in out:
+            out.append(f)
+    return out
+
+
+def render_format(title: str, body: str, fmt: str, template_html: str = "", approved_label: str = "",
+                  source: str = "") -> bytes:
+    """Satu isi laporan -> HTML (asli), PDF, atau PowerPoint (lewat model halaman ptpl_design)."""
+    if fmt == "html":
+        return to_html(title, body, approved_label, template_html)
+    from . import html_convert, ptpl_design
+
+    pages = html_convert.to_pages(body, title=title, source=source)
+    render = ptpl_design.render_pdf if fmt == "pdf" else ptpl_design.render_pptx
+    return render(pages, title, approved_label)
