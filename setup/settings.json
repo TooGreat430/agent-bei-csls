@@ -67,5 +67,9 @@
   "price_fast_output": 3.0,
   "price_fast_cached": 0.05,
   "price_sandbox_vcpu_hour": 0.0864,
-  "price_sandbox_gib_hour": 0.009
+  "price_sandbox_gib_hour": 0.009,
+  "model_fallbacks": [
+    "pro@global",
+    "fast@global"
+  ]
 }

@@ -112,6 +112,9 @@ class Settings:
     # model_fast: router & agent data BigQuery. model_pro: model utama (analisis file, laporan, narasi).
     model_fast: str = field(default_factory=lambda: _env("LIB_MODEL_FAST", "gemini-3.5-flash"))
     model_pro: str = field(default_factory=lambda: _env("LIB_MODEL_PRO", "gemini-4-argon"))
+    # Cadangan saat kapasitas model penuh (429/503), urut dicoba: "model@lokasi"
+    model_fallbacks: tuple = field(default_factory=lambda: tuple(x.strip() for x in _env(
+        "LIB_MODEL_FALLBACKS", "pro@global,fast@global").split(",") if x.strip()))   # "pro"/"fast" = LIB_MODEL_PRO/FAST
 
     # --- Code Execution (analisis file berbasis kode) — MATI secara default ------------
     code_execution_enabled: bool = field(default_factory=lambda: _env("LIB_CODE_EXECUTION_ENABLED", "false").lower()
@@ -172,6 +175,7 @@ RUNTIME_KEYS: dict[str, type] = {
     "planogram_table": str,
     "planogram_default_period": str,
     "planogram_carry_ratio_line": float,
+    "model_fallbacks": CaseList,
     "code_execution_enabled": bool,
     "code_execution_users": CaseList,
     "code_execution_max_steps": int,

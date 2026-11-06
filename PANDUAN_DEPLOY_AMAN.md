@@ -1,6 +1,10 @@
-# Panduan Deploy Aman — v2.2 (dengan cadangan & rollback)
+# Panduan Deploy Aman — v2.3 (dengan cadangan & rollback)
 
-Versi ini mencakup semua perbaikan sejak v2: bug `report_prefix` (laporan & grafik gagal disimpan), Excel tidak
+**Baru di v2.3:** cadangan otomatis saat kapasitas model penuh (error 429 `RESOURCE_EXHAUSTED` yang membuat analisis
+RFM gagal): Argon `asia-southeast1` → Argon `global` → model cepat `global`, dan bila semua penuh agent membalas pesan
+"layanan padat" alih-alih error 400. Tracing dimatikan (menghilangkan log `Failed to export span … 403`).
+
+Versi ini juga mencakup semua perbaikan sejak v2: bug `report_prefix` (laporan & grafik gagal disimpan), Excel tidak
 terdeteksi / error 400, semua format file, Retail × Planogram, dan fitur Code Execution. **Code Execution ikut
 ter-deploy dalam keadaan MATI** — tidak ada biaya baru dan tidak ada perubahan perilaku sampai Anda menyalakannya
 sendiri (lihat `PANDUAN_UJI_COBA_CODE_EXECUTION.md`).
@@ -29,6 +33,7 @@ git push origin cadangan-v2
 ```
 
 Hasil yang diharapkan: `* [new tag] cadangan-v2 -> cadangan-v2`. Ini menandai kode yang sedang berjalan sekarang.
+Jika tag sudah ada dari deploy sebelumnya, pakai nama baru, mis. `cadangan-v22` (sesuaikan juga di bagian Rollback).
 
 ## Langkah 1 — Cadangkan settings.json (Cloud Shell)
 
@@ -50,7 +55,7 @@ mkdir %TEMP%\gla
 tar -xf %USERPROFILE%\Downloads\ge-library-agent.zip -C %TEMP%\gla
 xcopy /e /h /y /q %TEMP%\gla\ge-library-agent\* .
 git add -A
-git commit -m "v2.2: perbaikan report_prefix, unggah file, semua format, Retail x Planogram, Code Execution (mati)"
+git commit -m "v2.3: cadangan kapasitas model (429), perbaikan unggah file, Code Execution (mati)"
 git push
 ```
 
@@ -66,7 +71,7 @@ Jika muncul daftar file, jalankan `git reset --hard @{u}` dulu. Lalu:
 git pull && find . -name __pycache__ -prune -exec rm -rf {} + && bash scripts/update_agent.sh
 ```
 
-Hasil yang diharapkan: langkah 5 `OK` (137 uji), langkah 6 berakhir `Selesai.` **Jalankan sekali saja** dan jangan tekan
+Hasil yang diharapkan: langkah 5 `OK` (143 uji), langkah 6 berakhir `Selesai.` **Jalankan sekali saja** dan jangan tekan
 `Ctrl+C`. Jika uji di langkah 5 gagal, script berhenti sendiri dan agent **tidak berubah** — kirim outputnya ke tim teknis.
 
 ## Langkah 4 — Cek cepat di Gemini Enterprise (chat baru, ±10 menit)

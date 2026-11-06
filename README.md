@@ -53,7 +53,7 @@ library_agent/
   price_*.py, dashboard_render.py, industry_*.py   template retail & industri (tidak berubah)
 scripts/   update_agent.sh (redeploy di tempat), deploy_agent_engine.py, check_knowledge.py, enable_user_auth.py
 setup/settings.json              nilai awal pengaturan tanpa deploy
-tests/                           137 uji unit (tanpa GCP)
+tests/                           143 uji unit (tanpa GCP)
 ```
 
 ## Template planogram
@@ -156,6 +156,18 @@ Angkanya estimasi; tagihan resmi tetap di Cloud Billing.
 
 Uji end-to-end sandbox: `python scripts/check_code_execution.py`. Panduan uji coba: `PANDUAN_UJI_COBA_CODE_EXECUTION.md`.
 
+## Ketahanan kapasitas model (429 RESOURCE_EXHAUSTED)
+
+Jika endpoint model utama penuh (429/503), panggilan yang sama otomatis dicoba ke daftar cadangan `model_fallbacks`
+(default `pro@global`, lalu `fast@global`; "pro"/"fast" = `LIB_MODEL_PRO`/`LIB_MODEL_FAST`). Jika semuanya penuh, agent
+membalas "layanan model sedang padat, kirim ulang dalam 1–2 menit" — bukan error 400 yang membuat chat macet.
+Endpoint `global` dapat memproses di region mana pun; kosongkan `model_fallbacks` bila PTPL mensyaratkan region tetap.
+Log: `Kapasitas model penuh …` / `Memakai model cadangan …`.
+
+Tracing (Cloud Trace) dimatikan secara default (`LIB_ENABLE_TRACING=false`) karena service account belum punya role
+Cloud Trace Agent (log `Failed to export span … 403`). Untuk menyalakan: beri role `roles/cloudtrace.agent` ke service
+account di `ptpl-land-dev`, set `LIB_ENABLE_TRACING=true` di `.env`, lalu redeploy.
+
 ## Pengaturan tanpa deploy
 
 `gs://ptpl-ge-bucket/ge-docs-agent/config/settings.json` — edit lewat Konsol (Download → edit → Upload, timpa).
@@ -172,6 +184,7 @@ Berlaku maks. 5 menit kemudian. `update_agent.sh` menambahkan kunci baru tanpa m
 | `battlefield_min_price_n` | Sampel harga minimum per sisi untuk perbandingan harga Retail × Planogram (default 10) |
 | `hero_products`, `status_aman_below`, `status_kritis_above` | Dashboard retail |
 | `industry_htd_column`, `industry_focus_products`, `industry_competitors`, `industry_segment_column`, `industry_segments` | Laporan industri |
+| `model_fallbacks` | Cadangan saat kapasitas model penuh, format `model@lokasi` (default `pro@global`, `fast@global`) |
 | `data_auth_mode`, `data_auth_id` | `service_account` (dipakai) atau `user` (OAuth, lihat `PANDUAN_OAUTH_BIGQUERY.md`) |
 | `max_file_mb` | Batas ukuran file CSV/Excel |
 
@@ -186,7 +199,7 @@ Berlaku maks. 5 menit kemudian. `update_agent.sh` menambahkan kunci baru tanpa m
 ## Uji lokal
 
 ```bash
-python -m unittest discover tests      # 137 uji, tanpa GCP
+python -m unittest discover tests      # 143 uji, tanpa GCP
 ```
 
 ## Log diagnostik (unggahan file & error)

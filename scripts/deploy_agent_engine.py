@@ -50,7 +50,8 @@ def main() -> None:
     env_vars = {k: v for k, v in os.environ.items() if k.startswith("LIB_") and v}
     env_vars["GOOGLE_GENAI_USE_VERTEXAI"] = "TRUE"
 
-    app = AdkApp(agent=root_agent, enable_tracing=True)
+    # Tracing butuh role Cloud Trace Agent di service account; tanpa itu hanya menghasilkan log 403.
+    app = AdkApp(agent=root_agent, enable_tracing=os.getenv("LIB_ENABLE_TRACING", "false").lower() == "true")
     with open(os.path.join(ROOT, "requirements.txt"), encoding="utf-8") as fh:
         requirements = [line.strip() for line in fh if line.strip() and not line.startswith("#")]
 
