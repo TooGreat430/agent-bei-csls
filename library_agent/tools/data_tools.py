@@ -85,7 +85,20 @@ def pull(question: str, tool_context: ToolContext, domain: str = "retail") -> di
     history.append({"question": question, "answer": result["answer"][:2000]})
     tool_context.state[hist_key] = history[-data_agent.MAX_HISTORY:]
     tool_context.state[LAST_KEY] = dict(data_agent.trim_for_state(result), question=question, domain=domain)
+    remember_pull(tool_context, domain, question, result)
     return {"status": "ok", "domain": domain, "question": question, **result}
+
+
+PULLS_KEY = "bq_pulls"
+
+
+def remember_pull(tool_context: ToolContext, domain: str, question: str, result: dict) -> None:
+    """Simpan hasil tarikan data di chat ini (ringkas) agar laporan bisa memakai data yang sudah dilihat user."""
+    pulls = list(tool_context.state.get(PULLS_KEY, []) or [])
+    item = dict(data_agent.trim_for_state(result, max_rows=80), domain=domain, question=question[:300])
+    item["answer"] = (item.get("answer") or "")[:4000]
+    pulls.append(item)
+    tool_context.state[PULLS_KEY] = pulls[-10:]
 
 
 def create_chart(x_column: str, y_columns: list[str], tool_context: ToolContext, chart_type: str = "bar",
@@ -258,6 +271,9 @@ def analyze_retail_planogram(tool_context: ToolContext, period: str = "", compar
     tool_context.state[LAST_KEY] = {"domain": "retail_planogram", "question": f"Retail × Planogram {segment} {kimap}".strip(),
                                     "answer": "", "tables": [{"columns": list(keys), "rows": [[p[k] for k in keys] for p in pairs],
                                                               "total_rows": len(pairs)}]}
+    remember_pull(tool_context, "retail_planogram", f"Analisis silang Retail × Planogram {segment} {kimap}".strip(),
+                  {"answer": f"Periode {ds['period']}. Jumlah status: {ds.get('status_counts')}",
+                   "tables": tool_context.state[LAST_KEY]["tables"]})
     return {"status": "ok", "periode": ds["period"], "source": ds["source_label"],
             "definisi": {"price_adv": "keunggulan harga jual PTPL % (positif = PTPL lebih murah)",
                          "av_gap": "AV PTPL − AV kompetitor head-to-head (positif = PTPL lebih baik)",

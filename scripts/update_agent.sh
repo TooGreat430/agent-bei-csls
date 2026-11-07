@@ -22,9 +22,12 @@ set_value() { if grep -q "^$1=" .env; then sed -i -E "s#^$1=.*#$1=$2#" .env; els
 sed -i -E '/^LIB_(DATASTORE_ID|SERVING_CONFIG|SEARCH_RESULT_MODE|SEARCH_LOCATION|DOC_TYPES|DOC_TYPE_HINTS|MAX_ACTIVE_DOCS|SOURCE_FOLDER|FOLDER_BATCH_SIZE|TEMPLATE_SOURCE|LOCAL_TEMPLATE_DIR|STAGING_PREFIX|TEMPLATE_PREFIX|CATALOG_PATH|INSIGHT_PREFIX|LIBRARY_PREFIX)=/d' .env
 add_if_missing LIB_INTERNAL_FOLDER "ge-docs-agent"
 add_if_missing LIB_MAX_FILE_MB "100"
-# Model utama Gemini 4 Argon (asia-southeast1); model cepat tetap seperti sebelumnya.
-set_value LIB_MODEL_PRO "${NEW_MODEL_PRO:-gemini-4-argon}"
-set_value LIB_GEMINI_LOCATION_PRO "${NEW_GEMINI_LOCATION_PRO:-asia-southeast1}"
+# Model utama Gemini 4 Argon. Nilai yang sudah ada di .env TIDAK ditimpa; untuk mengganti, jalankan dengan
+# NEW_MODEL_PRO=... / NEW_GEMINI_LOCATION_PRO=global bash scripts/update_agent.sh
+if [ -n "${NEW_MODEL_PRO:-}" ]; then set_value LIB_MODEL_PRO "$NEW_MODEL_PRO"; else add_if_missing LIB_MODEL_PRO "gemini-4-argon"; fi
+if [ -n "${NEW_GEMINI_LOCATION_PRO:-}" ]; then set_value LIB_GEMINI_LOCATION_PRO "$NEW_GEMINI_LOCATION_PRO"
+else add_if_missing LIB_GEMINI_LOCATION_PRO "asia-southeast1"; fi
+echo "    Model utama: $(grep '^LIB_MODEL_PRO=' .env | cut -d= -f2) @ $(grep '^LIB_GEMINI_LOCATION_PRO=' .env | cut -d= -f2)"
 add_if_missing LIB_MODEL_FAST "gemini-3.5-flash"
 add_if_missing LIB_GEMINI_LOCATION "global"
 # Data Agent & tabel planogram

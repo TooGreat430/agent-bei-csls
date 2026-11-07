@@ -132,6 +132,13 @@ class Settings:
     # Resource Agent Engine induk sandbox (default: agent ini sendiri)
     code_execution_engine: str = field(default_factory=lambda: _env("LIB_CODE_EXECUTION_ENGINE")
                                        or _env("LIB_AGENT_RESOURCE", ""))
+    # --- Batas pemakaian agent (dari meteran biaya, USD). 0 = tidak dibatasi --------------------------------------
+    budget_daily_usd: float = field(default_factory=lambda: float(_env("LIB_BUDGET_DAILY_USD", "0")))
+    budget_monthly_usd: float = field(default_factory=lambda: float(_env("LIB_BUDGET_MONTHLY_USD", "0")))
+    budget_warn_pct: float = field(default_factory=lambda: float(_env("LIB_BUDGET_WARN_PCT", "80")))
+    # "berat" = saat batas tercapai, laporan & analisis berbasis kode dihentikan (tanya-jawab tetap jalan);
+    # "semua" = seluruh agent berhenti menjawab sampai periode berikutnya.
+    budget_block_scope: str = field(default_factory=lambda: _env("LIB_BUDGET_BLOCK_SCOPE", "berat"))
     # --- Tarif untuk meteran biaya (USD per 1 juta token / per jam) — ESTIMASI, sesuaikan dengan harga resmi ----
     price_pro_input: float = field(default_factory=lambda: float(_env("LIB_PRICE_PRO_INPUT", "4.0")))
     price_pro_output: float = field(default_factory=lambda: float(_env("LIB_PRICE_PRO_OUTPUT", "20.0")))
@@ -176,6 +183,10 @@ RUNTIME_KEYS: dict[str, type] = {
     "planogram_default_period": str,
     "planogram_carry_ratio_line": float,
     "model_fallbacks": CaseList,
+    "budget_daily_usd": float,
+    "budget_monthly_usd": float,
+    "budget_warn_pct": float,
+    "budget_block_scope": str,
     "code_execution_enabled": bool,
     "code_execution_users": CaseList,
     "code_execution_max_steps": int,

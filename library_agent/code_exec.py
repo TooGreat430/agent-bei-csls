@@ -30,8 +30,12 @@ logger = logging.getLogger(__name__)
 SANDBOX_KEY = "code_sandbox"
 STEP_KEY = "temp:code_steps"
 OUTPUT_KEY = "temp:code_outputs"
+RESULTS_KEY = "code_results"
 MAX_STDOUT = 12000
-BATCH_BYTES = 60 * 1024 * 1024          # batas aman per request (sandbox menerima maks. 100 MB per request)
+BATCH_BYTES = 60 * 1024 * 1024
+# File hasil sandbox yang boleh diserahkan ke user. Laporan teks (.txt/.md/.doc) TIDAK pernah diserahkan:
+# laporan selalu lewat generate_custom_report (Argon + template PTPL, HTML/PDF/PowerPoint).
+DELIVERABLE_EXT = (".csv", ".xlsx", ".xls", ".png", ".jpg", ".jpeg", ".svg", ".json", ".parquet", ".zip")          # batas aman per request (sandbox menerima maks. 100 MB per request)
 _FILES_FIELD = {"value": "content"}     # nama field isi file pada execute_code; diuji otomatis ("content"/"contents")
 
 
@@ -236,7 +240,8 @@ def save_outputs(user_id: str, session_id: str, step: int, code: str, files: lis
         if not f["name"].lower().endswith((".html", ".htm", ".png", ".jpg", ".svg")):
             blob.content_disposition = f'attachment; filename="{f["name"]}"'
         blob.upload_from_string(f["content"], content_type=f["mime_type"])
-        links.append({"file": f["name"], "url": gcs_console_url(settings.report_bucket, path), "bytes": len(f["content"])})
+        links.append({"file": f["name"], "url": gcs_console_url(settings.report_bucket, path), "bytes": len(f["content"]),
+                      "gcs_uri": f"gs://{settings.report_bucket}/{path}"})
     return gcs_console_url(settings.report_bucket, script), links
 
 
@@ -254,6 +259,9 @@ def run(code: str, purpose: str, tool_context) -> dict[str, Any]:
     if steps >= max_steps:
         return {"status": "step_limit", "message": f"Batas {max_steps} eksekusi kode untuk satu pesan sudah tercapai. "
                                                    "Laporkan progres ke user dan tanyakan apakah analisis dilanjutkan."}
+    ok_all, msg_all = usage.heavy_allowed()
+    if not ok_all:
+        return {"status": "budget_limit", "message": msg_all}
     budget = usage.budget_status()
     if budget["exceeded"]:
         return {"status": "budget_limit", "message": f"Batas biaya harian analisis (USD {budget['budget_usd']:g}) sudah "
@@ -284,14 +292,24 @@ def run(code: str, purpose: str, tool_context) -> dict[str, Any]:
         info["uploaded"] = []                                # file hilang di sandbox -> dikirim ulang di langkah berikut
         tool_context.state[SANDBOX_KEY] = info
     tool_context.state[STEP_KEY] = steps + 1
-    script, links = save_outputs(user, get_session_id(tool_context), steps + 1, code, out["files"])
+    blocked = [f["name"] for f in out["files"] if not f["name"].lower().endswith(DELIVERABLE_EXT)]
+    files_ok = [f for f in out["files"] if f["name"].lower().endswith(DELIVERABLE_EXT)]
+    script, links = save_outputs(user, get_session_id(tool_context), steps + 1, code, files_ok)
     stdout = out["stdout"]
     outputs = list(tool_context.state.get(OUTPUT_KEY, []) or [])
     outputs.append(stdout[:200000])
     tool_context.state[OUTPUT_KEY] = outputs[-30:]
+    # Simpan permanen per chat agar laporan custom (HTML/PDF/PPTX) bisa memakai hasil hitungan sandbox.
+    results = list(tool_context.state.get(RESULTS_KEY, []) or [])
+    if not out["exit_code"] and (stdout.strip() or links):
+        results.append({"step": steps + 1, "purpose": purpose[:200], "stdout": stdout[:6000],
+                        "files": [{"name": l["file"], "url": l["url"], "gcs_uri": l["gcs_uri"]} for l in links]})
+        tool_context.state[RESULTS_KEY] = results[-12:]
     return {"status": "ok" if not out["exit_code"] else "error", "langkah": steps + 1, "sisa_langkah": max_steps - steps - 1,
             "tujuan": purpose, "stdout": stdout[:MAX_STDOUT] + ("\n...[stdout terpotong]" if len(stdout) > MAX_STDOUT else ""),
             "stderr": out["stderr"][-4000:], "file_output": links, "script_langkah_ini": script,
+            "file_tidak_diserahkan": ({"file": blocked, "alasan": "Laporan/teks tidak diserahkan dari sandbox. Gunakan "
+                                       "generate_custom_report untuk laporan HTML/PDF/PowerPoint."} if blocked else None),
             "biaya_sandbox_langkah_usd": round(usd, 5)}
 
 
@@ -320,6 +338,9 @@ def prepare(tool_context) -> dict[str, Any]:
     ok, why = allowed(user)
     if not ok:
         return {"status": "disabled", "message": why}
+    ok_all, msg_all = usage.heavy_allowed()
+    if not ok_all:
+        return {"status": "budget_limit", "message": msg_all}
     budget = usage.budget_status()
     if budget["exceeded"]:
         return {"status": "budget_limit", "message": f"Batas biaya harian (USD {budget['budget_usd']:g}) sudah tercapai."}

@@ -12,6 +12,22 @@ from ..clients import get_user_id
 logger = logging.getLogger(__name__)
 
 
+def _budget(func):
+    """Laporan memakai banyak token: tolak dengan pesan jelas bila batas pemakaian harian/bulanan tercapai."""
+    import functools
+
+    @functools.wraps(func)
+    def wrapper(*args, **kwargs):
+        from ..usage import heavy_allowed
+
+        ok, msg = heavy_allowed()
+        if not ok:
+            return {"status": "budget_limit", "message": msg + " Sampaikan pesan ini apa adanya ke user; jangan "
+                                                                "membuat laporan dalam bentuk teks sebagai pengganti."}
+        return func(*args, **kwargs)
+    return wrapper
+
+
 def _logged(func):
     import functools
 
@@ -162,7 +178,7 @@ def preview_price_dashboard(tool_context: ToolContext, output_format: str = "") 
             "message": "Ini contoh tampilan dengan angka ilustrasi, bukan data asli."}
 
 
-generate_price_dashboard = _logged(generate_price_dashboard)
+generate_price_dashboard = _logged(_budget(generate_price_dashboard))
 preview_price_dashboard = _logged(preview_price_dashboard)
 INDUSTRY_ID = "daya_saing_harga_industri"
 
@@ -302,7 +318,7 @@ def preview_industry_report(tool_context: ToolContext, output_format: str = "") 
     return {"status": "ok", "report_title": title, **links, "message": "Ini contoh tampilan dengan angka ilustrasi, bukan data asli."}
 
 
-generate_industry_report = _logged(generate_industry_report)
+generate_industry_report = _logged(_budget(generate_industry_report))
 preview_industry_report = _logged(preview_industry_report)
 
 
@@ -698,11 +714,78 @@ def _file_data_text(tool_context: ToolContext, file_id: str) -> tuple[str, str, 
                                         [{"columns": res["columns"], "rows": res["rows"], "total_rows": res["rows_total"]}]))
         except Exception as exc:  # noqa: BLE001
             logger.warning("Analisis %s tidak bisa dijalankan ulang: %s", a.get("id"), str(exc)[:200])
+    blocks += _code_result_blocks(tool_context)
     last = tool_context.state.get(LAST_KEY) or {}
     if not tool_context.state.get(ANALYSES_KEY) and last.get("domain") == "file" and last.get("file_id") == entry["file_id"]:
         blocks.append(cr.data_block(f"Analisis terakhir di chat: {last.get('question', '')}", "", last.get("tables")))
     blocks += _insight_blocks(tool_context, file_based=True)
     return "\n\n".join(blocks) if len(blocks) > 1 else "", kind, f"File unggahan {entry['filename']}"
+
+
+DOC_SOURCE_CHARS = 100_000
+
+
+def _document_data_text(tool_context: ToolContext, doc_id: str = "") -> tuple[str, str]:
+    """Isi dokumen hasil analisis (TXT/PDF/Word/PPT) sebagai data laporan. Angka laporan dicek terhadap teks ini."""
+    from .. import custom_report as cr
+    from .doc_tools import DOCS_KEY, document_instructions
+
+    docs = [d for d in tool_context.state.get(DOCS_KEY, []) or [] if d.get("text_uri")]
+    if doc_id:
+        docs = [d for d in docs if d["doc_id"] == doc_id]
+    elif docs:
+        docs = docs[-3:]
+    if not docs:
+        return "", ""
+    per_doc = DOC_SOURCE_CHARS // len(docs)
+    blocks = [cr.data_block(f"Dokumen hasil analisis: {d['filename']} ({d.get('jenis')})",
+                            document_instructions(d["doc_id"], tool_context.state, per_doc)) for d in docs]
+    return "\n\n".join(blocks), "Dokumen unggahan " + ", ".join(d["filename"] for d in docs)
+
+
+def _pull_blocks(tool_context: ToolContext, domains: tuple[str, ...]) -> list[str]:
+    """Data BigQuery yang SUDAH ditarik di chat ini (jawaban + tabel), untuk laporan dari "data tadi"."""
+    from .. import custom_report as cr
+    from .. import data_agent
+    from .data_tools import PULLS_KEY
+
+    out = []
+    for p in tool_context.state.get(PULLS_KEY, []) or []:
+        if p.get("domain") in domains:
+            out.append(cr.data_block(f"Data yang sudah ditarik di chat — {data_agent.SOURCE_LABELS.get(p['domain'], p['domain'])}"
+                                     f" — {p.get('question', '')}", p.get("answer", ""), p.get("tables")))
+    return out
+
+
+def _code_result_blocks(tool_context: ToolContext) -> list[str]:
+    """Hasil analisis berbasis kode (sandbox) di chat ini: ringkasan output + tabel CSV/XLSX yang dihasilkan."""
+    import io
+
+    import pandas as pd
+
+    from .. import custom_report as cr
+    from ..code_exec import RESULTS_KEY
+    from ..clients import parse_gcs_uri, storage_client
+
+    blocks = []
+    for r in (tool_context.state.get(RESULTS_KEY, []) or [])[-8:]:
+        tables = []
+        for f in r.get("files", []):
+            if not f["name"].lower().endswith((".csv", ".xlsx")):
+                continue
+            try:
+                bucket, path = parse_gcs_uri(f["gcs_uri"])
+                raw = storage_client().bucket(bucket).blob(path).download_as_bytes()
+                df = pd.read_csv(io.BytesIO(raw)) if f["name"].lower().endswith(".csv") else pd.read_excel(io.BytesIO(raw))
+                total = len(df)
+                df = df.head(200).round(2)
+                tables.append({"columns": [f"{f['name']} · {c}" if i == 0 else str(c) for i, c in enumerate(df.columns)],
+                               "rows": df.astype(object).where(df.notna(), None).values.tolist(), "total_rows": total})
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("Output sandbox %s tidak terbaca: %s", f.get("name"), str(exc)[:150])
+        blocks.append(cr.data_block(f"Hasil analisis berbasis kode (langkah {r.get('step')}): {r.get('purpose', '')}",
+                                    r.get("stdout", ""), tables))
+    return blocks
 
 
 FULL_TABLE_ROWS = 300
@@ -796,11 +879,13 @@ def generate_custom_report(request: str, source: str, tool_context: ToolContext,
 
     Args:
         request: Permintaan laporan user selengkap mungkin (fokus produk/segmen/wilayah/periode, audiens).
-        source: "retail", "industri", "planogram", "retail_planogram" (gabungan Retail × Planogram), atau "file".
+        source: "retail", "industri", "planogram", "retail_planogram" (gabungan Retail × Planogram), "file" (data
+            CSV/Excel), atau "dokumen" (TXT/PDF/Word berisi HASIL ANALISIS yang dibawa user, mis. dari chat lain).
             Gabungan hanya Retail × Planogram; Industri tidak bisa digabung.
         data_questions: 1-3 pertanyaan data untuk Data Agent yang bersama-sama mencakup permintaan (opsional;
             default: request). Untuk "retail_planogram" pertanyaan dikirim ke kedua Data Agent. Abaikan jika "file".
-        file_id: ID file (mis. "f1") jika source "file"; kosongkan untuk file terakhir.
+        file_id: ID file (mis. "f1") jika source "file", atau ID dokumen (mis. "d1") jika source "dokumen";
+            kosongkan untuk file/dokumen terakhir.
         instruction_doc_id: ID dokumen unggahan (mis. "d1") berisi prompt/template/arahan laporan dari user (opsional).
         period: Kuartal utama untuk analisis silang Retail × Planogram (opsional, mis. "2026-Q3").
         output_format: "html", "pdf", "pptx", atau gabungan (mis. "pdf,pptx"). Kosongkan jika user belum memilih —
@@ -824,9 +909,10 @@ def generate_custom_report(request: str, source: str, tool_context: ToolContext,
         return {"status": "invalid", "message": "Gabungan sumber hanya bisa Retail × Planogram. Data Industri tidak "
                                                 "punya kunci produk yang sama dengan Retail/Planogram."}
     if combined:
-        blocks, errors = [], []
+        blocks, errors = _pull_blocks(tool_context, ("retail", "planogram", "retail_planogram")), []
+        have = bool(blocks)
         for dom in ("retail", "planogram"):
-            for q in (data_questions or [request])[:3]:
+            for q in (data_questions or ([] if have else [request]))[:3]:
                 res = pull(q, tool_context, dom)
                 if res.get("status") == "needs_authorization":
                     return res
@@ -845,6 +931,12 @@ def generate_custom_report(request: str, source: str, tool_context: ToolContext,
             return {"status": "error", "message": "Data tidak bisa diambil: " + "; ".join(errors)[:300]}
         data_text, domain = "\n\n".join(blocks), "retail_planogram"
         label = "Survey Response Report Retail × Planogram Marketing Intelligence (VM_PLANOGRAM)"
+    elif src in ("dokumen", "document", "doc", "txt", "pdf", "teks"):
+        data_text, label = _document_data_text(tool_context, file_id.strip())
+        if not data_text:
+            return {"status": "needs_input", "message": ("Belum ada dokumen berisi hasil analisis yang bisa dibaca di chat ini. "
+                                                        "Minta user mengunggah dokumennya (TXT, PDF, Word, dll.).")}
+        domain = "umum"
     elif src in ("file", "upload", "unggahan", "csv", "excel"):
         data_text, kind, label = _file_data_text(tool_context, file_id.strip())
         if not data_text:
@@ -856,8 +948,9 @@ def generate_custom_report(request: str, source: str, tool_context: ToolContext,
         domain = kind if kind in ("retail", "industri", "planogram") else "umum"
     else:
         domain = data_agent.normalize_domain(src)
-        blocks, errors = [], []
-        for q in (data_questions or [request])[:3]:
+        blocks, errors = _pull_blocks(tool_context, (domain,)), []
+        fresh = data_questions or ([] if blocks else [request])       # data sudah ditarik -> tidak menarik ulang
+        for q in fresh[:3]:
             res = pull(q, tool_context, domain)
             if res.get("status") == "needs_authorization":
                 return res
@@ -866,6 +959,7 @@ def generate_custom_report(request: str, source: str, tool_context: ToolContext,
                 continue
             blocks.append(cr.data_block(f"Hasil {data_agent.SOURCE_LABELS[domain]} — {q}", res["answer"], res["tables"]))
         blocks += _insight_blocks(tool_context, domain)
+        blocks = list(dict.fromkeys(blocks))
         if not blocks:
             return {"status": "error", "message": "Data tidak bisa diambil dari Data Agent: " + "; ".join(errors)[:300]}
         data_text = "\n\n".join(blocks)
@@ -1007,12 +1101,12 @@ def konversi_laporan_custom(output_format: str, tool_context: ToolContext, repor
             "status_laporan": rec["status"], "message": "Berikan link file ke user." + note}
 
 
-generate_planogram_report = _logged(generate_planogram_report)
+generate_planogram_report = _logged(_budget(generate_planogram_report))
 preview_planogram_report = _logged(preview_planogram_report)
-generate_battlefield_report = _logged(generate_battlefield_report)
+generate_battlefield_report = _logged(_budget(generate_battlefield_report))
 preview_battlefield_report = _logged(preview_battlefield_report)
-generate_custom_report = _logged(generate_custom_report)
-revise_custom_report = _logged(revise_custom_report)
+generate_custom_report = _logged(_budget(generate_custom_report))
+revise_custom_report = _logged(_budget(revise_custom_report))
 approve_report = _logged(approve_report)
 konversi_laporan_custom = _logged(konversi_laporan_custom)
 REPORT_TOOLS = [list_report_options, generate_price_dashboard, preview_price_dashboard, generate_industry_report,

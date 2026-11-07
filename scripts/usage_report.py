@@ -34,5 +34,11 @@ for i in range(days - 1, -1, -1):
     print(f"{day:<11}{m['calls']:>10}{m['input']:>12,}{m['cached']:>10,}{m['output']:>11,}{m['usd']:>11.3f}"
           f"{s['executions']:>10}{s['usd']:>13.3f}{d['total_usd']:>11.3f}{d['total_usd'] * kurs:>13,.0f}")
 print(f"\nTotal {days} hari: USD {tot:.3f} (± Rp{tot * kurs:,.0f}, kurs {kurs:,.0f})")
+ov = usage.budget_overview(force=True)
+for per in ("harian", "bulanan"):
+    b = ov[per]
+    cap = f"USD {b['batas_usd']:g} ({b.get('persen', 0):.0f}% terpakai)" if b["batas_usd"] else "tidak dibatasi"
+    print(f"Batas {per:<8}: terpakai USD {b['terpakai_usd']:.3f} · batas {cap}")
+print(f"Status batas : {ov['level']}")
 for u, v in sorted(users.items(), key=lambda x: -x[1]):
     print(f"  {u:<40} USD {v:.3f}")

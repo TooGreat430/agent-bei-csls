@@ -34,7 +34,7 @@ bash scripts/update_agent.sh
 ```
 
 Hasil yang diharapkan: langkah 4 menampilkan `ditambahkan: code_execution_..., price_...` (kunci baru, nilai yang
-sudah Anda ubah tidak ditimpa), langkah 5 `OK` (161 uji), lalu `Selesai.` Fitur masih **mati**.
+sudah Anda ubah tidak ditimpa), langkah 5 `OK` (181 uji), lalu `Selesai.` Fitur masih **mati**.
 
 ## Langkah 2 — Uji sandbox dengan kode agent yang sebenarnya
 

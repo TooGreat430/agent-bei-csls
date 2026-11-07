@@ -100,6 +100,7 @@ def load_prompt(domain: str) -> str:
                       "KNOWLEDGE DATA\n\nTidak ada aturan bisnis khusus. Pakai nama kolom dan definisi persis seperti di data; "
                       "jangan berasumsi arti istilah yang tidak dijelaskan.\n\n", text, flags=re.S)
         text = text.replace('cabang workflow "Retail Only"', 'cabang "Data Unggahan"')
+        text = text.replace("hasil Data Agent", "data/dokumen unggahan").replace("dari Data Agent", "dari data/dokumen unggahan")
     return text
 
 

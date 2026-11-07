@@ -4,7 +4,7 @@ from google.adk.agents import LlmAgent
 from ..callbacks import capture_uploads, sanitize_request, ensure_reply
 from ..config import settings
 from ..llm import make_model
-from ..usage import record_model_usage
+from ..usage import budget_guard, budget_notice, chain, chain_before, record_model_usage
 from ..prompts import REPORT_INSTRUCTION, with_agent_name
 from ..tools.doc_tools import DOC_TOOLS
 from ..tools.export_tools import EXPORT_TOOLS
@@ -24,8 +24,8 @@ report_agent = LlmAgent(
     instruction=with_agent_name(REPORT_INSTRUCTION, uploads=True),
     tools=[*REPORT_TOOLS, list_insights, list_data_files, *DOC_TOOLS, *EXPORT_TOOLS],
     before_agent_callback=capture_uploads,
-    before_model_callback=sanitize_request,
-    after_model_callback=record_model_usage,
+    before_model_callback=chain_before(budget_guard, sanitize_request),
+    after_model_callback=chain(record_model_usage, budget_notice),
     after_agent_callback=ensure_reply,
     disallow_transfer_to_parent=True,
 )

@@ -4,11 +4,14 @@ from google.adk.agents import LlmAgent
 from ..callbacks import capture_uploads, sanitize_request, data_after_agent, verify_numbers
 from ..config import settings
 from ..llm import make_model
-from ..usage import chain, record_model_usage
+from ..usage import budget_guard, budget_notice, chain, chain_before, record_model_usage
 from ..prompts import DATA_INSTRUCTION, with_agent_name
 from ..tools.data_tools import DATA_TOOLS
 from ..tools.file_tools import periksa_angka
 from ..tools.insight_tools import list_insights
+from ..tools.report_tools import (approve_report, generate_battlefield_report, generate_custom_report,
+                                  generate_industry_report, generate_planogram_report, generate_price_dashboard,
+                                  konversi_laporan_custom, list_report_options, revise_custom_report)
 
 data_agent = LlmAgent(
     name="data_agent",
@@ -20,10 +23,13 @@ data_agent = LlmAgent(
         "Planogram per KIMAP (harga × rak, double jeopardy, white space); menyimpan jawabannya sebagai insight."
     ),
     instruction=with_agent_name(DATA_INSTRUCTION),
-    tools=[*DATA_TOOLS, list_insights, periksa_angka],
+    tools=[*DATA_TOOLS, list_insights, periksa_angka,
+           # laporan langsung dari data BigQuery yang sudah ditarik (ditulis Gemini 4 Argon, template PTPL)
+           list_report_options, generate_custom_report, revise_custom_report, approve_report, konversi_laporan_custom,
+           generate_price_dashboard, generate_industry_report, generate_planogram_report, generate_battlefield_report],
     before_agent_callback=capture_uploads,
-    before_model_callback=sanitize_request,
-    after_model_callback=chain(record_model_usage, verify_numbers),
+    before_model_callback=chain_before(budget_guard, sanitize_request),
+    after_model_callback=chain(record_model_usage, verify_numbers, budget_notice),
     after_agent_callback=data_after_agent,
     disallow_transfer_to_parent=True,
 )

@@ -53,7 +53,7 @@ library_agent/
   price_*.py, dashboard_render.py, industry_*.py   template retail & industri (tidak berubah)
 scripts/   update_agent.sh (redeploy di tempat), deploy_agent_engine.py, check_knowledge.py, enable_user_auth.py
 setup/settings.json              nilai awal pengaturan tanpa deploy
-tests/                           161 uji unit (tanpa GCP)
+tests/                           181 uji unit (tanpa GCP)
 ```
 
 ## Template planogram
@@ -129,6 +129,30 @@ Sumber: BigQuery (default) atau dua file unggahan (`retail_file_id` + `planogram
   struktur & class template). Revisi dan approve tetap berlaku.
 - Belum didukung: `.doc`/`.ppt` lama (minta simpan ulang sebagai DOCX/PPTX/PDF), skor kuantil khusus (mis. RFM).
 
+## Model per langkah laporan
+
+| Langkah | Model | Cadangan saat kapasitas penuh |
+|---|---|---|
+| Agent analisis file & agent laporan (percakapan, memilih alat) | Gemini 4 Argon | Argon global → model cepat global → pesan "layanan padat" |
+| **Menulis isi laporan** (custom HTML/PDF/PPTX, narasi template) | **Gemini 4 Argon** | **Argon global saja** (tidak turun ke model cepat) → pesan "coba lagi 1–2 menit" |
+| Router & tanya-jawab data BigQuery | Model cepat | Model cepat global |
+
+Laporan dari unggahan manual bisa dibuat langsung oleh agent analisis file (tanpa pindah agent), memakai base
+template design system PTPL, dan memuat semua hasil analisis di chat: `analyze_data`, tabel/ekspor, dan hasil eksekusi
+kode (`code_results`: ringkasan output + tabel CSV/XLSX buatan sandbox). Laporan tidak pernah diserahkan sebagai .txt.
+
+- **Tawaran laporan setelah analisis selesai** (tidak memotong analisis): agent menutup jawaban dengan pertanyaan
+  ya/tidak "Apakah Anda ingin saya buatkan laporan dari hasil analisis ini?". Laporan baru dibuat setelah user setuju;
+  bila user tidak menyebut format, agent menanyakan HTML / PDF / PowerPoint (boleh beberapa); bila sudah menyebut
+  (mis. "ya, PDF"), langsung dibuat. Tawaran tidak diulang bila ditolak/diabaikan.
+- **Laporan dari data BigQuery yang sudah ditarik**: agent data punya alat laporan sendiri (tidak perlu dialihkan),
+  menawarkan laporan (ya/tidak) setelah jawaban data selesai, dan laporan memakai data yang sudah ditarik di chat
+  (`bq_pulls`) tanpa menarik ulang — kecuali butuh data tambahan.
+- **Laporan dari dokumen hasil analisis** (TXT/PDF/Word yang dibawa user, mis. dari chat lain): `generate_custom_report`
+  dengan `source="dokumen"`; angka diambil dan diperiksa terhadap isi dokumen itu.
+- **Tidak ada TXT dari sandbox**: hanya file data/grafik (`.csv .xlsx .png .jpg .svg .json …`) yang diserahkan;
+  file `.txt/.md` dari kode diblokir di level kode, dan agent diarahkan membuat laporan lewat alat laporan.
+
 ## Format laporan
 
 Semua laporan tersedia dalam **HTML, PDF, dan PowerPoint**. Bila user belum menyebut format, agent menanyakannya
@@ -190,7 +214,25 @@ dikecualikan aturan data) + satu sheet per analisis (header berwarna, baris judu
 otomatis). File disimpan di folder laporan dan dibagikan sebagai link. Agent dilarang menyuruh user menjalankan
 Python/script sendiri.
 
+## Batas pemakaian harian / bulanan (notifikasi ke user)
+
+Dari meteran biaya (`usage.py`: estimasi token model + sandbox, USD; file `usage/YYYY-MM-DD.json` dan
+`usage/YYYY-MM.json`). Atur tanpa deploy: `python scripts/set_budget.py set --harian 10 --bulanan 150`.
+
+| Kondisi | Yang dialami user |
+|---|---|
+| Pemakaian ≥ `budget_warn_pct` (default 80%) dari batas harian/bulanan | Info satu kali per chat per hari di akhir jawaban: persentase terpakai dan kapan batas berlaku |
+| Batas tercapai, cakupan `berat` (default) | Pembuatan laporan & analisis berbasis kode ditolak dengan pesan jelas ("sampai besok 00.00 WIB" / "awal bulan depan"); tanya-jawab tetap jalan |
+| Batas tercapai, cakupan `semua` | Seluruh agent membalas pesan batas tanpa memanggil model |
+
+Batas `0` = tidak dibatasi (default). Biaya Data Agent BigQuery (Conversational Analytics) dan lisensi GE tidak
+termasuk meteran ini. Kuota per menit dari Google (429) berbeda: itu ditangani coba ulang + cadangan endpoint.
+
 ## Ketahanan kapasitas model (429 RESOURCE_EXHAUSTED)
+
+Penulisan laporan: coba ulang sekali setelah 4 detik, lalu Argon `global` (tetap Argon). `update_agent.sh` tidak lagi
+menimpa `LIB_GEMINI_LOCATION_PRO`; untuk menjadikan Argon global sebagai utama:
+`NEW_GEMINI_LOCATION_PRO=global bash scripts/update_agent.sh`.
 
 Jika endpoint model utama penuh (429/503), panggilan yang sama otomatis dicoba ke daftar cadangan `model_fallbacks`
 (default `pro@global`, lalu `fast@global`; "pro"/"fast" = `LIB_MODEL_PRO`/`LIB_MODEL_FAST`). Jika semuanya penuh, agent
@@ -233,7 +275,7 @@ Berlaku maks. 5 menit kemudian. `update_agent.sh` menambahkan kunci baru tanpa m
 ## Uji lokal
 
 ```bash
-python -m unittest discover tests      # 161 uji, tanpa GCP
+python -m unittest discover tests      # 181 uji, tanpa GCP
 ```
 
 ## Log diagnostik (unggahan file & error)

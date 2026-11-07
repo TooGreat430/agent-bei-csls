@@ -71,5 +71,9 @@
   "model_fallbacks": [
     "pro@global",
     "fast@global"
-  ]
+  ],
+  "budget_daily_usd": 0,
+  "budget_monthly_usd": 0,
+  "budget_warn_pct": 80,
+  "budget_block_scope": "berat"
 }
