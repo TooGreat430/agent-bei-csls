@@ -17,7 +17,7 @@ from .config import settings
 logger = logging.getLogger(__name__)
 TTL_SECONDS = 1800
 _cache: dict[str, tuple[float, dict]] = {}
-DOMAINS = ("retail", "industri", "planogram")
+DOMAINS = ("retail", "industri", "planogram", "sellout")
 
 
 def _norm(domain: str) -> str:
@@ -191,12 +191,33 @@ def get(domain: str, force: bool = False) -> dict[str, Any]:
     return data
 
 
+def extra_path(domain: str) -> str:
+    from .config import _internal
+
+    return _internal(f"config/knowledge/{domain}.md")
+
+
+def extra_knowledge(domain: str) -> str:
+    """Pengetahuan tambahan dari tim MIR (Markdown di bucket) — bisa diganti kapan saja tanpa deploy."""
+    try:
+        from .clients import storage_client
+        from .config import settings
+
+        blob = storage_client().bucket(settings.bucket).blob(extra_path(domain))
+        return blob.download_as_text() if blob.exists() else ""
+    except Exception:  # noqa: BLE001
+        logger.warning("Pengetahuan tambahan %s tidak terbaca", domain, exc_info=True)
+        return ""
+
+
 def as_text(domain: str, max_chars: int = 60000) -> str:
     """Pengetahuan dalam bentuk teks untuk instruksi agent."""
     domain = _norm(domain)
+    extra = extra_knowledge(domain).strip()
+    extra_txt = f"\n\n### Pengetahuan tambahan dari tim MIR ({domain.upper()})\n{extra}" if extra else ""
     k = get(domain)
     if not k or not (k.get("instruction") or k.get("examples")):
-        return f"(Pengetahuan Data Agent {domain} belum tersedia; gunakan aturan bawaan.)"
+        return (f"(Pengetahuan Data Agent {domain} belum tersedia; gunakan aturan bawaan.)" + extra_txt)[:max_chars]
     parts = [f"### Pengetahuan resmi Data Agent {domain.upper()} (dikelola tim data)"]
     if k.get("instruction"):
         parts.append(k["instruction"].strip())
@@ -208,6 +229,8 @@ def as_text(domain: str, max_chars: int = 60000) -> str:
             lines.append(f"- T: {ex['question']}\n  SQL: {' '.join(ex['sql'].split())[:2500]}")
         parts.append("\n".join(lines))
     text = "\n\n".join(parts)
+    if extra_txt:                                   # pengetahuan tim MIR diutamakan: tidak terpotong
+        return text[:max(0, max_chars - len(extra_txt))] + extra_txt
     return text[:max_chars]
 
 
@@ -219,3 +242,34 @@ def summary(domain: str) -> dict[str, Any]:
             "instruksi_karakter": len(k.get("instruction") or ""), "glossary": len(k.get("glossary") or []),
             "contoh_query": len(k.get("examples") or []), "tabel": k.get("tables") or [],
             "tersedia": has_content(k)}
+
+
+_COLUMN_CACHE: dict[str, set] = {}
+
+
+def table_columns(domain: str) -> set[str]:
+    """Nama kolom (huruf besar) dari tabel BigQuery yang dipakai Data Agent domain ini — untuk mengenali file unggahan."""
+    if domain in _COLUMN_CACHE:
+        return _COLUMN_CACHE[domain]
+    cols: set[str] = set()
+    try:
+        from .clients import bigquery_client
+
+        for t in (get(domain).get("tables") or [])[:6]:
+            ref = str(t).replace(":", ".").strip("`")
+            if ref.count(".") == 2:
+                cols |= {f.name.upper() for f in bigquery_client().get_table(ref).schema}
+    except Exception:  # noqa: BLE001
+        logger.warning("Kolom tabel %s tidak terbaca", domain, exc_info=True)
+    _COLUMN_CACHE[domain] = cols
+    return cols
+
+
+def match_score(domain: str, columns) -> tuple[float, int]:
+    """(porsi kolom file yang ada di tabel domain, jumlah kolom cocok)."""
+    ref = table_columns(domain)
+    names = [str(c).strip().upper().replace(" ", "_") for c in columns]
+    if not ref or not names:
+        return 0.0, 0
+    hit = sum(1 for n in names if n in ref)
+    return hit / len(names), hit

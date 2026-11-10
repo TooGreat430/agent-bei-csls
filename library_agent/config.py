@@ -77,6 +77,10 @@ class Settings:
     industry_competitors: tuple = field(default_factory=lambda: tuple(
         p.strip().upper() for p in _env("LIB_INDUSTRY_COMPETITORS", "SHELL").split(",") if p.strip()))
 
+    # --- Data Agent Selling Out Intelligence (sell-out distributor) — berdiri sendiri, laporan custom saja ------
+    data_agent_sellout: str = field(default_factory=lambda: _env(
+        "LIB_DATA_AGENT_SELLOUT",
+        "projects/ptpl-land-dev/locations/global/dataAgents/agent_e188b55c-e61b-4c3f-9f91-3c97a54a6d4a"))
     # --- Data Agent planogram & laporan planogram ------------------------------------
     data_agent_planogram: str = field(default_factory=lambda: _env(
         "LIB_DATA_AGENT_PLANOGRAM",
@@ -187,6 +191,7 @@ RUNTIME_KEYS: dict[str, type] = {
     "data_agent": str,
     "data_agent_industry": str,
     "data_agent_planogram": str,
+    "data_agent_sellout": str,
     "planogram_table": str,
     "planogram_default_period": str,
     "planogram_carry_ratio_line": float,

@@ -36,6 +36,7 @@ add_if_missing LIB_MODEL_FAST "gemini-3.5-flash"
 add_if_missing LIB_GEMINI_LOCATION "global"
 # Data Agent & tabel planogram
 add_if_missing LIB_DATA_AGENT_PLANOGRAM "projects/ptpl-land-dev/locations/global/dataAgents/agent_5f69a707-a240-49ea-9c96-dd12493f659c"
+add_if_missing LIB_DATA_AGENT_SELLOUT "projects/ptpl-land-dev/locations/global/dataAgents/agent_e188b55c-e61b-4c3f-9f91-3c97a54a6d4a"
 add_if_missing LIB_PLANOGRAM_TABLE "ptpl-curated-prd.DATAMART.VM_PLANOGRAM"
 add_if_missing LIB_PLANOGRAM_DEFAULT_PERIOD "2026-Q3"
 set -a; source .env; set +a

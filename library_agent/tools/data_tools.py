@@ -232,6 +232,20 @@ def ask_planogram_intelligence(question: str, tool_context: ToolContext) -> dict
     return ask_marketing_intelligence(question, tool_context, domain="planogram")
 
 
+def ask_sellout_intelligence(question: str, tool_context: ToolContext) -> dict[str, Any]:
+    """Data SELL-OUT distributor lewat Data Agent "Selling Out Intelligence".
+
+    Untuk: volume sell-out, fulfillment, outlet aktif (Active Customer), kontribusi per region, channel, distributor,
+    dan produk, serta tren antar bulan/kuartal/tahun. Data ini BERDIRI SENDIRI — jangan digabung dengan data survei
+    harga (retail/industri) atau planogram.
+
+    Args:
+        question: Pertanyaan user dalam bahasa alami, lengkap dengan konteks dari percakapan
+            (periode, region, channel, distributor, produk).
+    """
+    return ask_marketing_intelligence(question, tool_context, domain="sellout")
+
+
 def analyze_retail_planogram(tool_context: ToolContext, period: str = "", compare_period: str = "",
                              segment: str = "", kimap: str = "") -> dict[str, Any]:
     """Analisis SILANG Retail (harga) × Planogram (rak) per KIMAP — dihitung kode dari BigQuery.
@@ -289,7 +303,9 @@ analyze_retail_planogram = _safe(analyze_retail_planogram)
 ask_retail_intelligence = _safe(ask_retail_intelligence)
 ask_industry_intelligence = _safe(ask_industry_intelligence)
 ask_planogram_intelligence = _safe(ask_planogram_intelligence)
+ask_sellout_intelligence = _safe(ask_sellout_intelligence)
 create_chart = _safe(create_chart)
 save_data_insight = _safe(save_data_insight)
-DATA_TOOLS = [ask_retail_intelligence, ask_industry_intelligence, ask_planogram_intelligence, analyze_retail_planogram,
+DATA_TOOLS = [ask_retail_intelligence, ask_industry_intelligence, ask_planogram_intelligence, ask_sellout_intelligence,
+              analyze_retail_planogram,
               create_chart, save_data_insight]

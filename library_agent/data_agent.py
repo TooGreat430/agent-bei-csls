@@ -23,11 +23,13 @@ logger = logging.getLogger(__name__)
 SOURCE_LABEL = "Survey Response Report Retail"
 SOURCE_LABELS = {"retail": "Survey Response Report Retail", "industri": "Survey Response Report Industry",
                  "planogram": "Planogram Marketing Intelligence (VM_PLANOGRAM)",
-                 "retail_planogram": "Survey Response Report Retail × Planogram Marketing Intelligence (VM_PLANOGRAM)"}
-DOMAINS = ("retail", "industri", "planogram")
-DOMAIN_SETTING = {"retail": "data_agent", "industri": "data_agent_industry", "planogram": "data_agent_planogram"}
+                 "retail_planogram": "Survey Response Report Retail × Planogram Marketing Intelligence (VM_PLANOGRAM)",
+                 "sellout": "Selling Out Intelligence (sell-out distributor)"}
+DOMAINS = ("retail", "industri", "planogram", "sellout")
+DOMAIN_SETTING = {"retail": "data_agent", "industri": "data_agent_industry", "planogram": "data_agent_planogram",
+                  "sellout": "data_agent_sellout"}
 INSIGHT_SOURCE = {"retail": "bigquery", "industri": "bigquery_industri", "planogram": "bigquery_planogram",
-                  "retail_planogram": "bigquery_retail_planogram"}
+                  "retail_planogram": "bigquery_retail_planogram", "sellout": "bigquery_sellout"}
 
 
 def normalize_domain(value: str) -> str:
@@ -37,6 +39,9 @@ def normalize_domain(value: str) -> str:
         return "industri"
     if v in ("planogram", "rak", "vm", "vm_planogram", "visual merchandising"):
         return "planogram"
+    if v.replace("-", "").replace(" ", "").replace("_", "") in ("sellout", "sellingout", "sellingoutintelligence",
+                                                                "selloutdistributor", "penjualandistributor"):
+        return "sellout"
     return "retail"
 
 

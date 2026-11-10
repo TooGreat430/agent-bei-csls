@@ -14,13 +14,16 @@ from .data_tools import CHART_KEY, LAST_KEY
 logger = logging.getLogger(__name__)
 FILES_KEY = "data_files"
 KIND_LABEL = {"retail": "format Survei Retail (SURVEY_PRODUCTS)", "industri": "format Survei Industri (survey_industry)",
-              "planogram": "format Survei Planogram / rak outlet (VM_PLANOGRAM)", "lainnya": "format umum"}
+              "planogram": "format Survei Planogram / rak outlet (VM_PLANOGRAM)",
+              "sellout": "format data Sell-out distributor (Selling Out Intelligence)", "lainnya": "format umum"}
 KNOWLEDGE_KEY = "file_knowledge_domains"
 RULES = {
     "retail": "filter wajib (AVAILABILITY=1, outlier DATA USE), harga per liter, zona, KIMAP, Product Hero",
     "industri": "filter data_status OK, gap % terhadap HTD+3%, zona, channel",
     "planogram": ("normalisasi 2T, buang NO VISCOSITY di PCO/Commercial dan SEGMENT/USAGE kosong, SR1–SR7 & zona, "
                   "skor AV, penanda oli mesin, kuartal dari DT_PR"),
+    "sellout": ("definisi metrik dari Data Agent Selling Out Intelligence (volume, fulfillment, Active Customer), baris "
+                "total/subtotal dikeluarkan; data berdiri sendiri (tidak digabung dengan survei harga/planogram)"),
 }
 
 
@@ -82,6 +85,17 @@ def profile_data_file(file_id: str, tool_context: ToolContext, sheet: str = "") 
         return {"status": "error", "message": f"File {file_id} tidak ada di chat ini."}
     df, sheets = _frame(entry, sheet)
     kind = entry.get("kind") if entry.get("kind_manual") else de.detect_kind(df)
+    detection = ""
+    if kind == "lainnya" and not entry.get("kind_manual"):
+        try:                                       # cocokkan kolom file dengan tabel BigQuery Data Agent Sell-out
+            from .. import knowledge
+
+            score, hit = knowledge.match_score("sellout", df.columns)
+            if score >= 0.5 and hit >= 3:
+                kind = "sellout"
+                detection = f"{hit} kolom file cocok dengan tabel Selling Out Intelligence ({score:.0%})."
+        except Exception:  # noqa: BLE001
+            logger.warning("Deteksi format sell-out gagal", exc_info=True)
     heroes = list(live("hero_products") or settings.hero_products)
     prepared, notes = de.prepare(df, kind, heroes)
     files = _files(tool_context)
@@ -92,13 +106,14 @@ def profile_data_file(file_id: str, tool_context: ToolContext, sheet: str = "") 
     prof = de.profile(df)
     know = absorb_knowledge(kind, tool_context)
     return {"status": "ok", "file_id": file_id, "filename": entry["filename"], "sheets": sheets,
-            "jenis_data": kind, "keterangan_jenis": KIND_LABEL[kind], "profil": prof,
+            "jenis_data": kind, "keterangan_jenis": KIND_LABEL[kind], "deteksi": detection or None, "profil": prof,
             "pengetahuan_data_agent": know,
             "aturan_diterapkan": notes, "kolom_tambahan_tersedia": notes["added_columns"],
             "catatan": (f"Pengetahuan resmi Data Agent {kind} sudah diserap dan dipakai untuk analisis file ini. "
                         f"Aturan otomatis: {RULES[kind]}. Sampaikan singkat ke user: jenis data, jumlah baris, periode, "
                         "pengetahuan yang dipakai, dan jumlah baris yang dikecualikan.") if kind != "lainnya" else
-                       ("Jenis data tidak dikenali. TANYAKAN ke user ini data apa (retail, industri, planogram, atau lainnya) "
+                       ("Jenis data tidak dikenali. TANYAKAN ke user ini data apa (retail, industri, planogram, sell-out, "
+                        "atau lainnya) "
                         "dan definisi kolom yang tidak jelas; jangan berasumsi.")}
 
 
@@ -128,12 +143,13 @@ def set_data_type(file_id: str, data_type: str, tool_context: ToolContext) -> di
 
     Args:
         file_id: ID file (mis. "f1").
-        data_type: "retail", "industri", "planogram", atau "lainnya".
+        data_type: "retail", "industri", "planogram", "sellout", atau "lainnya".
     """
     kind = data_type.strip().lower()
-    kind = {"industry": "industri", "b2b": "industri", "rak": "planogram"}.get(kind, kind)
+    kind = {"industry": "industri", "b2b": "industri", "rak": "planogram", "sell-out": "sellout", "sell out": "sellout",
+            "selling out": "sellout"}.get(kind, kind)
     if kind not in KIND_LABEL:
-        return {"status": "invalid", "message": "Jenis data harus retail, industri, planogram, atau lainnya."}
+        return {"status": "invalid", "message": "Jenis data harus retail, industri, planogram, sellout, atau lainnya."}
     files = _files(tool_context)
     for f in files:
         if f["file_id"] == file_id:

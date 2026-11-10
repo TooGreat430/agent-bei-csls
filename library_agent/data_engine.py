@@ -378,12 +378,12 @@ def prepare(df: pd.DataFrame, kind: str, heroes: list[str] | None = None) -> tup
             d = pd.to_datetime(out[c("DT_PR")], errors="coerce")
             out["KUARTAL"] = [f"{x.year}-Q{x.quarter}" if pd.notna(x) else None for x in d]
             notes["added_columns"].append("KUARTAL")
-    if kind == "lainnya" and len(out) > 1:
+    if kind in ("lainnya", "sellout") and len(out) > 1:
         try:
             drop(~total_rows(out), "baris total/subtotal (kolom kunci kosong, nilai = jumlah baris lain)")
         except Exception:  # noqa: BLE001
             logger.warning("Deteksi baris total gagal", exc_info=True)
-    if kind == "lainnya":
+    if kind in ("lainnya", "sellout"):
         if df.attrs.get("tata_letak"):
             notes["tata_letak"] = df.attrs["tata_letak"]
         try:

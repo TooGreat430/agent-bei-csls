@@ -53,7 +53,7 @@ library_agent/
   price_*.py, dashboard_render.py, industry_*.py   template retail & industri (tidak berubah)
 scripts/   update_agent.sh (redeploy di tempat), deploy_agent_engine.py, check_knowledge.py, enable_user_auth.py
 setup/settings.json              nilai awal pengaturan tanpa deploy
-tests/                           196 uji unit (tanpa GCP)
+tests/                           204 uji unit (tanpa GCP)
 ```
 
 ## Template planogram
@@ -128,6 +128,16 @@ Sumber: BigQuery (default) atau dua file unggahan (`retail_file_id` + `planogram
   dibangun DI DALAM template itu (head, CSS, dan script template dipertahankan; model hanya menulis isi body dengan
   struktur & class template). Revisi dan approve tetap berlaku.
 - Belum didukung: `.doc`/`.ppt` lama (minta simpan ulang sebagai DOCX/PPTX/PDF), skor kuantil khusus (mis. RFM).
+
+## Data Agent Sell-out (v3.1)
+
+`Selling Out Intelligence` (`agent_e188b55c-…`, project `ptpl-land-dev`, `global`): volume sell-out, fulfillment,
+Active Customer, kontribusi region/channel/distributor/produk. Tool `ask_sellout_intelligence`; laporan **custom saja**
+(`source="sellout"`, prompt `custom_prompts/sellout.txt`); **berdiri sendiri** (tidak digabung dengan sumber lain).
+Pengetahuan diserap otomatis dari definisi Data Agent, ditambah pengetahuan tim MIR tanpa deploy
+(`python scripts/set_knowledge.py upload sellout panduan.md` → `config/knowledge/sellout.md`; berlaku juga untuk domain
+lain). File unggahan dikenali sebagai sell-out bila ≥ 50% kolomnya ada di tabel BigQuery Data Agent tersebut.
+Izin & langkah: `PANDUAN_SELLOUT.md`.
 
 ## Claude untuk tugas berat (v3.0) + skill file
 
@@ -293,7 +303,7 @@ Berlaku maks. 5 menit kemudian. `update_agent.sh` menambahkan kunci baru tanpa m
 ## Uji lokal
 
 ```bash
-python -m unittest discover tests      # 196 uji, tanpa GCP
+python -m unittest discover tests      # 204 uji, tanpa GCP
 ```
 
 ## Log diagnostik (unggahan file & error)

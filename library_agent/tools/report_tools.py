@@ -343,7 +343,8 @@ def list_report_options() -> dict[str, Any]:
                         "white space, Sales Region, action matrix",
                  "format": ["pdf", "pptx", "html"], "tool": "generate_battlefield_report"}],
             "catatan": "Gabungan sumber hanya Retail × Planogram; Industri tidak bisa digabung (kunci produk berbeda).",
-            "custom": {"sumber": ["retail", "industri", "planogram", "retail + planogram (gabungan)", "file unggahan"],
+            "custom": {"sumber": ["retail", "industri", "planogram", "retail + planogram (gabungan)",
+                                  "sellout (Selling Out Intelligence — hanya custom, belum ada template)", "file unggahan"],
                        "format": ["html", "pdf", "pptx"], "instruksi_tambahan": "dokumen unggahan (prompt/template) bisa dipakai lewat instruction_doc_id",
                        "status": "DRAFT sampai user menyetujui (approve)", "tool": "generate_custom_report"}}
 
@@ -879,7 +880,8 @@ def generate_custom_report(request: str, source: str, tool_context: ToolContext,
 
     Args:
         request: Permintaan laporan user selengkap mungkin (fokus produk/segmen/wilayah/periode, audiens).
-        source: "retail", "industri", "planogram", "retail_planogram" (gabungan Retail × Planogram), "file" (data
+        source: "retail", "industri", "planogram", "sellout" (Selling Out Intelligence), "retail_planogram" (gabungan
+            Retail × Planogram), "file" (data
             CSV/Excel), atau "dokumen" (TXT/PDF/Word berisi HASIL ANALISIS yang dibawa user, mis. dari chat lain).
             Gabungan hanya Retail × Planogram; Industri tidak bisa digabung.
         data_questions: 1-3 pertanyaan data untuk Data Agent yang bersama-sama mencakup permintaan (opsional;
@@ -905,6 +907,9 @@ def generate_custom_report(request: str, source: str, tool_context: ToolContext,
     src = source.strip().lower().replace(" ", "")
     combined = src in ("retail_planogram", "retail+planogram", "planogram+retail", "gabungan", "retailxplanogram",
                        "retail×planogram", "battlefield")
+    if "sellout" in src.replace("-", "").replace("sellingout", "sellout") and any(x in src for x in ("+", "×", "gabung")):
+        return {"status": "invalid", "message": "Data Sell-out berdiri sendiri dan saat ini tidak digabung dengan sumber "
+                                                "lain. Tawarkan laporan Sell-out terpisah."}
     if src in ("industri+retail", "retail+industri", "industri+planogram", "planogram+industri"):
         return {"status": "invalid", "message": "Gabungan sumber hanya bisa Retail × Planogram. Data Industri tidak "
                                                 "punya kunci produk yang sama dengan Retail/Planogram."}
@@ -945,7 +950,7 @@ def generate_custom_report(request: str, source: str, tool_context: ToolContext,
                                 "atau menganalisisnya dulu.") if not label else
                                ("Format file tidak dikenali sehingga belum ada angka untuk laporan. Minta user menganalisis "
                                 "file dulu (mis. cross-tab) atau menyimpan hasilnya sebagai insight.")}
-        domain = kind if kind in ("retail", "industri", "planogram") else "umum"
+        domain = kind if kind in ("retail", "industri", "planogram", "sellout") else "umum"
     else:
         domain = data_agent.normalize_domain(src)
         blocks, errors = _pull_blocks(tool_context, (domain,)), []

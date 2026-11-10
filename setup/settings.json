@@ -79,5 +79,6 @@
   "heavy_model": "claude",
   "price_claude_input": 4.0,
   "price_claude_output": 20.0,
-  "price_claude_cached": 0.4
+  "price_claude_cached": 0.4,
+  "data_agent_sellout": "projects/ptpl-land-dev/locations/global/dataAgents/agent_e188b55c-e61b-4c3f-9f91-3c97a54a6d4a"
 }

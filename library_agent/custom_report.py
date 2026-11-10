@@ -28,8 +28,8 @@ logger = logging.getLogger(__name__)
 PROMPT_DIR = os.path.join(ASSET_DIR, "custom_prompts")
 NO_DATA = "DATA TIDAK DITERIMA DARI DATA AGENT"
 FIRST_LINE = {"retail": "LAPORAN RETAIL ONLY", "industri": "LAPORAN INDUSTRY ONLY", "planogram": "LAPORAN PLANOGRAM",
-              "retail_planogram": "LAPORAN RETAIL × PLANOGRAM", "umum": "LAPORAN DATA"}
-PROMPT_FILES = ("retail", "industri", "planogram", "retail_planogram")
+              "retail_planogram": "LAPORAN RETAIL × PLANOGRAM", "sellout": "LAPORAN SELL-OUT", "umum": "LAPORAN DATA"}
+PROMPT_FILES = ("retail", "industri", "planogram", "retail_planogram", "sellout")
 MAX_DATA_CHARS = 120_000
 
 OUTPUT_CONTRACT = """FORMAT OUTPUT (KHUSUS AGENT — MENGGANTIKAN "FORMAT OUTPUT" DAN PERINTAH MENYALIN DESIGN SYSTEM DI ATAS)
@@ -107,6 +107,14 @@ def load_prompt(domain: str) -> str:
 def build_prompt(domain: str, request: str, data_text: str, previous_body: str = "", feedback: str = "",
                  problems: list[str] | None = None, extra_instructions: str = "", template_example: str = "") -> str:
     base = load_prompt(domain)
+    if "SISIPKAN_KNOWLEDGE_SELLOUT" in base:
+        try:
+            from . import knowledge
+
+            know = knowledge.as_text("sellout", 15000)
+        except Exception:  # noqa: BLE001
+            know = "(Pengetahuan Data Agent sell-out belum tersedia; pakai definisi yang tertulis di hasil Data Agent.)"
+        base = base.replace("SISIPKAN_KNOWLEDGE_SELLOUT", know)
     base = base.replace("SISIPKAN_VARIABEL_Description", request.strip() or "(tidak ada)")
     base = re.sub(r"SISIPKAN_VARIABEL_\w+_output", lambda _m: data_text.strip() or "(kosong)", base, count=1)
     base = re.sub(r"SISIPKAN_VARIABEL_\w+_output", "(sudah termasuk pada data di atas)", base)
