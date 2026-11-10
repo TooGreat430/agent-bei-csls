@@ -67,4 +67,40 @@ def akhiri_sandbox(tool_context: ToolContext) -> dict[str, Any]:
     return {"status": "ok", "dihapus": code_exec.delete_sandbox(tool_context.state)}
 
 
-CODE_TOOLS = [siapkan_sandbox, jalankan_python, cek_biaya_analisis, akhiri_sandbox]
+SKILLS_DIR = __import__("os").path.join(__import__("os").path.dirname(__import__("os").path.dirname(__file__)), "skills")
+SKILL_INFO = {"excel": "Workbook Excel rapi: format, rumus, grafik native",
+              "powerpoint": "Deck PowerPoint yang bisa diedit (bukan laporan template)",
+              "word": "Dokumen Word: memo, kajian, notulen, ringkasan",
+              "edit_file": "Mengedit file Excel/PowerPoint/Word milik user",
+              "pdf": "PDF siap cetak selain laporan template",
+              "analisis_data": "Cara kerja analis: intake, audit, metodologi, validasi"}
+
+
+@_safe
+def daftar_skill(tool_context: ToolContext) -> dict[str, Any]:
+    """Daftar skill (panduan kerja) yang bisa dimuat sebelum membuat file atau menganalisis data di sandbox."""
+    return {"status": "ok", "skill": SKILL_INFO}
+
+
+@_safe
+def muat_skill(nama: str, tool_context: ToolContext) -> dict[str, Any]:
+    """Memuat panduan kerja (skill) sebelum mengerjakan tugas di sandbox. WAJIB dipanggil sebelum membuat file
+    Excel/PowerPoint/Word/PDF, mengedit file user, atau analisis bertahap. Panduan gaya PTPL ikut dimuat otomatis.
+
+    Args:
+        nama: "excel", "powerpoint", "word", "edit_file", "pdf", atau "analisis_data".
+    """
+    import os
+
+    key = nama.strip().lower().replace(" ", "_").replace("ppt", "powerpoint").replace("powerpointx", "powerpoint")
+    key = {"xlsx": "excel", "docx": "word", "analisis": "analisis_data", "edit": "edit_file"}.get(key, key)
+    if key not in SKILL_INFO:
+        return {"status": "invalid", "message": f"Skill '{nama}' tidak ada.", "skill": list(SKILL_INFO)}
+    with open(os.path.join(SKILLS_DIR, "_umum.md"), encoding="utf-8") as fh:
+        umum = fh.read()
+    with open(os.path.join(SKILLS_DIR, f"{key}.md"), encoding="utf-8") as fh:
+        body = fh.read()
+    return {"status": "ok", "skill": key, "panduan": body + "\n\n" + umum}
+
+
+CODE_TOOLS = [siapkan_sandbox, jalankan_python, cek_biaya_analisis, akhiri_sandbox, daftar_skill, muat_skill]

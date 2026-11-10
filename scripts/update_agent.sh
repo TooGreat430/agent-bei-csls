@@ -28,6 +28,10 @@ if [ -n "${NEW_MODEL_PRO:-}" ]; then set_value LIB_MODEL_PRO "$NEW_MODEL_PRO"; e
 if [ -n "${NEW_GEMINI_LOCATION_PRO:-}" ]; then set_value LIB_GEMINI_LOCATION_PRO "$NEW_GEMINI_LOCATION_PRO"
 else add_if_missing LIB_GEMINI_LOCATION_PRO "asia-southeast1"; fi
 echo "    Model utama: $(grep '^LIB_MODEL_PRO=' .env | cut -d= -f2) @ $(grep '^LIB_GEMINI_LOCATION_PRO=' .env | cut -d= -f2)"
+# Claude untuk tugas berat (analisis file + skill, laporan). Nilai yang sudah ada tidak ditimpa.
+if [ -n "${NEW_MODEL_CLAUDE:-}" ]; then set_value LIB_MODEL_CLAUDE "$NEW_MODEL_CLAUDE"; else add_if_missing LIB_MODEL_CLAUDE "claude-opus-5-5"; fi
+if [ -n "${NEW_CLAUDE_REGION:-}" ]; then set_value LIB_CLAUDE_REGION "$NEW_CLAUDE_REGION"; else add_if_missing LIB_CLAUDE_REGION "global"; fi
+echo "    Tugas berat: $(grep '^LIB_MODEL_CLAUDE=' .env | cut -d= -f2) @ $(grep '^LIB_CLAUDE_REGION=' .env | cut -d= -f2) (cadangan Argon)"
 add_if_missing LIB_MODEL_FAST "gemini-3.5-flash"
 add_if_missing LIB_GEMINI_LOCATION "global"
 # Data Agent & tabel planogram

@@ -3,7 +3,7 @@ from google.adk.agents import LlmAgent
 
 from ..callbacks import capture_uploads, sanitize_request, ensure_reply
 from ..config import settings
-from ..llm import make_model
+from ..llm import make_heavy_model, make_model
 from ..usage import budget_guard, budget_notice, chain, chain_before, record_model_usage
 from ..prompts import REPORT_INSTRUCTION, with_agent_name
 from ..tools.doc_tools import DOC_TOOLS
@@ -14,7 +14,7 @@ from ..tools.report_tools import REPORT_TOOLS
 
 report_agent = LlmAgent(
     name="report_agent",
-    model=make_model(settings.model_pro),
+    model=make_heavy_model(),
     description=(
         "Membuat laporan: TEMPLATE (Daya Saing Harga Retail, Daya Saing Harga Industri B2B, Kinerja Planogram PTPL vs "
         "Kompetitor, Competitive Battlefield Retail × Planogram) dalam PDF/PowerPoint/HTML, atau CUSTOM (sesuai permintaan, "

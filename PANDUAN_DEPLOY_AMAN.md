@@ -1,6 +1,10 @@
-# Panduan Deploy Aman — v2.10 (dengan cadangan & rollback)
+# Panduan Deploy Aman — v3.0 (dengan cadangan & rollback)
 
-**Baru di v2.10:** (1) penulisan laporan mencoba ulang lalu pindah ke **Argon global** saat kuota/kapasitas Argon
+**Baru di v3.0:** Claude (`claude-opus-5-5`) untuk tugas berat dengan cadangan Gemini 4 Argon, dan skill pembuatan
+file (Excel/PowerPoint/Word/PDF/edit file user). **Untuk deploy v3.0 ikuti `PANDUAN_CLAUDE_DAN_SKILL.md`** — panduan
+ini tetap berlaku untuk rollback dan uji cepat umum.
+
+**Dari v2.10:** (1) penulisan laporan mencoba ulang lalu pindah ke **Argon global** saat kuota/kapasitas Argon
 regional habis (penyebab laporan gagal → user meminta TXT pada 7 Nov); `update_agent.sh` tidak lagi memaksa region
 Argon. (2) **Batas pemakaian harian/bulanan** dengan notifikasi ke user (peringatan di 80%, laporan dihentikan
 sementara saat batas tercapai) — default mati, diatur dengan `scripts/set_budget.py`.
@@ -110,7 +114,7 @@ Jika muncul daftar file, jalankan `git reset --hard @{u}` dulu. Lalu:
 git pull && find . -name __pycache__ -prune -exec rm -rf {} + && bash scripts/update_agent.sh
 ```
 
-Hasil yang diharapkan: langkah 5 `OK` (181 uji), langkah 6 berakhir `Selesai.` **Jalankan sekali saja** dan jangan tekan
+Hasil yang diharapkan: langkah 5 `OK` (196 uji), langkah 6 berakhir `Selesai.` **Jalankan sekali saja** dan jangan tekan
 `Ctrl+C`. Jika uji di langkah 5 gagal, script berhenti sendiri dan agent **tidak berubah** — kirim outputnya ke tim teknis.
 
 ## Langkah 4 — Cek cepat di Gemini Enterprise (chat baru, ±10 menit)

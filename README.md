@@ -53,7 +53,7 @@ library_agent/
   price_*.py, dashboard_render.py, industry_*.py   template retail & industri (tidak berubah)
 scripts/   update_agent.sh (redeploy di tempat), deploy_agent_engine.py, check_knowledge.py, enable_user_auth.py
 setup/settings.json              nilai awal pengaturan tanpa deploy
-tests/                           181 uji unit (tanpa GCP)
+tests/                           196 uji unit (tanpa GCP)
 ```
 
 ## Template planogram
@@ -129,7 +129,25 @@ Sumber: BigQuery (default) atau dua file unggahan (`retail_file_id` + `planogram
   struktur & class template). Revisi dan approve tetap berlaku.
 - Belum didukung: `.doc`/`.ppt` lama (minta simpan ulang sebagai DOCX/PPTX/PDF), skor kuantil khusus (mis. RFM).
 
-## Model per langkah laporan
+## Claude untuk tugas berat (v3.0) + skill file
+
+| Bagian | Model |
+|---|---|
+| Router, tanya-jawab data BigQuery | Model cepat Gemini (jawaban data tetap dari Data Agent Google) |
+| **Agent analisis file + skill, agent laporan, penulisan laporan & narasi** | **Claude (`claude-opus-5-5` @ `global`, Vertex AI)** |
+| Cadangan bila Claude penuh / gagal | Gemini 4 Argon (lalu Argon global); user diberi catatan singkat sekali |
+
+- Implementasi: `llm_claude.py` (`ClaudeVertex`, BaseLlm ADK: konversi teks, gambar/PDF, tool_use/tool_result,
+  instruksi sistem, token untuk meteran) dan `report_engine._claude_first` untuk penulisan laporan.
+- Saklar tanpa deploy: `python scripts/set_model.py claude|gemini` (`heavy_model` di settings.json).
+- Uji sungguhan sebelum deploy: `python scripts/check_claude.py`.
+- **Skill** (`library_agent/skills/*.md`, ditulis untuk konteks PTPL): `excel`, `powerpoint`, `word`, `edit_file`, `pdf`,
+  `analisis_data`, plus panduan gaya umum. Dimuat agent dengan `muat_skill` sebelum bekerja di sandbox (Code Execution).
+  Sandbox kini juga menerima file asli user (xlsx/pptx/docx/pdf) untuk diedit; file .xlsx/.pptx/.docx/.pdf hasil kerja
+  diserahkan sebagai link, .txt/.md tetap diblokir. Laporan tetap lewat alat laporan (template PTPL).
+- Panduan lengkap: `PANDUAN_CLAUDE_DAN_SKILL.md`.
+
+## Model per langkah laporan (sebelum v3.0 / saat heavy_model = gemini)
 
 | Langkah | Model | Cadangan saat kapasitas penuh |
 |---|---|---|
@@ -275,7 +293,7 @@ Berlaku maks. 5 menit kemudian. `update_agent.sh` menambahkan kunci baru tanpa m
 ## Uji lokal
 
 ```bash
-python -m unittest discover tests      # 181 uji, tanpa GCP
+python -m unittest discover tests      # 196 uji, tanpa GCP
 ```
 
 ## Log diagnostik (unggahan file & error)

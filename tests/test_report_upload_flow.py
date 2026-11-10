@@ -78,7 +78,7 @@ class UploadReportFlowTest(unittest.TestCase):
         names = {t.__name__ for t in file_agent.tools}
         self.assertTrue({"generate_custom_report", "konversi_laporan_custom", "approve_report"} <= names)
         self.assertIn("DILARANG menyerahkan laporan sebagai teks", prompts.FILE_INSTRUCTION)
-        self.assertEqual(file_agent.model.model, config.settings.model_pro)
+        self.assertEqual(file_agent.model.model, config.settings.model_claude)
 
     def test_code_results_feed_report(self):
         from library_agent.tools import report_tools as rt

@@ -108,11 +108,15 @@ def _update(mutate, key: str | None = None) -> None:
     logger.warning("Meteran biaya: konflik tulis berulang, satu catatan dilewati")
 
 
-def model_cost(agent_name: str, prompt: int, cached: int, output: int) -> tuple[str, float]:
-    pro = agent_name in PRO_AGENTS
-    model = settings.model_pro if pro else settings.model_fast
-    p_in, p_out, p_cache = (("price_pro_input", "price_pro_output", "price_pro_cached") if pro
-                            else ("price_fast_input", "price_fast_output", "price_fast_cached"))
+def model_cost(agent_name: str, prompt: int, cached: int, output: int, model: str = "") -> tuple[str, float]:
+    if not model:
+        model = settings.model_pro if agent_name in PRO_AGENTS else settings.model_fast
+    if model.startswith("claude"):
+        p_in, p_out, p_cache = "price_claude_input", "price_claude_output", "price_claude_cached"
+    elif model == settings.model_fast:
+        p_in, p_out, p_cache = "price_fast_input", "price_fast_output", "price_fast_cached"
+    else:
+        p_in, p_out, p_cache = "price_pro_input", "price_pro_output", "price_pro_cached"
     usd = ((max(prompt - cached, 0) * float(live(p_in)) + cached * float(live(p_cache))
             + output * float(live(p_out))) / 1_000_000)
     return model, usd
@@ -141,7 +145,8 @@ def record_model_usage(callback_context, llm_response) -> None:
         cached = int(getattr(meta, "cached_content_token_count", 0) or 0)
         output = int(getattr(meta, "candidates_token_count", 0) or 0) + int(getattr(meta, "thoughts_token_count", 0) or 0)
         agent = getattr(callback_context, "agent_name", "") or ""
-        model, usd = model_cost(agent, prompt, cached, output)
+        used = (getattr(llm_response, "custom_metadata", None) or {}).get("model_used", "")
+        model, usd = model_cost(agent, prompt, cached, output, used)
         user = get_user_id(callback_context)
 
         def mutate(d):
@@ -159,6 +164,28 @@ def record_model_usage(callback_context, llm_response) -> None:
     except Exception:  # noqa: BLE001  (meteran tidak boleh mengganggu agent)
         logger.warning("Meteran biaya model gagal", exc_info=True)
     return None
+
+
+def record_direct(model: str, prompt: int, cached: int, output: int, user: str = "penulisan-laporan") -> float:
+    """Catat panggilan model langsung (penulisan laporan/narasi) yang tidak lewat callback agent."""
+    _, usd = model_cost("", prompt, cached, output, model)
+
+    def mutate(d):
+        m = d["model"]
+        m["calls"] += 1
+        m["input"] += prompt
+        m["cached"] += cached
+        m["output"] += output
+        m["usd"] = round(m["usd"] + usd, 6)
+        bm = m["by_model"].setdefault(model, {"calls": 0, "usd": 0.0})
+        bm["calls"] += 1
+        bm["usd"] = round(bm["usd"] + usd, 6)
+        _add_user(d, user, usd)
+    try:
+        _queue(mutate, usd)
+    except Exception:  # noqa: BLE001
+        logger.warning("Meteran biaya (panggilan langsung) gagal", exc_info=True)
+    return usd
 
 
 def record_sandbox(user: str, seconds: float) -> float:

@@ -101,8 +101,46 @@ def _with_fallback(model: str, call):
     raise RuntimeError(REPORT_BUSY) from last
 
 
+def _claude_first(prompt: str, temperature: float = 0.2) -> str | None:
+    """Tulis dengan Claude bila aktif; None bila Claude tidak aktif/gagal (pemanggil lanjut ke Gemini Argon)."""
+    from . import usage
+    from .llm_claude import complete, is_capacity_error, use_claude
+
+    if not use_claude():
+        return None
+    import time
+
+    for attempt in (1, 2):
+        try:
+            text, u = complete(prompt, temperature=temperature)
+            usage.record_direct(settings.model_claude, u["input"] + u["cached"], u["cached"], u["output"])
+            return text
+        except Exception as exc:  # noqa: BLE001
+            if attempt == 1 and is_capacity_error(exc):
+                logger.warning("Claude penuh saat menulis laporan; coba ulang dalam %ss", RETRY_SECONDS)
+                time.sleep(RETRY_SECONDS)
+                continue
+            logger.warning("Claude tidak dapat menulis laporan (%s); memakai Gemini 4 Argon", str(exc)[:160])
+            return None
+    return None
+
+
+def _record_gemini(response, model: str) -> None:
+    from . import usage
+
+    meta = getattr(response, "usage_metadata", None)
+    if meta:
+        cached = int(getattr(meta, "cached_content_token_count", 0) or 0)
+        out = int(getattr(meta, "candidates_token_count", 0) or 0) + int(getattr(meta, "thoughts_token_count", 0) or 0)
+        usage.record_direct(model, int(getattr(meta, "prompt_token_count", 0) or 0), cached, out)
+
+
 def generate_text(prompt: str, model: str = "", temperature: float = 0.2) -> str:
-    """Teks bebas dari Gemini (dipakai laporan custom). Default: model utama (Argon)."""
+    """Teks bebas untuk laporan custom: Claude (bila aktif) lalu cadangan Gemini 4 Argon."""
+    if not model:
+        text = _claude_first(prompt, temperature)
+        if text is not None:
+            return text
     from google.genai import types
 
     from .clients import genai_client, location_for
@@ -111,17 +149,34 @@ def generate_text(prompt: str, model: str = "", temperature: float = 0.2) -> str
     config = types.GenerateContentConfig(temperature=temperature, max_output_tokens=32768)
     response = _with_fallback(model, lambda client, m: client.models.generate_content(model=m, contents=prompt,
                                                                                          config=config))
+    _record_gemini(response, model)
     return response.text or ""
 
 
+def _parse_json(text: str) -> dict[str, Any]:
+    text = re.sub(r"^```(?:json)?|```$", "", (text or "").strip()).strip()
+    if not text.startswith("{"):
+        m = re.search(r"\{.*\}", text, re.S)
+        text = m.group(0) if m else text
+    return json.loads(text)
+
+
 def _generate_json(prompt: str, schema: dict[str, Any], model: str = "") -> dict[str, Any]:
-    """JSON sesuai skema dari Gemini (narasi laporan). Default: model utama (Argon)."""
+    """JSON sesuai skema (narasi laporan): Claude (bila aktif) lalu cadangan Gemini 4 Argon."""
     from google.genai import types
 
     from .clients import genai_client, location_for
 
-    model = model or settings.model_pro
     model_schema = schema_for_model(schema)
+    if not model:
+        text = _claude_first(prompt + "\n\nJawab HANYA dengan satu objek JSON valid (tanpa teks lain, tanpa blok kode) "
+                             "yang mengikuti skema ini:\n" + json.dumps(model_schema, ensure_ascii=False))
+        if text is not None:
+            try:
+                return _parse_json(text)
+            except ValueError:
+                logger.warning("JSON dari Claude tidak valid; memakai Gemini 4 Argon")
+    model = model or settings.model_pro
     try:
         config = types.GenerateContentConfig(temperature=0.2, response_mime_type="application/json",
                                              response_json_schema=model_schema)
@@ -140,9 +195,8 @@ def _generate_json(prompt: str, schema: dict[str, Any], model: str = "") -> dict
                 model=m, config=cfg,
                 contents=prompt + "\n\nSKEMA JSON YANG WAJIB DIIKUTI:\n" + json.dumps(model_schema, ensure_ascii=False))
     response = _with_fallback(model, call)
-    text = (response.text or "").strip()
-    text = re.sub(r"^```(?:json)?|```$", "", text).strip()
-    return json.loads(text)
+    _record_gemini(response, model)
+    return _parse_json(response.text or "")
 
 
 def save_output(user_id: str, template_id: str, report_title: str, data: bytes, ext: str, content_type: str,

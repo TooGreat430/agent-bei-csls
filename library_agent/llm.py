@@ -101,3 +101,10 @@ def make_model(model_name: str, location: str = "") -> PinnedGemini:
     from .clients import location_for
 
     return PinnedGemini(model=model_name, location=location or location_for(model_name))
+
+
+def make_heavy_model():
+    """Model untuk tugas berat: Claude (default, cadangan Argon) — saklar `heavy_model` di settings.json."""
+    from .llm_claude import ClaudeVertex
+
+    return ClaudeVertex(model=settings.model_claude)

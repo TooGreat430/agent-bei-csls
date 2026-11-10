@@ -61,7 +61,7 @@ def install() -> None:
         def __init__(self, content=None, **kwargs):
             self.content = content
 
-    mod("google.adk.models", Gemini=_Any, LlmResponse=_LlmResponse)
+    mod("google.adk.models", Gemini=_Any, LlmResponse=_LlmResponse, BaseLlm=_Any)
     mod("google.adk.models.google_llm", Gemini=_Any)
     genai = mod("google.genai", Client=_Any)
     class _Obj:
@@ -80,6 +80,7 @@ def install() -> None:
             return cls(inline_data=SimpleNamespace(data=data, mime_type=mime_type))
 
     genai.types = mod("google.genai.types", Content=_Obj, Part=_Obj, FunctionCall=_Obj, GenerateContentConfig=_Any,
+                      GenerateContentResponseUsageMetadata=_Obj,
                       Blob=SimpleNamespace)
     google.adk = sys.modules["google.adk"]
     google.genai = genai

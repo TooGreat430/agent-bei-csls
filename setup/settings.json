@@ -75,5 +75,9 @@
   "budget_daily_usd": 0,
   "budget_monthly_usd": 0,
   "budget_warn_pct": 80,
-  "budget_block_scope": "berat"
+  "budget_block_scope": "berat",
+  "heavy_model": "claude",
+  "price_claude_input": 4.0,
+  "price_claude_output": 20.0,
+  "price_claude_cached": 0.4
 }

@@ -154,7 +154,7 @@ class RunTest(Base):
         spec, cfg = self.sb.created[0]
         self.assertEqual(spec["code_execution_environment"]["machine_config"], "MACHINE_CONFIG_VCPU4_RAM4GIB")
         names = sorted(f["name"] for f in self.sb.calls[0]["files"])
-        self.assertEqual(names, ["f1_SORetail__Master.csv", "f1_SORetail__Sheet1.csv"])
+        self.assertEqual(names, ["f1_SORetail.xlsx", "f1_SORetail__Master.csv", "f1_SORetail__Sheet1.csv"])
         self.assertIn(b"Customer Code", next(f["content"] for f in self.sb.calls[0]["files"] if "Sheet1" in f["name"]))
 
     def test_run_saves_outputs_and_script(self):
@@ -261,3 +261,32 @@ class BatchTest(Base):
     def test_single_file_too_large(self):
         with mock.patch.object(code_exec, "BATCH_BYTES", 10):
             self.assertEqual(code_exec.prepare(self.ctx)["status"], "file_too_large")
+
+
+class SkillTest(Base):
+    def test_skills_load_with_ptpl_style(self):
+        from library_agent.tools import code_tools
+
+        listed = code_tools.daftar_skill(self.ctx)["skill"]
+        self.assertEqual(set(listed), {"excel", "powerpoint", "word", "edit_file", "pdf", "analisis_data"})
+        for name in ("excel", "pptx", "docx", "edit", "pdf", "analisis"):
+            res = code_tools.muat_skill(name, self.ctx)
+            self.assertEqual(res["status"], "ok", name)
+            self.assertIn("#0C1E3C", res["panduan"])                      # gaya PTPL ikut dimuat
+        self.assertEqual(code_tools.muat_skill("video", self.ctx)["status"], "invalid")
+
+    def test_user_documents_sent_for_editing(self):
+        self.storage.store["docs/d1_Laporan.pptx"] = (b"PK-pptx", 1)
+        self.ctx.state["documents"] = [{"doc_id": "d1", "filename": "Laporan Q3.pptx", "uri": "gs://bkt/docs/d1_Laporan.pptx"}]
+        code_exec.prepare(self.ctx)
+        names = {f["name"] for f in self.sb.calls[0]["files"]}
+        self.assertIn("d1_Laporan_Q3.pptx", names)
+
+    def test_office_files_delivered_txt_blocked(self):
+        for ok in ("Analisa.xlsx", "Deck.pptx", "Memo.docx", "Ringkasan.pdf"):
+            self.assertTrue(ok.lower().endswith(code_exec.DELIVERABLE_EXT), ok)
+        self.assertFalse("laporan.txt".endswith(code_exec.DELIVERABLE_EXT))
+
+    def test_skill_rules_in_code_mode(self):
+        self.assertIn("muat_skill", prompts.CODE_MODE)
+        self.assertIn("LAPORAN (laporan, one-pager", prompts.CODE_MODE)

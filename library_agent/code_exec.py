@@ -35,7 +35,8 @@ MAX_STDOUT = 12000
 BATCH_BYTES = 60 * 1024 * 1024
 # File hasil sandbox yang boleh diserahkan ke user. Laporan teks (.txt/.md/.doc) TIDAK pernah diserahkan:
 # laporan selalu lewat generate_custom_report (Argon + template PTPL, HTML/PDF/PowerPoint).
-DELIVERABLE_EXT = (".csv", ".xlsx", ".xls", ".png", ".jpg", ".jpeg", ".svg", ".json", ".parquet", ".zip")          # batas aman per request (sandbox menerima maks. 100 MB per request)
+DELIVERABLE_EXT = (".csv", ".xlsx", ".xlsm", ".xls", ".docx", ".pptx", ".pdf", ".png", ".jpg", ".jpeg", ".svg", ".json",
+                   ".parquet", ".zip")          # batas aman per request (sandbox menerima maks. 100 MB per request)
 _FILES_FIELD = {"value": "content"}     # nama field isi file pada execute_code; diuji otomatis ("content"/"contents")
 
 
@@ -137,8 +138,28 @@ def csv_name(file_id: str, filename: str, sheet: str = "") -> str:
     return f"{file_id}_{base}{sh}.csv"
 
 
+def orig_name(file_id: str, filename: str) -> str:
+    base = re.sub(r"[^A-Za-z0-9._-]+", "_", filename).strip("_")[:80] or "file"
+    return f"{file_id}_{base}"
+
+
+def doc_input_files(docs: list[dict]) -> list[dict]:
+    """Dokumen asli (Word/PowerPoint/PDF/gambar/dll.) untuk dibaca atau diedit di sandbox."""
+    from .clients import parse_gcs_uri, storage_client
+
+    out = []
+    for d in docs:
+        try:
+            bucket, path = parse_gcs_uri(d["uri"])
+            out.append({"name": orig_name(d["doc_id"], d["filename"]), "file_id": d["doc_id"],
+                        "content": storage_client().bucket(bucket).blob(path).download_as_bytes()})
+        except Exception:  # noqa: BLE001
+            logger.warning("Dokumen %s tidak bisa dikirim ke sandbox", d.get("doc_id"), exc_info=True)
+    return out
+
+
 def input_files(data_files: list[dict]) -> list[dict]:
-    """File data chat -> [{'name','content','file_id'}] sebagai CSV (Excel: satu CSV per sheet)."""
+    """File data chat -> CSV (Excel: satu CSV per sheet) + file Excel ASLI (untuk diedit/dibaca rumusnya)."""
     import pandas as pd
 
     from .clients import parse_gcs_uri, storage_client
@@ -149,6 +170,7 @@ def input_files(data_files: list[dict]) -> list[dict]:
         raw = storage_client().bucket(bucket).blob(path).download_as_bytes()
         name = f["filename"].lower()
         if name.endswith((".xlsx", ".xlsm", ".xls")):
+            out.append({"name": orig_name(f["file_id"], f["filename"]), "file_id": f["file_id"], "content": raw})
             sheets = pd.read_excel(io.BytesIO(raw), sheet_name=None)
             for sheet, df in sheets.items():
                 label = sheet if len(sheets) > 1 else ""
@@ -271,7 +293,8 @@ def run(code: str, purpose: str, tool_context) -> dict[str, Any]:
     client = _client()
     info = ensure_sandbox(tool_context.state, client)
     data_files = tool_context.state.get("data_files", []) or []
-    files = _pending(info, data_files)
+    docs = tool_context.state.get("documents", []) or []
+    files = _pending(info, data_files, docs)
     t0 = time.time()
     try:
         resp = _execute_batched(client, info["name"], code, files)
@@ -282,7 +305,7 @@ def run(code: str, purpose: str, tool_context) -> dict[str, Any]:
             raise
         tool_context.state[SANDBOX_KEY] = None              # sandbox kedaluwarsa -> buat ulang & kirim ulang file
         info = ensure_sandbox(tool_context.state, client)
-        files = _pending(info, data_files)
+        files = _pending(info, data_files, docs)
         resp = _execute_batched(client, info["name"], code, files)
     seconds = time.time() - t0
     usd = usage.record_sandbox(user, seconds)
@@ -313,9 +336,15 @@ def run(code: str, purpose: str, tool_context) -> dict[str, Any]:
             "biaya_sandbox_langkah_usd": round(usd, 5)}
 
 
-def _pending(info: dict, data_files: list[dict]) -> list[dict]:
-    pending = [f for f in data_files if f["file_id"] not in info.get("uploaded", [])]
-    return input_files(pending) if pending else []
+_STATE_DOCS: dict = {}
+
+
+def _pending(info: dict, data_files: list[dict], docs: list[dict] | None = None) -> list[dict]:
+    done = set(info.get("uploaded", []))
+    pending = [f for f in data_files if f["file_id"] not in done]
+    files = input_files(pending) if pending else []
+    pdocs = [d for d in (docs or []) if d["doc_id"] not in done]
+    return files + (doc_input_files(pdocs) if pdocs else [])
 
 
 def _mark_uploaded(state, info: dict, files: list[dict]) -> None:
@@ -345,15 +374,19 @@ def prepare(tool_context) -> dict[str, Any]:
     if budget["exceeded"]:
         return {"status": "budget_limit", "message": f"Batas biaya harian (USD {budget['budget_usd']:g}) sudah tercapai."}
     data_files = tool_context.state.get("data_files", []) or []
-    if not data_files:
-        return {"status": "no_files", "message": "Belum ada file CSV/Excel di chat ini."}
+    docs = tool_context.state.get("documents", []) or []
+    if not data_files and not docs:
+        return {"status": "no_files", "message": "Belum ada file di chat ini."}
     client = _client()
     info = ensure_sandbox(tool_context.state, client)
-    files = _pending(info, data_files)
+    files = _pending(info, data_files, docs)
     probe = ("import os, pandas as pd\n"
-             "for n in sorted(f for f in os.listdir('.') if f.endswith('.csv')):\n"
-             "    df = pd.read_csv(n, nrows=5, low_memory=False)\n"
-             "    print(n, '|', sum(1 for _ in open(n, encoding='utf-8', errors='ignore')) - 1, 'baris |', ', '.join(map(str, df.columns))[:1500])")
+             "for n in sorted(os.listdir('.')):\n"
+             "    if n.endswith('.csv'):\n"
+             "        df = pd.read_csv(n, nrows=5, low_memory=False)\n"
+             "        print(n, '|', sum(1 for _ in open(n, encoding='utf-8', errors='ignore')) - 1, 'baris |', ', '.join(map(str, df.columns))[:1500])\n"
+             "    elif os.path.isfile(n):\n"
+             "        print(n, '|', os.path.getsize(n), 'byte (file asli)')")
     t0 = time.time()
     try:
         resp = _execute_batched(client, info["name"], probe, files)
@@ -363,5 +396,5 @@ def prepare(tool_context) -> dict[str, Any]:
     _mark_uploaded(tool_context.state, info, files)
     out = parse_response(resp, {f["name"] for f in info.get("files", [])})
     return {"status": "ok", "sandbox_siap": True, "file_di_sandbox": out["stdout"][:6000] or "(tidak ada file CSV)",
-            "stderr": out["stderr"][-2000:], "catatan": "Baca file dengan pd.read_csv('<nama file>') di direktori kerja. "
-                                                     "Excel sudah dikonversi: satu CSV per sheet."}
+            "stderr": out["stderr"][-2000:], "catatan": "Data: pd.read_csv('<nama>.csv') (Excel dikonversi: satu CSV per "
+                                                     "sheet). File asli (xlsx/pptx/docx/pdf) tersedia untuk diedit/dibaca."}

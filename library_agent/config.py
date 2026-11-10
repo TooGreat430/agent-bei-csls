@@ -112,6 +112,11 @@ class Settings:
     # model_fast: router & agent data BigQuery. model_pro: model utama (analisis file, laporan, narasi).
     model_fast: str = field(default_factory=lambda: _env("LIB_MODEL_FAST", "gemini-3.5-flash"))
     model_pro: str = field(default_factory=lambda: _env("LIB_MODEL_PRO", "gemini-4-argon"))
+    # Claude (Anthropic via Vertex AI) untuk TUGAS BERAT: analisis file + skill, agent laporan, penulisan laporan.
+    model_claude: str = field(default_factory=lambda: _env("LIB_MODEL_CLAUDE", "claude-opus-5-5"))
+    claude_region: str = field(default_factory=lambda: _env("LIB_CLAUDE_REGION", "global"))
+    # "claude" (default) | "gemini" — bisa diubah di settings.json tanpa deploy (heavy_model)
+    heavy_model: str = field(default_factory=lambda: _env("LIB_HEAVY_MODEL", "claude"))
     # Cadangan saat kapasitas model penuh (429/503), urut dicoba: "model@lokasi"
     model_fallbacks: tuple = field(default_factory=lambda: tuple(x.strip() for x in _env(
         "LIB_MODEL_FALLBACKS", "pro@global,fast@global").split(",") if x.strip()))   # "pro"/"fast" = LIB_MODEL_PRO/FAST
@@ -146,6 +151,9 @@ class Settings:
     price_fast_input: float = field(default_factory=lambda: float(_env("LIB_PRICE_FAST_INPUT", "0.5")))
     price_fast_output: float = field(default_factory=lambda: float(_env("LIB_PRICE_FAST_OUTPUT", "3.0")))
     price_fast_cached: float = field(default_factory=lambda: float(_env("LIB_PRICE_FAST_CACHED", "0.05")))
+    price_claude_input: float = field(default_factory=lambda: float(_env("LIB_PRICE_CLAUDE_INPUT", "4.0")))
+    price_claude_output: float = field(default_factory=lambda: float(_env("LIB_PRICE_CLAUDE_OUTPUT", "20.0")))
+    price_claude_cached: float = field(default_factory=lambda: float(_env("LIB_PRICE_CLAUDE_CACHED", "0.4")))
     price_sandbox_vcpu_hour: float = field(default_factory=lambda: float(_env("LIB_PRICE_SANDBOX_VCPU_HOUR", "0.0864")))
     price_sandbox_gib_hour: float = field(default_factory=lambda: float(_env("LIB_PRICE_SANDBOX_GIB_HOUR", "0.009")))
     sandbox_vcpu: float = field(default_factory=lambda: float(_env("LIB_SANDBOX_VCPU", "4")))
@@ -183,6 +191,10 @@ RUNTIME_KEYS: dict[str, type] = {
     "planogram_default_period": str,
     "planogram_carry_ratio_line": float,
     "model_fallbacks": CaseList,
+    "heavy_model": str,
+    "price_claude_input": float,
+    "price_claude_output": float,
+    "price_claude_cached": float,
     "budget_daily_usd": float,
     "budget_monthly_usd": float,
     "budget_warn_pct": float,

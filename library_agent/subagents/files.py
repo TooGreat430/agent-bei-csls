@@ -6,7 +6,7 @@ from google.adk.agents import LlmAgent
 
 from ..callbacks import capture_uploads, sanitize_request, data_after_agent, verify_numbers
 from ..config import settings
-from ..llm import make_model
+from ..llm import make_heavy_model, make_model
 from ..usage import budget_guard, budget_notice, chain, chain_before, record_model_usage
 from ..prompts import file_instruction_provider
 from ..tools.data_tools import (ask_industry_intelligence, ask_planogram_intelligence, ask_retail_intelligence,
@@ -22,7 +22,7 @@ from ..tools.insight_tools import list_insights
 
 file_agent = LlmAgent(
     name="file_agent",
-    model=make_model(settings.model_pro),
+    model=make_heavy_model(),
     description=(
         "Menangani SEMUA file unggahan: dokumen (PDF, Word, PowerPoint, teks, HTML, gambar) dicerna lalu diringkas "
         "beserta usulan langkah berikutnya; file data CSV/Excel (survei retail, industri, planogram, atau umum) "
