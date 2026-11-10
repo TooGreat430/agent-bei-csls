@@ -80,3 +80,12 @@ class ReportTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TableRefTest(unittest.TestCase):
+    def test_full_refs_from_definition(self):
+        published = {"datasourceReferences": {"bq": {"tableReferences": [
+            {"projectId": "ptpl-curated-prd", "datasetId": "SALES", "tableId": "SALES_OUT_DAILY"},
+            {"projectId": "ptpl-curated-prd", "datasetId": "SALES", "tableId": "AC_PARAMETER"}]}}}
+        self.assertEqual(knowledge.table_refs(published), ["ptpl-curated-prd.SALES.AC_PARAMETER",
+                                                           "ptpl-curated-prd.SALES.SALES_OUT_DAILY"])

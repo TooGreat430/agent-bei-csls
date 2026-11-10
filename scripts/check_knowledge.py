@@ -19,6 +19,8 @@ def show(domain, data):
     print(f"[{domain}] sumber={data.get('source', '-')} agent={data.get('agent', '-')}")
     print(f"   instruksi={len(data.get('instruction', ''))} karakter · glossary={len(data.get('glossary', []))} · "
           f"contoh query={len(data.get('examples', []))} · tabel={', '.join(data.get('tables', [])) or '-'}")
+    for ref in data.get("table_refs") or []:
+        print(f"      - {ref}")
 
 
 def outline(node, path="", depth=0, out=None):

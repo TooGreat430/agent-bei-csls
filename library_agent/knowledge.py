@@ -104,7 +104,27 @@ def _parse_context(published: dict) -> dict[str, Any]:
     for t in _find(published, "table_info"):
         tables.extend(x for x in (t if isinstance(t, list) else [t]) if isinstance(x, str))
     return {"instruction": "\n\n".join(instructions), "glossary": glossary, "examples": examples,
-            "tables": sorted(set(tables))}
+            "tables": sorted(set(tables)), "table_refs": table_refs(published)}
+
+
+def table_refs(node: Any) -> list[str]:
+    """Alamat lengkap tabel (project.dataset.table) dari referensi BigQuery di definisi Data Agent."""
+    out: set[str] = set()
+
+    def walk(x):
+        if isinstance(x, dict):
+            t = x.get("tableId") or x.get("table_id")
+            if isinstance(t, str):
+                p = x.get("projectId") or x.get("project_id") or ""
+                d = x.get("datasetId") or x.get("dataset_id") or ""
+                out.add(".".join(v for v in (p, d, t) if v))
+            for v in x.values():
+                walk(v)
+        elif isinstance(x, list):
+            for v in x:
+                walk(v)
+    walk(node)
+    return sorted(out)
 
 
 def fetch_raw(agent: str) -> dict:
@@ -255,7 +275,8 @@ def table_columns(domain: str) -> set[str]:
     try:
         from .clients import bigquery_client
 
-        for t in (get(domain).get("tables") or [])[:6]:
+        k = get(domain)
+        for t in (k.get("table_refs") or k.get("tables") or [])[:6]:
             ref = str(t).replace(":", ".").strip("`")
             if ref.count(".") == 2:
                 cols |= {f.name.upper() for f in bigquery_client().get_table(ref).schema}
