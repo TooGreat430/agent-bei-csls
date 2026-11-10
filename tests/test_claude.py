@@ -156,3 +156,25 @@ class ReportWritingTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SdkCompatTest(unittest.TestCase):
+    def test_unknown_kwarg_dropped_and_none_not_sent(self):
+        calls = []
+
+        class Api:
+            def create(self, *, model, max_tokens, messages, system=None, tools=None):
+                calls.append({"system": system, "tools": tools})
+                return NS(content=[NS(type="text", text="ok")], usage=None)
+        out = llm_claude.create_sync(Api(), model="m", max_tokens=10, temperature=0.2, system="", tools=[],
+                                     messages=[{"role": "user", "content": "hi"}])
+        self.assertEqual(out.content[0].text, "ok")
+        self.assertEqual(calls, [{"system": None, "tools": None}])        # temperature dibuang, kosong tidak dikirim
+
+    def test_async_variant(self):
+        class Api:
+            async def create(self, *, model, max_tokens, messages):
+                return NS(content=[NS(type="text", text="ok")], usage=None)
+        out = asyncio.run(llm_claude.create_async(Api(), model="m", max_tokens=10, messages=[], temperature=1,
+                                                  system="sys"))
+        self.assertEqual(out.content[0].text, "ok")

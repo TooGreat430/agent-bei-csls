@@ -178,6 +178,46 @@ def _tag(resp, model_label: str) -> None:
         pass
 
 
+_BAD_KW = re.compile(r"unexpected keyword argument '([A-Za-z_]+)'")
+
+
+REQUIRED = ("model", "max_tokens", "messages")
+
+
+def _clean_kwargs(**kw) -> dict:
+    """Parameter opsional hanya dikirim bila terisi (SDK menolak None untuk system/tools); parameter wajib selalu ada."""
+    return {k: v for k, v in kw.items() if k in REQUIRED or v not in (None, [], "")}
+
+
+async def create_async(messages_api, **kw):
+    """messages.create yang tahan perbedaan versi SDK: parameter yang tidak dikenal dibuang lalu dicoba ulang."""
+    kw = _clean_kwargs(**kw)
+    for _ in range(4):
+        try:
+            return await messages_api.create(**kw)
+        except TypeError as exc:
+            m = _BAD_KW.search(str(exc))
+            if not m or m.group(1) not in kw or m.group(1) in REQUIRED:
+                raise
+            logger.warning("SDK Anthropic tidak menerima parameter '%s'; dikirim tanpa parameter itu", m.group(1))
+            kw.pop(m.group(1))
+    return await messages_api.create(**kw)
+
+
+def create_sync(messages_api, **kw):
+    kw = _clean_kwargs(**kw)
+    for _ in range(4):
+        try:
+            return messages_api.create(**kw)
+        except TypeError as exc:
+            m = _BAD_KW.search(str(exc))
+            if not m or m.group(1) not in kw or m.group(1) in REQUIRED:
+                raise
+            logger.warning("SDK Anthropic tidak menerima parameter '%s'; dikirim tanpa parameter itu", m.group(1))
+            kw.pop(m.group(1))
+    return messages_api.create(**kw)
+
+
 def anthropic_client():
     from anthropic import AsyncAnthropicVertex
 
@@ -199,9 +239,10 @@ class ClaudeVertex(BaseLlm):
     async def generate_content_async(self, llm_request, stream: bool = False):
         if use_claude():
             try:
-                message = await anthropic_client().messages.create(
-                    model=self.model, max_tokens=MAX_TOKENS, system=_system_text(llm_request) or None,
-                    messages=messages_param(llm_request), tools=tools_param(llm_request) or None)
+                message = await create_async(
+                    anthropic_client().messages, model=self.model, max_tokens=MAX_TOKENS,
+                    system=_system_text(llm_request), messages=messages_param(llm_request),
+                    tools=tools_param(llm_request))
                 yield to_llm_response(message, self.model)
                 return
             except Exception as exc:  # noqa: BLE001
@@ -247,13 +288,13 @@ class ClaudeVertex(BaseLlm):
 # ==========================================================================
 # Penulisan laporan (panggilan langsung, bukan percakapan)
 # ==========================================================================
-def complete(prompt: str, max_tokens: int = 32000, temperature: float = 0.2) -> tuple[str, dict]:
+def complete(prompt: str, max_tokens: int = 32000, temperature: float | None = None) -> tuple[str, dict]:
     """Satu panggilan Claude (sinkron) -> (teks, usage). Melempar error bila gagal; pemanggil yang menangani cadangan."""
     from anthropic import AnthropicVertex
 
     client = AnthropicVertex(project_id=settings.project_id, region=settings.claude_region)
-    msg = client.messages.create(model=settings.model_claude, max_tokens=max_tokens, temperature=temperature,
-                                 messages=[{"role": "user", "content": prompt}])
+    msg = create_sync(client.messages, model=settings.model_claude, max_tokens=max_tokens, temperature=temperature,
+                      messages=[{"role": "user", "content": prompt}])
     text = "".join(b.text for b in msg.content if getattr(b, "type", "") == "text")
     u = getattr(msg, "usage", None)
     usage = {"input": int(getattr(u, "input_tokens", 0) or 0), "output": int(getattr(u, "output_tokens", 0) or 0),

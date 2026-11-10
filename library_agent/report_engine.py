@@ -112,7 +112,7 @@ def _claude_first(prompt: str, temperature: float = 0.2) -> str | None:
 
     for attempt in (1, 2):
         try:
-            text, u = complete(prompt, temperature=temperature)
+            text, u = complete(prompt)
             usage.record_direct(settings.model_claude, u["input"] + u["cached"], u["cached"], u["output"])
             return text
         except Exception as exc:  # noqa: BLE001
