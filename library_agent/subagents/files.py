@@ -13,6 +13,7 @@ from ..tools.data_tools import (ask_industry_intelligence, ask_planogram_intelli
                                 create_chart, save_data_insight)
 from ..tools.code_tools import CODE_TOOLS
 from ..tools.chart_insight_tools import CHART_INSIGHT_TOOLS
+from ..tools.strategy_tools import STRATEGY_TOOLS
 from ..tools.doc_tools import DOC_TOOLS
 from ..tools.export_tools import EXPORT_TOOLS
 from ..tools.report_tools import (approve_report, generate_battlefield_report, generate_custom_report,
@@ -30,7 +31,7 @@ file_agent = LlmAgent(
         "dianalisis setelah menyerap pengetahuan Data Agent yang sesuai: profil, cross-tab, gabung file, grafik, insight."
     ),
     instruction=file_instruction_provider,
-    tools=[*FILE_TOOLS, *CHART_INSIGHT_TOOLS, *DOC_TOOLS, *EXPORT_TOOLS, *CODE_TOOLS,
+    tools=[*FILE_TOOLS, *CHART_INSIGHT_TOOLS, *STRATEGY_TOOLS, *DOC_TOOLS, *EXPORT_TOOLS, *CODE_TOOLS,
            # laporan langsung dari hasil analisis file (tanpa harus pindah agent): base template PTPL, ditulis Argon
            list_report_options, generate_custom_report, revise_custom_report, approve_report, konversi_laporan_custom,
            generate_price_dashboard, generate_industry_report, generate_planogram_report, generate_battlefield_report, create_chart, save_data_insight, ask_retail_intelligence, ask_industry_intelligence,

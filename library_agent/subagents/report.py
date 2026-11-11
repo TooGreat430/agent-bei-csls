@@ -6,6 +6,7 @@ from ..config import settings
 from ..llm import make_heavy_model, make_model
 from ..usage import budget_guard, budget_notice, chain, chain_before, record_model_usage
 from ..prompts import REPORT_INSTRUCTION, with_agent_name
+from ..tools.strategy_tools import STRATEGY_TOOLS
 from ..tools.doc_tools import DOC_TOOLS
 from ..tools.export_tools import EXPORT_TOOLS
 from ..tools.file_tools import list_data_files
@@ -22,7 +23,7 @@ report_agent = LlmAgent(
         "disetujui); termasuk contoh tampilan, revisi, dan approval laporan."
     ),
     instruction=with_agent_name(REPORT_INSTRUCTION, uploads=True),
-    tools=[*REPORT_TOOLS, list_insights, list_data_files, *DOC_TOOLS, *EXPORT_TOOLS],
+    tools=[*REPORT_TOOLS, *STRATEGY_TOOLS, list_insights, list_data_files, *DOC_TOOLS, *EXPORT_TOOLS],
     before_agent_callback=capture_uploads,
     before_model_callback=chain_before(budget_guard, sanitize_request),
     after_model_callback=chain(record_model_usage, budget_notice),

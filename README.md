@@ -53,7 +53,7 @@ library_agent/
   price_*.py, dashboard_render.py, industry_*.py   template retail & industri (tidak berubah)
 scripts/   update_agent.sh (redeploy di tempat), deploy_agent_engine.py, check_knowledge.py, enable_user_auth.py
 setup/settings.json              nilai awal pengaturan tanpa deploy
-tests/                           223 uji unit (tanpa GCP)
+tests/                           234 uji unit (tanpa GCP)
 ```
 
 ## Template planogram
@@ -128,6 +128,18 @@ Sumber: BigQuery (default) atau dua file unggahan (`retail_file_id` + `planogram
   dibangun DI DALAM template itu (head, CSS, dan script template dipertahankan; model hanya menulis isi body dengan
   struktur & class template). Revisi dan approve tetap berlaku.
 - Belum didukung: `.doc`/`.ppt` lama (minta simpan ulang sebagai DOCX/PPTX/PDF), skor kuantil khusus (mis. RFM).
+
+## Kerangka analisis Strategist Toolkit (v3.4)
+
+Seluruh kerangka pptx *Overnight Strategist – Strategist Toolkit* tersedia sebagai skill (`skills/strategist.md`,
+68 kerangka: Define, Split, Analyse kuantitatif & kualitatif, Insight, Story, Decide, Act) lewat `panduan_kerangka`,
+dan kerangka visual digambar dengan `buat_diagram` (`strategy_diagrams.py`: panel, driver/hypothesis tree, 5 Whys,
+yes/no flow, tabel & heat table, one pager, tri-column, chevron, gantt, 2×2/Eisenhower/ABCD, 3×3, from:to,
+pyramid/Minto, decision tree, pros & cons, evaluation). Nilai harapan (decision tree) dan skor berbobot (evaluation)
+**dihitung kode**. Agent memilih kerangka otomatis sesuai jenis pertanyaan: "kenapa" → driver tree + 5 Whys; "masalah
+utamanya apa" → SCQ/Outcome + hypothesis; "apa yang harus dilakukan" → pros & cons / evaluation / decision tree +
+Eisenhower; "bagaimana eksekusinya" → execution plan/chevron; "ringkas untuk management" → Minto + MECE / one pager.
+Hipotesis & asumsi (bobot, skor, peluang yang bukan dari data) disebut asalnya. Diagram ikut menjadi bahan laporan.
 
 ## Insight otomatis + korelasi (v3.3) — Strategist Toolkit
 
@@ -324,7 +336,7 @@ Berlaku maks. 5 menit kemudian. `update_agent.sh` menambahkan kunci baru tanpa m
 ## Uji lokal
 
 ```bash
-python -m unittest discover tests      # 223 uji, tanpa GCP
+python -m unittest discover tests      # 234 uji, tanpa GCP
 ```
 
 ## Log diagnostik (unggahan file & error)

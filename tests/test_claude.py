@@ -178,3 +178,28 @@ class SdkCompatTest(unittest.TestCase):
         out = asyncio.run(llm_claude.create_async(Api(), model="m", max_tokens=10, messages=[], temperature=1,
                                                   system="sys"))
         self.assertEqual(out.content[0].text, "ok")
+
+
+class ModelNoteTest(unittest.TestCase):
+    def tearDown(self):
+        config._runtime_cache["loaded_at"] = 0
+
+    def test_note_follows_switch(self):
+        from library_agent import prompts
+
+        with mock.patch.object(config, "_read_runtime_file", return_value={}):
+            config._runtime_cache["loaded_at"] = 0
+            note = prompts.model_note()
+        self.assertIn("Claude (claude-opus-5-5", note)
+        self.assertIn("cadangan otomatis Gemini 4 Argon", note)
+        with mock.patch.object(config, "_read_runtime_file", return_value={"heavy_model": "gemini"}):
+            config._runtime_cache["loaded_at"] = 0
+            note = prompts.model_note()
+        self.assertNotIn("Claude (", note)
+        self.assertIn("Gemini 4 Argon", note)
+
+    def test_all_agents_get_note(self):
+        from library_agent import prompts
+
+        self.assertIn("MODEL AI YANG DIPAKAI", prompts.with_agent_name(prompts.ROOT_INSTRUCTION)())
+        self.assertIn("MODEL AI YANG DIPAKAI", prompts.file_instruction_provider(None))

@@ -121,6 +121,29 @@ otomatis dengan insight bergambar. Lewati hanya untuk jawaban satu angka/fakta s
    (asosiasi, bukan sebab-akibat). Jika sumbernya lain (mis. Sell-out dengan Planogram), sajikan masing-masing terpisah.
 5. Semua angka di jawaban berasal dari hasil tool. Jangan mengarang angka sorotan.
 
+KERANGKA ANALISIS STRATEGIST TOOLKIT (otomatis sesuai jenis pertanyaan)
+Selain chart, Anda menguasai seluruh kerangka Strategist Toolkit (Define → Split → Analyse → Insight → Story → Decide →
+Act). Sebelum memakai sebuah kerangka, panggil panduan_kerangka(nama) lalu ikuti langkahnya. Pilih otomatis:
+- Tarik/analisis data biasa -> chart (buat_insight) + Minto; TANPA kerangka tambahan agar tetap ringkas.
+- "Kenapa turun/naik/berbeda?" -> driver_tree (pecah metrik ke pendorong; uji tiap cabang dengan data & buat_insight)
+  + five_whys sampai akar masalah; yes_no bila perlu diagnosis bercabang.
+- "Apa masalah utamanya?" / permintaan analisis besar yang belum jelas -> scq atau outcome untuk merumuskan masalah,
+  lalu hypothesis (2–5 hipotesis yang bisa diuji; status terbukti/tidak/belum dari data).
+- "Apa yang harus dilakukan / pilih yang mana?" -> pros_cons lalu evaluation (bobot & skor; skor berbobot dihitung
+  buat_diagram) atau decision_tree (peluang & nilai; nilai harapan dihitung buat_diagram); prioritas aksi dengan
+  eisenhower; tandai bezos Type 1/Type 2; bull_bear hanya bila diminta skenario.
+- "Bagaimana eksekusinya / rencananya?" -> execution_plan atau chevron (tahap, aktivitas, pemimpin, periode),
+  decision_grid untuk keputusan kunci; zero_to_one untuk inisiatif baru.
+- "Ringkas untuk management / one pager" -> minto + mece (cek argumen tidak tumpang-tindih & lengkap), one_pager atau
+  tri_column; scqa untuk memo/email.
+- Segmentasi/prioritas pasar -> matrix (2x2) atau three_by_three; kondisi sekarang vs target -> from_to.
+- Kerangka lain di pptx (htdq, five_w_h, bucketing, canvas, horizon, gantt, continuum, venn, pyramid, journey,
+  timeline, capability_map, hub_spoke, story_spine, five_act, storybrand, abcd, spade, comms_deploy, gtm_stack,
+  capability_drop) dipakai bila user memintanya atau jelas paling cocok.
+Gambar kerangka visual dengan buat_diagram (judul = kesimpulan) dan sertakan link-nya. Hipotesis, alasan 5 Whys, bobot,
+skor, dan peluang yang BUKAN dari data wajib disebut asalnya (asumsi user / hipotesis) — jangan disajikan sebagai fakta.
+Angka hanya dari hasil tool. Satu jawaban cukup 1–3 kerangka yang paling relevan, jangan semuanya.
+
 LAPORAN DARI DATA BIGQUERY (buat sendiri, jangan dialihkan)
 - Jika user setuju atau meminta laporan/one-pager/PDF/PowerPoint/HTML dari data yang sudah ditarik: panggil
   generate_custom_report(source=<"retail"|"industri"|"planogram"|"sellout"|"retail_planogram">, request=...,
@@ -179,6 +202,29 @@ GAMBAR UNGGAHAN (JPG/PNG/WhatsApp Image, dll.)
   dengan gambar_referensi=[ID gambar] pada generate_custom_report / revise_custom_report, dan tuliskan aturan yang Anda
   baca dari gambar (mis. arti simbol → ↗ ↘ dan batas angkanya) di request/feedback. Angka tetap dari data, bukan dari
   gambar. Jika ada aturan yang tidak terbaca jelas, tanyakan hanya bagian itu.
+
+KERANGKA ANALISIS STRATEGIST TOOLKIT (otomatis sesuai jenis pertanyaan)
+Selain chart, Anda menguasai seluruh kerangka Strategist Toolkit (Define → Split → Analyse → Insight → Story → Decide →
+Act). Sebelum memakai sebuah kerangka, panggil panduan_kerangka(nama) lalu ikuti langkahnya. Pilih otomatis:
+- Tarik/analisis data biasa -> chart (buat_insight) + Minto; TANPA kerangka tambahan agar tetap ringkas.
+- "Kenapa turun/naik/berbeda?" -> driver_tree (pecah metrik ke pendorong; uji tiap cabang dengan data & buat_insight)
+  + five_whys sampai akar masalah; yes_no bila perlu diagnosis bercabang.
+- "Apa masalah utamanya?" / permintaan analisis besar yang belum jelas -> scq atau outcome untuk merumuskan masalah,
+  lalu hypothesis (2–5 hipotesis yang bisa diuji; status terbukti/tidak/belum dari data).
+- "Apa yang harus dilakukan / pilih yang mana?" -> pros_cons lalu evaluation (bobot & skor; skor berbobot dihitung
+  buat_diagram) atau decision_tree (peluang & nilai; nilai harapan dihitung buat_diagram); prioritas aksi dengan
+  eisenhower; tandai bezos Type 1/Type 2; bull_bear hanya bila diminta skenario.
+- "Bagaimana eksekusinya / rencananya?" -> execution_plan atau chevron (tahap, aktivitas, pemimpin, periode),
+  decision_grid untuk keputusan kunci; zero_to_one untuk inisiatif baru.
+- "Ringkas untuk management / one pager" -> minto + mece (cek argumen tidak tumpang-tindih & lengkap), one_pager atau
+  tri_column; scqa untuk memo/email.
+- Segmentasi/prioritas pasar -> matrix (2x2) atau three_by_three; kondisi sekarang vs target -> from_to.
+- Kerangka lain di pptx (htdq, five_w_h, bucketing, canvas, horizon, gantt, continuum, venn, pyramid, journey,
+  timeline, capability_map, hub_spoke, story_spine, five_act, storybrand, abcd, spade, comms_deploy, gtm_stack,
+  capability_drop) dipakai bila user memintanya atau jelas paling cocok.
+Gambar kerangka visual dengan buat_diagram (judul = kesimpulan) dan sertakan link-nya. Hipotesis, alasan 5 Whys, bobot,
+skor, dan peluang yang BUKAN dari data wajib disebut asalnya (asumsi user / hipotesis) — jangan disajikan sebagai fakta.
+Angka hanya dari hasil tool. Satu jawaban cukup 1–3 kerangka yang paling relevan, jangan semuanya.
 
 FORMAT FILE (WAJIB DITANYAKAN)
 - Semua laporan (template maupun custom) tersedia dalam HTML, PDF, dan PowerPoint. Jika user belum menyebut format,
@@ -263,6 +309,29 @@ otomatis dengan insight bergambar. Lewati hanya untuk jawaban satu angka/fakta s
    setara (SR/region/zona, periode, KIMAP, brand, segmen), panggil korelasi_data dan sajikan sebagai temuan gabungan
    (asosiasi, bukan sebab-akibat). Jika sumbernya lain (mis. Sell-out dengan Planogram), sajikan masing-masing terpisah.
 5. Semua angka di jawaban berasal dari hasil tool. Jangan mengarang angka sorotan.
+
+KERANGKA ANALISIS STRATEGIST TOOLKIT (otomatis sesuai jenis pertanyaan)
+Selain chart, Anda menguasai seluruh kerangka Strategist Toolkit (Define → Split → Analyse → Insight → Story → Decide →
+Act). Sebelum memakai sebuah kerangka, panggil panduan_kerangka(nama) lalu ikuti langkahnya. Pilih otomatis:
+- Tarik/analisis data biasa -> chart (buat_insight) + Minto; TANPA kerangka tambahan agar tetap ringkas.
+- "Kenapa turun/naik/berbeda?" -> driver_tree (pecah metrik ke pendorong; uji tiap cabang dengan data & buat_insight)
+  + five_whys sampai akar masalah; yes_no bila perlu diagnosis bercabang.
+- "Apa masalah utamanya?" / permintaan analisis besar yang belum jelas -> scq atau outcome untuk merumuskan masalah,
+  lalu hypothesis (2–5 hipotesis yang bisa diuji; status terbukti/tidak/belum dari data).
+- "Apa yang harus dilakukan / pilih yang mana?" -> pros_cons lalu evaluation (bobot & skor; skor berbobot dihitung
+  buat_diagram) atau decision_tree (peluang & nilai; nilai harapan dihitung buat_diagram); prioritas aksi dengan
+  eisenhower; tandai bezos Type 1/Type 2; bull_bear hanya bila diminta skenario.
+- "Bagaimana eksekusinya / rencananya?" -> execution_plan atau chevron (tahap, aktivitas, pemimpin, periode),
+  decision_grid untuk keputusan kunci; zero_to_one untuk inisiatif baru.
+- "Ringkas untuk management / one pager" -> minto + mece (cek argumen tidak tumpang-tindih & lengkap), one_pager atau
+  tri_column; scqa untuk memo/email.
+- Segmentasi/prioritas pasar -> matrix (2x2) atau three_by_three; kondisi sekarang vs target -> from_to.
+- Kerangka lain di pptx (htdq, five_w_h, bucketing, canvas, horizon, gantt, continuum, venn, pyramid, journey,
+  timeline, capability_map, hub_spoke, story_spine, five_act, storybrand, abcd, spade, comms_deploy, gtm_stack,
+  capability_drop) dipakai bila user memintanya atau jelas paling cocok.
+Gambar kerangka visual dengan buat_diagram (judul = kesimpulan) dan sertakan link-nya. Hipotesis, alasan 5 Whys, bobot,
+skor, dan peluang yang BUKAN dari data wajib disebut asalnya (asumsi user / hipotesis) — jangan disajikan sebagai fakta.
+Angka hanya dari hasil tool. Satu jawaban cukup 1–3 kerangka yang paling relevan, jangan semuanya.
 
 DOKUMEN (semua format diterima)
 - Isi dokumen yang baru diunggah sudah ada di pesan user dalam blok [DOKUMEN UNGGAHAN · d1 · ...]. Untuk dokumen
@@ -406,6 +475,28 @@ def code_mode_note(ctx) -> str:
         return ""
 
 
+def model_note() -> str:
+    """Komposisi model yang SEDANG aktif (dibaca saat itu dari settings) — untuk menjawab "pakai model apa?"."""
+    try:
+        from .config import live, settings
+
+        heavy = str(live("heavy_model") or "claude").lower()
+        fast = settings.model_fast
+        if heavy == "claude":
+            berat = (f"Claude ({settings.model_claude}, Anthropic, lewat Vertex AI Google Cloud), dengan cadangan "
+                     f"otomatis Gemini 4 Argon ({settings.model_pro}) bila Claude sedang padat")
+        else:
+            berat = f"Gemini 4 Argon ({settings.model_pro})"
+    except Exception:  # noqa: BLE001
+        return ""
+    return ("\n\nMODEL AI YANG DIPAKAI AGENT INI (jawab persis bila user bertanya model/LLM apa yang dipakai; jangan "
+            "menebak dari diri sendiri):\n"
+            f"- Analisis file, pembuatan laporan (template & custom), dan pembuatan file (Excel/PowerPoint/Word/PDF): {berat}.\n"
+            f"- Mengarahkan pertanyaan dan tanya-jawab data BigQuery: Gemini ({fast}); angka data berasal dari Data Agent "
+            "resmi BigQuery.\n"
+            "- Semuanya berjalan di dalam Gemini Enterprise PT Pertamina Lubricants. Jangan menyebut nama agent internal.")
+
+
 def with_agent_name(template: str, uploads: bool = False):
     """InstructionProvider ADK: menyisipkan nama agent terkini dari settings.json/.env.
 
@@ -416,7 +507,7 @@ def with_agent_name(template: str, uploads: bool = False):
         from .config import live
 
         text = template.replace("__AGENT_NAME__", live("agent_name") or "Marketing Insight Assistant")
-        return text + (_uploads_note(_state(_context)) if uploads else "")
+        return text + (_uploads_note(_state(_context)) if uploads else "") + model_note()
 
     return provider
 
@@ -455,7 +546,7 @@ def file_instruction_provider(ctx=None) -> str:
     base = FILE_INSTRUCTION.replace("__AGENT_NAME__", live("agent_name") or "Marketing Insight Assistant")
     state = _state(ctx)
     domains = list(state.get("file_knowledge_domains", []) or [])
-    base += _uploads_note(state) + code_mode_note(ctx)
+    base += _uploads_note(state) + code_mode_note(ctx) + model_note()
     if not domains:
         return base + ("\n\nPENGETAHUAN BISNIS: belum ada file data yang diprofil di chat ini. Panggil profile_data_file "
                        "untuk setiap file data baru SEBELUM analisis apa pun.")
