@@ -33,7 +33,7 @@ Semua untuk service account **`service-37078813825@gcp-sa-aiplatform-re.iam.gser
 ### B1 — Ambil kode & lihat tabel yang dipakai Data Agent (Cloud Shell)
 
 Ganti isi repo dengan zip ini di laptop (CMD, sama seperti panduan sebelumnya), commit
-`"v3.1: Data Agent Selling Out Intelligence"`, push. Lalu:
+`"v3.2: Sell-out + melihat gambar"`, push. Lalu:
 
 ```bash
 cd ~/agent-bei-csls && git pull && source .venv/bin/activate && pip install -q -r requirements.txt
@@ -58,7 +58,7 @@ Data Viewer pada tabel sell-out.
 find . -name __pycache__ -prune -exec rm -rf {} + && bash scripts/update_agent.sh
 ```
 
-Hasil yang diharapkan: uji `OK` (204 uji), `Selesai.` Data Agent Sell-out ditambahkan otomatis ke `.env`.
+Hasil yang diharapkan: uji `OK` (211 uji), `Selesai.` Data Agent Sell-out ditambahkan otomatis ke `.env`.
 
 ### B4 — (Kapan saja) Tambahkan pengetahuan dari tim MIR
 

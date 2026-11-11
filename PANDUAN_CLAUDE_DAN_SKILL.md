@@ -73,7 +73,7 @@ Hasil yang diharapkan:
 find . -name __pycache__ -prune -exec rm -rf {} + && bash scripts/update_agent.sh
 ```
 
-Hasil yang diharapkan: tampil `Tugas berat: claude-opus-5-5 @ global (cadangan Argon)`, uji `OK` (196 uji), lalu
+Hasil yang diharapkan: tampil `Tugas berat: claude-opus-5-5 @ global (cadangan Argon)`, uji `OK` (211 uji), lalu
 `Selesai.` Jalankan sekali saja, jangan `Ctrl+C`.
 
 ## Langkah 4 — Nyalakan Code Execution (skill file) untuk dua akun
@@ -108,6 +108,7 @@ Tunggu 5 menit.
 | 4 | Unggah sebuah .pptx milik Anda + `Ganti judul slide 1 menjadi "Review Q3 2026" dan perbaiki ejaan di slide 2` | Link file `_revisi.pptx`; agent menyebut perubahan sebelum → sesudah |
 | 5 | `Buatkan laporan one pager PDF dari hasil analisa tadi` | Laporan lewat template PTPL (alat laporan), bukan file buatan sandbox |
 | 6 | Pertanyaan data BigQuery seperti biasa | Jawaban seperti sebelumnya (tetap Data Agent + model cepat) |
+| 7 | Setelah ada laporan custom: unggah gambar contoh tabel (JPG/WhatsApp Image) + gambar keterangan simbol, `Buat laporannya seperti ini, kelompokkan berdasarkan PTPL product name` | Agent menjelaskan isi gambar (kolom, simbol) tanpa bilang tidak bisa melihat; revisi laporan meniru susunan & simbol gambar, angka dari data |
 
 Setelah uji, cek bahwa Claude yang menjawab:
 ```bash

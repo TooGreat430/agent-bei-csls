@@ -101,7 +101,7 @@ def _with_fallback(model: str, call):
     raise RuntimeError(REPORT_BUSY) from last
 
 
-def _claude_first(prompt: str, temperature: float = 0.2) -> str | None:
+def _claude_first(prompt: str, temperature: float = 0.2, images: list | None = None) -> str | None:
     """Tulis dengan Claude bila aktif; None bila Claude tidak aktif/gagal (pemanggil lanjut ke Gemini Argon)."""
     from . import usage
     from .llm_claude import complete, is_capacity_error, use_claude
@@ -112,7 +112,7 @@ def _claude_first(prompt: str, temperature: float = 0.2) -> str | None:
 
     for attempt in (1, 2):
         try:
-            text, u = complete(prompt)
+            text, u = complete(prompt, images=images)
             usage.record_direct(settings.model_claude, u["input"] + u["cached"], u["cached"], u["output"])
             return text
         except Exception as exc:  # noqa: BLE001
@@ -135,10 +135,11 @@ def _record_gemini(response, model: str) -> None:
         usage.record_direct(model, int(getattr(meta, "prompt_token_count", 0) or 0), cached, out)
 
 
-def generate_text(prompt: str, model: str = "", temperature: float = 0.2) -> str:
-    """Teks bebas untuk laporan custom: Claude (bila aktif) lalu cadangan Gemini 4 Argon."""
+def generate_text(prompt: str, model: str = "", temperature: float = 0.2,
+                  images: list[tuple[bytes, str]] | None = None) -> str:
+    """Teks bebas untuk laporan custom: Claude (bila aktif) lalu cadangan Gemini 4 Argon. images: gambar referensi."""
     if not model:
-        text = _claude_first(prompt, temperature)
+        text = _claude_first(prompt, temperature, images)
         if text is not None:
             return text
     from google.genai import types
@@ -147,7 +148,10 @@ def generate_text(prompt: str, model: str = "", temperature: float = 0.2) -> str
 
     model = model or settings.model_pro
     config = types.GenerateContentConfig(temperature=temperature, max_output_tokens=32768)
-    response = _with_fallback(model, lambda client, m: client.models.generate_content(model=m, contents=prompt,
+    contents: list | str = prompt
+    if images:
+        contents = [types.Part.from_bytes(data=data, mime_type=mime) for data, mime in images] + [prompt]
+    response = _with_fallback(model, lambda client, m: client.models.generate_content(model=m, contents=contents,
                                                                                          config=config))
     _record_gemini(response, model)
     return response.text or ""

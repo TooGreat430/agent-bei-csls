@@ -288,13 +288,19 @@ class ClaudeVertex(BaseLlm):
 # ==========================================================================
 # Penulisan laporan (panggilan langsung, bukan percakapan)
 # ==========================================================================
-def complete(prompt: str, max_tokens: int = 32000, temperature: float | None = None) -> tuple[str, dict]:
+def complete(prompt: str, max_tokens: int = 32000, temperature: float | None = None,
+             images: list[tuple[bytes, str]] | None = None) -> tuple[str, dict]:
     """Satu panggilan Claude (sinkron) -> (teks, usage). Melempar error bila gagal; pemanggil yang menangani cadangan."""
     from anthropic import AnthropicVertex
 
     client = AnthropicVertex(project_id=settings.project_id, region=settings.claude_region)
+    content: list | str = prompt
+    if images:
+        content = [{"type": "image", "source": {"type": "base64", "media_type": mime,
+                                                "data": base64.b64encode(data).decode()}} for data, mime in images]
+        content.append({"type": "text", "text": prompt})
     msg = create_sync(client.messages, model=settings.model_claude, max_tokens=max_tokens, temperature=temperature,
-                      messages=[{"role": "user", "content": prompt}])
+                      messages=[{"role": "user", "content": content}])
     text = "".join(b.text for b in msg.content if getattr(b, "type", "") == "text")
     u = getattr(msg, "usage", None)
     usage = {"input": int(getattr(u, "input_tokens", 0) or 0), "output": int(getattr(u, "output_tokens", 0) or 0),

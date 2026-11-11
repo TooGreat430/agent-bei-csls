@@ -818,6 +818,16 @@ def _frame_block(frame) -> str:
     return "\n\n".join(parts)
 
 
+def _reference_images(tool_context: ToolContext, doc_ids: list[str] | None) -> tuple[list, list[str]]:
+    """Gambar referensi (doc_ids) -> ([(bytes, mime)], [doc_id yang terpakai]). Kosong bila tidak ada."""
+    from .. import vision
+
+    if not doc_ids:
+        return [], []
+    loaded = vision.payloads(vision.images_for(tool_context.state, doc_ids))
+    return [(data, mime) for _, data, mime in loaded], [i for i, _, _ in loaded]
+
+
 def _render_and_save(tool_context: ToolContext, title: str, body: str, formats: list[str], template_html: str,
                      record: dict, approved_label: str = "", source: str = "") -> dict[str, dict]:
     """Simpan HTML induk (selalu, untuk revisi/approve) + setiap format yang diminta. -> {format: links}."""
@@ -836,7 +846,8 @@ def _render_and_save(tool_context: ToolContext, title: str, body: str, formats: 
 
 
 def _save_custom(tool_context: ToolContext, result: dict, domain: str, request: str, data_text: str, source: str,
-                 parent: str = "", extra: str = "", template_uri: str = "", formats: list[str] | None = None) -> dict[str, Any]:
+                 parent: str = "", extra: str = "", template_uri: str = "", formats: list[str] | None = None,
+                 image_ids: list[str] | None = None) -> dict[str, Any]:
     formats = formats or ["html"]
     title = result["title"]
     template_html = _gcs_text(template_uri) if template_uri else ""
@@ -854,7 +865,8 @@ def _save_custom(tool_context: ToolContext, result: dict, domain: str, request: 
     rid = f"r{len(reports) + 1}"
     reports.append({"report_id": rid, "title": title, "domain": domain, "request": request, "source": source,
                     "html_uri": links["gcs_uri"], "data_uri": data_uri, "status": "DRAFT", "parent": parent,
-                    "extra_uri": extra_uri, "template_uri": template_uri, "formats": formats})
+                    "extra_uri": extra_uri, "template_uri": template_uri, "formats": formats,
+                    "image_ids": image_ids or []})
     tool_context.state[CUSTOM_KEY] = reports[-10:]
     msg = ("Laporan custom berstatus DRAFT. Minta user meninjau, lalu ketik 'approve' untuk menerbitkan versi FINAL "
            "atau berikan masukan untuk revisi.")
@@ -871,7 +883,8 @@ def _save_custom(tool_context: ToolContext, result: dict, domain: str, request: 
 
 def generate_custom_report(request: str, source: str, tool_context: ToolContext,
                            data_questions: list[str] | None = None, file_id: str = "",
-                           instruction_doc_id: str = "", period: str = "", output_format: str = "") -> dict[str, Any]:
+                           instruction_doc_id: str = "", period: str = "", output_format: str = "",
+                           gambar_referensi: list[str] | None = None) -> dict[str, Any]:
     """Membuat laporan CUSTOM (HTML, gaya design system PTPL) yang disusun model utama sesuai permintaan user,
     memakai prompt laporan MIR (Retail Only / Industry Only / Planogram). Status awal DRAFT.
 
@@ -892,6 +905,8 @@ def generate_custom_report(request: str, source: str, tool_context: ToolContext,
         period: Kuartal utama untuk analisis silang Retail × Planogram (opsional, mis. "2026-Q3").
         output_format: "html", "pdf", "pptx", atau gabungan (mis. "pdf,pptx"). Kosongkan jika user belum memilih —
             tool akan meminta Anda menanyakannya.
+        gambar_referensi: ID gambar unggahan (mis. ["d2", "d3"]) yang menjadi contoh bentuk laporan (tata letak,
+            pengelompokan, simbol). Penulis laporan melihat gambar ini; angka tetap dari data.
     """
     from .. import custom_report as cr
     from .. import data_agent
@@ -983,12 +998,14 @@ def generate_custom_report(request: str, source: str, tool_context: ToolContext,
             extra = document_instructions(instruction_doc_id.strip(), tool_context.state)
             if not extra:
                 return {"status": "error", "message": f"Dokumen {instruction_doc_id} tidak ada atau tidak bisa dibaca."}
-    result = cr.generate(domain, request, data_text, extra_instructions=extra, template_html=template_html)
+    images, image_ids = _reference_images(tool_context, gambar_referensi)
+    result = cr.generate(domain, request, data_text, extra_instructions=extra, template_html=template_html,
+                         images=images)
     if result["status"] == "no_data":
         return {"status": "error", "message": "Data dari sumber tidak berisi angka yang bisa dipakai untuk laporan. "
                                               + result["message"][:200]}
     return _save_custom(tool_context, result, domain, request, data_text, label, extra=extra, template_uri=template_uri,
-                        formats=formats)
+                        formats=formats, image_ids=image_ids)
 
 
 def _find_report(tool_context: ToolContext, report_id: str) -> dict | None:
@@ -998,12 +1015,15 @@ def _find_report(tool_context: ToolContext, report_id: str) -> dict | None:
     return reports[-1] if reports else None
 
 
-def revise_custom_report(feedback: str, tool_context: ToolContext, report_id: str = "") -> dict[str, Any]:
+def revise_custom_report(feedback: str, tool_context: ToolContext, report_id: str = "",
+                         gambar_referensi: list[str] | None = None) -> dict[str, Any]:
     """Menulis ulang laporan CUSTOM dengan masukan user (data sama, status kembali DRAFT).
 
     Args:
-        feedback: Masukan revisi dari user, persis seperti yang diminta.
+        feedback: Masukan revisi dari user, persis seperti yang diminta (termasuk keterangan simbol/aturan bila ada).
         report_id: ID laporan (mis. "r1"); kosongkan untuk laporan custom terakhir.
+        gambar_referensi: ID gambar unggahan yang menjadi contoh bentuk revisi (mis. ["d2", "d3"]). Kosongkan untuk
+            tetap memakai gambar referensi laporan sebelumnya (bila ada).
     """
     from .. import custom_report as cr
 
@@ -1015,12 +1035,14 @@ def revise_custom_report(feedback: str, tool_context: ToolContext, report_id: st
     body = cr.parse_output("```html\n" + html_doc + "\n```", template_mode=bool(template_html))["body"]
     data_text = _gcs_text(rec["data_uri"])
     extra = _gcs_text(rec["extra_uri"]) if rec.get("extra_uri") else ""
+    images, image_ids = _reference_images(tool_context, gambar_referensi or rec.get("image_ids"))
     result = cr.generate(rec["domain"], rec["request"], data_text, previous_body=body, feedback=feedback,
-                         extra_instructions=extra, template_html=template_html)
+                         extra_instructions=extra, template_html=template_html, images=images)
     if result["status"] != "ok":
         return {"status": "error", "message": result.get("message", "Revisi gagal dibuat.")}
     return _save_custom(tool_context, result, rec["domain"], rec["request"], data_text, rec["source"],
                         parent=rec["report_id"], extra=extra, template_uri=rec.get("template_uri", ""),
+                        image_ids=image_ids,
                         formats=rec.get("formats") or ["html"])
 
 

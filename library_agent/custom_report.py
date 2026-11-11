@@ -104,8 +104,17 @@ def load_prompt(domain: str) -> str:
     return text
 
 
+IMAGE_NOTE = """
+GAMBAR REFERENSI DARI USER (dilampirkan bersama prompt ini)
+Ikuti tata letak, pengelompokan, urutan kolom, simbol/ikon, warna penanda, dan gaya penyajian pada gambar referensi
+semirip mungkin dengan komponen yang tersedia. Gambar adalah CONTOH BENTUK, bukan sumber angka: semua angka tetap dari
+data INPUT. Jika gambar memuat keterangan simbol (mis. → ↗ ↘ atau warna), terapkan aturan itu pada data INPUT.
+"""
+
+
 def build_prompt(domain: str, request: str, data_text: str, previous_body: str = "", feedback: str = "",
-                 problems: list[str] | None = None, extra_instructions: str = "", template_example: str = "") -> str:
+                 problems: list[str] | None = None, extra_instructions: str = "", template_example: str = "",
+                 with_images: bool = False) -> str:
     base = load_prompt(domain)
     if "SISIPKAN_KNOWLEDGE_SELLOUT" in base:
         try:
@@ -121,6 +130,8 @@ def build_prompt(domain: str, request: str, data_text: str, previous_body: str =
     cut = base.find("FORMAT OUTPUT")
     if cut >= 0:
         base = base[:cut]
+    if with_images:
+        base += IMAGE_NOTE
     if extra_instructions.strip():
         base += ("\nINSTRUKSI TAMBAHAN DARI DOKUMEN USER (ikuti selama tidak bertentangan dengan LARANGAN SUMBER DATA dan "
                  "ATURAN ANGKA; jika dokumen berupa contoh laporan, tiru struktur dan gaya narasinya, bukan angkanya):\n"
@@ -287,7 +298,8 @@ def add_checker_note(body: str, bad: list[str]) -> str:
 # Generate / approve
 # ==========================================================================
 def generate(domain: str, request: str, data_text: str, previous_body: str = "", feedback: str = "",
-             extra_instructions: str = "", template_html: str = "") -> dict[str, Any]:
+             extra_instructions: str = "", template_html: str = "",
+             images: list[tuple[bytes, str]] | None = None) -> dict[str, Any]:
     """Panggil model utama, bungkus design system, dan periksa angka (maks 1 perbaikan)."""
     from .report_engine import generate_text
 
@@ -297,7 +309,8 @@ def generate(domain: str, request: str, data_text: str, previous_body: str = "",
     example = parts["example"] if parts else ""
     tmode = bool(parts)
     out = parse_output(generate_text(build_prompt(domain, request, data_text, previous_body, feedback,
-                                                  extra_instructions=extra_instructions, template_example=example)),
+                                                  extra_instructions=extra_instructions, template_example=example,
+                                                  with_images=bool(images)), images=images),
                        template_mode=tmode)
     if out["no_data"]:
         return {"status": "no_data", "message": out["explanation"] or NO_DATA}
@@ -308,7 +321,8 @@ def generate(domain: str, request: str, data_text: str, previous_body: str = "",
     if bad:
         logger.warning("Laporan custom: %d angka tidak terverifikasi, minta tulis ulang: %s", len(bad), bad[:10])
         retry = parse_output(generate_text(build_prompt(domain, request, data_text, previous_body, feedback, bad,
-                                                        extra_instructions, example)), template_mode=tmode)
+                                                        extra_instructions, example, with_images=bool(images)),
+                                           images=images), template_mode=tmode)
         if retry["body"]:
             revised = True
             out = retry

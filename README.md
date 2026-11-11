@@ -53,7 +53,7 @@ library_agent/
   price_*.py, dashboard_render.py, industry_*.py   template retail & industri (tidak berubah)
 scripts/   update_agent.sh (redeploy di tempat), deploy_agent_engine.py, check_knowledge.py, enable_user_auth.py
 setup/settings.json              nilai awal pengaturan tanpa deploy
-tests/                           204 uji unit (tanpa GCP)
+tests/                           211 uji unit (tanpa GCP)
 ```
 
 ## Template planogram
@@ -128,6 +128,14 @@ Sumber: BigQuery (default) atau dua file unggahan (`retail_file_id` + `planogram
   dibangun DI DALAM template itu (head, CSS, dan script template dipertahankan; model hanya menulis isi body dengan
   struktur & class template). Revisi dan approve tetap berlaku.
 - Belum didukung: `.doc`/`.ppt` lama (minta simpan ulang sebagai DOCX/PPTX/PDF), skor kuantil khusus (mis. RFM).
+
+## Melihat gambar unggahan (v3.2)
+
+Gemini Enterprise tidak mengirim gambar di dalam pesan (hanya penanda teks; file disimpan sebagai artifact). Sejak
+v3.2 agent memuat gambar itu (JPG/PNG/WEBP/WhatsApp Image; diperkecil ke 1568 px JPEG — `vision.py`) dan
+melampirkannya ke model: otomatis pada giliran unggah, lewat `lihat_gambar` untuk gambar dari pesan sebelumnya, dan ke
+penulis laporan custom lewat `gambar_referensi` (generate/revise) agar tata letak, pengelompokan, dan simbol pada
+contoh gambar ditiru — angka tetap dari data. Pilihan gambar referensi disimpan per laporan untuk revisi berikutnya.
 
 ## Data Agent Sell-out (v3.1)
 
@@ -303,7 +311,7 @@ Berlaku maks. 5 menit kemudian. `update_agent.sh` menambahkan kunci baru tanpa m
 ## Uji lokal
 
 ```bash
-python -m unittest discover tests      # 204 uji, tanpa GCP
+python -m unittest discover tests      # 211 uji, tanpa GCP
 ```
 
 ## Log diagnostik (unggahan file & error)

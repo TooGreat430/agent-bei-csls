@@ -56,4 +56,24 @@ def document_instructions(doc_id: str, state, limit: int = 20000) -> str:
     return _doc_text(doc["text_uri"])[:limit]
 
 
-DOC_TOOLS = [list_documents, read_document]
+def lihat_gambar(doc_ids: list[str], tool_context: ToolContext) -> dict[str, Any]:
+    """Menampilkan gambar unggahan (JPG/PNG/WhatsApp Image, dll.) agar bisa Anda LIHAT pada langkah berikutnya.
+
+    Gambar yang baru diunggah pada pesan ini sudah otomatis terlihat. Pakai tool ini untuk gambar dari pesan
+    sebelumnya (mis. "seperti gambar tadi") atau bila perlu melihat ulang.
+
+    Args:
+        doc_ids: ID dokumen gambar, mis. ["d2", "d3"] (lihat list_documents; jenis "Gambar").
+    """
+    from .. import vision
+
+    docs = vision.images_for(tool_context.state, doc_ids)
+    if not docs:
+        return {"status": "error", "message": "Gambar tidak ditemukan di chat ini.",
+                "gambar_tersedia": [d["doc_id"] for d in tool_context.state.get(DOCS_KEY, []) if vision.is_image(d)]}
+    tool_context.state[vision.SHOW_KEY] = [d["doc_id"] for d in docs]
+    return {"status": "ok", "message": "Gambar dilampirkan; Anda akan melihatnya pada langkah berikutnya.",
+            "gambar": [{"doc_id": d["doc_id"], "filename": d["filename"]} for d in docs]}
+
+
+DOC_TOOLS = [list_documents, read_document, lihat_gambar]

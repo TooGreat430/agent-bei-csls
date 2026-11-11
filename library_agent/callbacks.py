@@ -303,7 +303,41 @@ def sanitize_request(callback_context: CallbackContext, llm_request) -> None:
                 new_parts.append(types.Part(text="[Lampiran tidak dapat dibaca agent.]"))
         if changed:
             content.parts = new_parts
+    _attach_images(callback_context, llm_request, contents)
     return None
+
+
+def _attach_images(callback_context: CallbackContext, llm_request, contents) -> None:
+    """Gemini Enterprise tidak mengirim gambar di pesan: lampirkan gambar giliran ini (dan yang diminta lewat
+    lihat_gambar) sebagai inline_data agar model (Claude/Gemini) benar-benar melihatnya."""
+    from . import vision
+
+    if getattr(callback_context, "agent_name", "") == "marketing_insight_assistant":
+        return                                   # router hanya meneruskan pesan; tidak perlu melihat gambar
+    state = callback_context.state
+    requested = list(state.get(vision.SHOW_KEY) or [])
+    docs = vision.images_for(state, requested) if requested else []
+    docs += [d for d in vision.images_for(state, invocation_id=getattr(callback_context, "invocation_id", ""))
+             if d not in docs]
+    if not docs:
+        return
+    loaded = vision.payloads(docs[:vision.MAX_IMAGES])
+    if not loaded:
+        return
+    parts = [types.Part(text="[Gambar unggahan user dilampirkan untuk dilihat: "
+                             + ", ".join(f"{i} ({next(d['filename'] for d in docs if d['doc_id'] == i)})"
+                                         for i, _, _ in loaded) + "]")]
+    parts += [types.Part(inline_data=types.Blob(data=data, mime_type=mime)) for _, data, mime in loaded]
+    last = contents[-1] if contents else None
+    if last is not None and getattr(last, "role", "") == "user" and not any(
+            getattr(p, "function_response", None) for p in (last.parts or [])):
+        last.parts = list(last.parts or []) + parts
+    else:
+        contents.append(types.Content(role="user", parts=parts))
+        try:
+            llm_request.contents = contents
+        except Exception:  # noqa: BLE001
+            pass
 
 
 # ==========================================================================
