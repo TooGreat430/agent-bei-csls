@@ -125,3 +125,45 @@ class ToolsTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class AutoCompleteTest(unittest.TestCase):
+    """Kasus nyata: model hanya meminta 1 chart untuk tabel gap harga per produk × SR."""
+
+    def _state(self, rows):
+        return {"bq_pulls": [{"id": "p1", "domain": "retail", "question": "gap", "tables": [
+            {"columns": ["SALES_REGION", "PRODUCT_HERO", "GAP_HJ_PER_LITER"], "rows": rows}]}]}
+
+    def test_one_chart_becomes_three(self):
+        prods = ["PERTAMINA MEDITRAN SC 5 LITER", "PERTAMINA FASTRON 4 LITER", "PERTAMINA ENDURO 1 LITER"]
+        rows = [[f"SR{s}", p, (s * 37 + i * 101) % 900 - 450] for s in range(1, 8) for i, p in enumerate(prods)]
+        rows[0][2] = -38056
+        ctx = NS(state=self._state(rows), user_id="u", _invocation_context=None)
+        with mock.patch.object(ct, "_upload", return_value="https://x/c.png"):
+            res = ct.buat_insight([{"jenis": "comparison", "data_id": "p1", "x": "PRODUCT_HERO",
+                                    "y": ["GAP_HJ_PER_LITER"], "judul": "Gap harga"}], ctx)
+        kinds = [c["jenis"] for c in res["chart"] if c["status"] == "ok"]
+        self.assertEqual(kinds, ["comparison", "heatmap", "distribution"])
+        self.assertTrue(all(c.get("otomatis") for c in res["chart"][1:]))
+        self.assertIn("21 baris → 3 PRODUCT_HERO", res["chart"][0]["fakta"][1])          # duplikat produk digabung
+        self.assertIn("-38.056", res["chart"][2]["fakta"][-1])                           # pencilan disebut
+
+    def test_no_autocomplete_for_tiny_table(self):
+        ctx = NS(state=self._state([["SR1", "A", 5], ["SR2", "A", 6]]), user_id="u", _invocation_context=None)
+        with mock.patch.object(ct, "_upload", return_value="https://x/c.png"):
+            res = ct.buat_insight([{"jenis": "comparison", "data_id": "p1", "x": "SALES_REGION",
+                                    "y": ["GAP_HJ_PER_LITER"]}], ctx)
+        self.assertEqual(len(res["chart"]), 1)
+
+    def test_helpers(self):
+        self.assertEqual(ic.strip_common_prefix(["PERTAMINA A 1L", "PERTAMINA B 4L"]), ["A 1L", "B 4L"])
+        self.assertEqual(ic.strip_common_prefix(["AHM", "SHELL"]), ["AHM", "SHELL"])
+        normal, extreme = ic.outliers([1, 2, 3, 2, 1, 3, 2, 1, 2, -500])
+        self.assertEqual(extreme, [-500])
+        self.assertTrue(ic.lower_is_better("retail", "GAP_HJ_PER_LITER"))
+        self.assertFalse(ic.lower_is_better("industri", "GAP_HARGA_PCT"))
+        trend = {"columns": ["BULAN", "SR", "VOL"], "rows": [["Jan", "SR1", 10], ["Jan", "SR2", 20], ["Feb", "SR1", 30],
+                                                           ["Feb", "SR2", 40]]}
+        spec, facts = ic.build("trend", trend, {"x": "BULAN", "y": ["VOL"]})
+        self.assertEqual(spec["x"], ["Jan", "Feb"])
+        self.assertEqual(spec["series"][0][1], [15.0, 35.0])

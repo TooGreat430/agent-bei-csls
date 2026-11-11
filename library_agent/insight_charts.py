@@ -148,6 +148,43 @@ def _pairs(xs: list, ys: list) -> list[tuple]:
     return [(x, y) for x, y in zip(xs, ys) if y is not None]
 
 
+def strip_common_prefix(labels: list[str]) -> list[str]:
+    """Buang kata awal yang sama di semua label (mis. 'PERTAMINA ') agar label ringkas."""
+    labs = [str(x) for x in labels if str(x) not in ("…", "")]
+    if len(labs) < 2:
+        return labels
+    first = labs[0].split(" ")
+    k = 0
+    while k < len(first) - 1 and all(l.split(" ")[:k + 1] == first[:k + 1] for l in labs):
+        k += 1
+    if k == 0:
+        return labels
+    pre = " ".join(first[:k]) + " "
+    return [str(x)[len(pre):] if str(x).startswith(pre) else x for x in labels]
+
+
+def outliers(vals: list[float]) -> tuple[list[float], list[float]]:
+    """(nilai normal, pencilan) dengan aturan 3×IQR."""
+    if len(vals) < 8:
+        return vals, []
+    q1, q3 = percentile(vals, 25), percentile(vals, 75)
+    iqr = q3 - q1
+    if iqr <= 0:
+        return vals, []
+    lo, hi = q1 - 3 * iqr, q3 + 3 * iqr
+    return [v for v in vals if lo <= v <= hi], [v for v in vals if v < lo or v > hi]
+
+
+def aggregate(pairs: list[tuple], how: str = "mean") -> tuple[list[tuple], bool]:
+    """Gabungkan kategori yang berulang (mis. produk muncul per SR) -> satu nilai per kategori. (hasil, ada_duplikat)."""
+    groups: dict[str, list[float]] = {}
+    for k, v in pairs:
+        groups.setdefault(k, []).append(v)
+    dup = any(len(v) > 1 for v in groups.values())
+    agg = (lambda v: sum(v)) if how == "sum" else (lambda v: sum(v) / len(v))
+    return [(k, agg(v)) for k, v in groups.items()], dup
+
+
 # ==========================================================================
 # Transformasi + fakta per jenis (hasil: dict gambar + daftar fakta berangka)
 # ==========================================================================
@@ -166,6 +203,14 @@ def build(kind: str, table: dict, a: dict) -> tuple[dict, list[str]]:  # noqa: C
         if not series:
             raise ChartError("Isi y dengan minimal satu kolom angka.")
     if kind == "trend":
+        if len(set(xs)) < len(xs):                        # periode berulang (mis. per SR) -> rata-rata per periode
+            order = list(dict.fromkeys(xs))
+            agg_series = []
+            for name, vals in series:
+                d = dict(aggregate(_pairs(xs, vals), a.get("agregasi", "mean"))[0])
+                agg_series.append((name, [d.get(p) for p in order]))
+            xs, series = order, agg_series
+            facts.append(f"{'Jumlah' if a.get('agregasi') == 'sum' else 'Rata-rata'} per {a.get('x')}")
         for name, vals in series:
             pts = [v for v in vals if v is not None]
             if len(pts) >= 2 and pts[0]:
@@ -184,13 +229,21 @@ def build(kind: str, table: dict, a: dict) -> tuple[dict, list[str]]:  # noqa: C
                 facts.append(f"{lab}: {fmt(v0)} → {fmt(v1)}{u} ({'+' if v1 >= v0 else ''}{fmt(v1 - v0)})")
             return {"kind": "group", "x": xs, "series": s}, facts
         vals = column(table, y[0], True)
-        pts = sorted(_pairs(xs, vals), key=lambda t: -t[1])
+        raw = _pairs(xs, vals)
+        pts, dup = aggregate(raw, a.get("agregasi", "mean"))
+        pts.sort(key=lambda t: -t[1])
         if not pts:
             raise ChartError("Kolom nilai kosong.")
-        facts.append(f"Tertinggi {pts[0][0]}: {fmt(pts[0][1])}{u}; terendah {pts[-1][0]}: {fmt(pts[-1][1])}{u}")
-        if len(pts) > 1 and pts[-1][1]:
+        if dup:
+            facts.append(f"{'Jumlah' if a.get('agregasi') == 'sum' else 'Rata-rata'} {y[0]} per {a.get('x')} "
+                         f"({len(raw)} baris → {len(pts)} {a.get('x')})")
+        facts.insert(0, f"Tertinggi {pts[0][0]}: {fmt(pts[0][1])}{u}; terendah {pts[-1][0]}: {fmt(pts[-1][1])}{u}")
+        if len(pts) > 1:
             facts.append(f"Selisih tertinggi–terendah: {fmt(pts[0][1] - pts[-1][1])}{u}")
-        return {"kind": "hbar", "x": [p[0] for p in pts][:20], "series": [(y[0], [p[1] for p in pts][:20])]}, facts
+        shown = pts if len(pts) <= 20 else pts[:10] + [("…", None)] + pts[-10:]
+        if len(pts) > 20:
+            facts.append(f"Ditampilkan 10 tertinggi & 10 terendah dari {len(pts)} {a.get('x')}")
+        return {"kind": "hbar", "x": [p[0] for p in shown], "series": [(y[0], [p[1] for p in shown])]}, facts
 
     if kind == "mix":
         xs = column(table, a.get("x"))
@@ -215,9 +268,13 @@ def build(kind: str, table: dict, a: dict) -> tuple[dict, list[str]]:  # noqa: C
         if len(vals) < 5:
             raise ChartError("Distribusi butuh minimal 5 nilai (pakai baris mentah, bukan agregat).")
         q1, med, q3 = percentile(vals, 25), percentile(vals, 50), percentile(vals, 75)
+        normal, extreme = outliers(vals)
         facts += [f"Median {fmt(med)}{u}; rentang tengah (P25–P75) {fmt(q1)}–{fmt(q3)}{u}",
                   f"Min {fmt(min(vals))}{u}, maks {fmt(max(vals))}{u}, n = {len(vals)}"]
-        return {"kind": "hist", "values": vals, "q": (q1, med, q3)}, facts
+        if extreme:
+            facts.append(f"{len(extreme)} nilai ekstrem di luar pola umum: "
+                         + ", ".join(fmt(v) for v in sorted(extreme)[:5]) + f"{u} — perlu dicek")
+        return {"kind": "hist", "values": normal, "q": (q1, med, q3), "extreme": extreme}, facts
 
     if kind == "candlestick":
         cats = column(table, a.get("kategori") or a.get("x"))
@@ -263,7 +320,8 @@ def build(kind: str, table: dict, a: dict) -> tuple[dict, list[str]]:  # noqa: C
     if kind == "cumulative":
         xs = column(table, a.get("x"))
         vals = column(table, y[0] if y else None, True)
-        pts = sorted([p for p in _pairs(xs, vals) if p[1] > 0], key=lambda t: -t[1])
+        summed, _ = aggregate(_pairs(xs, vals), "sum")
+        pts = sorted([p for p in summed if p[1] > 0], key=lambda t: -t[1])
         tot = sum(p[1] for p in pts)
         if not pts or not tot:
             raise ChartError("Pareto butuh nilai positif.")
@@ -332,7 +390,10 @@ def build(kind: str, table: dict, a: dict) -> tuple[dict, list[str]]:  # noqa: C
 
     if kind == "heatmap":
         cols_, rows_, vals = column(table, a.get("x")), column(table, a.get("kategori")), column(table, a.get("nilai"), True)
-        cx, ry = list(dict.fromkeys(cols_)), list(dict.fromkeys(rows_))[:20]
+        avg = lambda xs: sum(len(str(v)) for v in xs) / max(len(xs), 1)  # noqa: E731
+        if avg(set(cols_)) > avg(set(rows_)) + 4:              # label panjang lebih terbaca sebagai baris
+            cols_, rows_ = rows_, cols_
+        cx, ry = list(dict.fromkeys(cols_))[:12], list(dict.fromkeys(rows_))[:20]
         grid = [[None] * len(cx) for _ in ry]
         for c, r, v in zip(cols_, rows_, vals):
             if r in ry and v is not None:
@@ -342,6 +403,9 @@ def build(kind: str, table: dict, a: dict) -> tuple[dict, list[str]]:  # noqa: C
             raise ChartError("Heat map kosong.")
         hi, lo = max(flat, key=lambda t: t[2]), min(flat, key=lambda t: t[2])
         facts.append(f"Tertinggi {hi[0]} × {hi[1]}: {fmt(hi[2])}{u}; terendah {lo[0]} × {lo[1]}: {fmt(lo[2])}{u}")
+        _, extreme = outliers([t[2] for t in flat])
+        if extreme:
+            facts.append(f"{len(extreme)} sel ekstrem (warna dibatasi agar pola lain tetap terlihat)")
         return {"kind": "heat", "cols": cx, "rows": ry, "grid": grid, "invert": bool(a.get("kecil_lebih_baik"))}, facts
 
     if kind == "profit_margin":
@@ -415,6 +479,13 @@ def build(kind: str, table: dict, a: dict) -> tuple[dict, list[str]]:  # noqa: C
 # ==========================================================================
 # Gambar (PNG bergaya PTPL)
 # ==========================================================================
+def _wrap_label(text: Any, width: int = 24) -> str:
+    import textwrap
+
+    lines = textwrap.wrap(str(text), width) or [""]
+    return "\n".join(lines[:2]) + ("…" if len(lines) > 2 else "")
+
+
 def render(spec: dict, title: str, subtitle: str = "", source: str = "", unit: str = "") -> bytes:  # noqa: C901
     import matplotlib
 
@@ -423,8 +494,13 @@ def render(spec: dict, title: str, subtitle: str = "", source: str = "", unit: s
     from matplotlib.ticker import FuncFormatter
 
     k = spec["kind"]
-    fig, ax = plt.subplots(figsize=(9, 5.2), dpi=150)
-    fig.subplots_adjust(top=0.80, bottom=0.16, left=0.12, right=0.95)
+    import textwrap
+
+    k0 = spec["kind"]
+    tall = k0 in ("hbar", "box", "heat") and len(spec.get("x") or spec.get("cats") or spec.get("rows") or []) > 12
+    fig, ax = plt.subplots(figsize=(10, 6.8 if tall else 5.6), dpi=150)
+    left = 0.27 if k0 in ("hbar", "heat") else 0.10
+    fig.subplots_adjust(top=0.78, bottom=0.14, left=left, right=0.96)
     for s in ("top", "right"):
         ax.spines[s].set_visible(False)
     for s in ("left", "bottom"):
@@ -448,11 +524,24 @@ def render(spec: dict, title: str, subtitle: str = "", source: str = "", unit: s
         ax.set_xticks(range(len(xs)), [short(x, 12) for x in xs], rotation=30 if len(xs) > 8 else 0, ha="right" if len(xs) > 8 else "center")
     elif k == "hbar":
         xs, vals = spec["x"][::-1], spec["series"][0][1][::-1]
-        ax.barh(range(len(xs)), vals, color=[GOLD if i == len(xs) - 1 else NAVY for i in range(len(xs))])
-        ax.set_yticks(range(len(xs)), [short(x, 26) for x in xs])
+        real = [v for v in vals if v is not None]
+        hi, lo = (max(real), min(real)) if real else (None, None)
+        colors = [GOLD if v == hi else RED if (v == lo and len(real) > 1) else NAVY for v in vals]
+        ax.barh(range(len(xs)), [v or 0 for v in vals], color=colors)
+        ax.set_yticks(range(len(xs)), [_wrap_label(x) for x in strip_common_prefix(xs)], fontsize=7.5)
         ax.xaxis.set_major_formatter(FuncFormatter(lambda v, _: fmt(v)))
+        if lo is not None and lo < 0 < hi:
+            ax.axvline(0, color=GRAY, lw=0.8)
+        span = (hi - lo) if real and hi != lo else 1
         for i, v in enumerate(vals):
-            ax.text(v, i, " " + fmt(v), va="center", fontsize=7, color=GRAY)
+            if v is None:
+                continue
+            if v >= 0:
+                ax.text(v + span * 0.01, i, fmt(v), va="center", ha="left", fontsize=7, color=GRAY)
+            else:
+                ax.text(v - span * 0.01, i, fmt(v), va="center", ha="right", fontsize=7, color=GRAY)
+        if real:
+            ax.set_xlim(min(lo, 0) - span * 0.12, max(hi, 0) + span * 0.12)
     elif k == "group":
         xs = spec["x"]
         w = 0.8 / len(spec["series"])
@@ -476,9 +565,12 @@ def render(spec: dict, title: str, subtitle: str = "", source: str = "", unit: s
         ax.yaxis.set_major_formatter(FuncFormatter(lambda v, _: pct(v, 0)))
     elif k == "hist":
         ax.hist(spec["values"], bins=min(20, max(5, int(len(spec["values"]) ** 0.5))), color=NAVY, edgecolor="white")
-        for q, lab in zip(spec["q"], ("P25", "Median", "P75")):
+        top = ax.get_ylim()[1]
+        for (q, lab), h in zip(zip(spec["q"], ("P25", "Median", "P75")), (0.97, 0.88, 0.79)):
             ax.axvline(q, color=GOLD if lab == "Median" else GRAY, ls="--", lw=1)
-            ax.text(q, ax.get_ylim()[1] * 0.95, " " + lab, color=GRAY, fontsize=7)
+            ax.text(q, top * h, " " + lab, color=GOLD if lab == "Median" else GRAY, fontsize=7)
+        if spec.get("extreme"):
+            ax.set_xlabel(f"{len(spec['extreme'])} nilai ekstrem tidak digambar (lihat sorotan)", fontsize=7.5, color=RED)
         ax.set_ylabel("Frekuensi", color=GRAY, fontsize=8)
         ax.xaxis.set_major_formatter(FuncFormatter(lambda v, _: fmt(v)))
         ax.yaxis.set_major_formatter(FuncFormatter(lambda v, _: fmt(v, 0)))
@@ -571,13 +663,18 @@ def render(spec: dict, title: str, subtitle: str = "", source: str = "", unit: s
 
         g = np.array([[float("nan") if v is None else v for v in row] for row in spec["grid"]])
         cmap = matplotlib.colormaps["RdYlGn_r" if spec.get("invert") else "RdYlGn"]
-        ax.imshow(g, cmap=cmap, aspect="auto")
+        flat = [v for v in g.flatten() if not math.isnan(v)]
+        normal, _ = outliers(flat)
+        vmin, vmax = (min(normal), max(normal)) if normal else (None, None)
+        ax.imshow(g, cmap=cmap, aspect="auto", vmin=vmin, vmax=vmax)
         for i in range(g.shape[0]):
             for j in range(g.shape[1]):
                 if not math.isnan(g[i, j]):
                     ax.text(j, i, fmt(g[i, j]), ha="center", va="center", fontsize=7)
-        ax.set_xticks(range(len(spec["cols"])), [short(c, 12) for c in spec["cols"]], rotation=30, ha="right")
-        ax.set_yticks(range(len(spec["rows"])), [short(r, 22) for r in spec["rows"]])
+        ax.set_xticks(range(len(spec["cols"])), [_wrap_label(c, 14) for c in strip_common_prefix(spec["cols"])],
+                      fontsize=7.5)
+        ax.xaxis.tick_top()
+        ax.set_yticks(range(len(spec["rows"])), [_wrap_label(r) for r in strip_common_prefix(spec["rows"])], fontsize=7.5)
     elif k == "margin":
         xs = spec["x"]
         cost = [c or 0 for c in spec["cost"]]
@@ -615,9 +712,9 @@ def render(spec: dict, title: str, subtitle: str = "", source: str = "", unit: s
     if k in ("line", "stack", "group", "mix", "target", "margin", "cash") or (k == "marginal"):
         ax.legend(fontsize=7, frameon=False, loc="upper left", bbox_to_anchor=(0, 1.02), ncol=4)
 
-    fig.text(0.02, 0.955, title[:110], fontsize=12.5, fontweight="bold", color=NAVY, va="top")
+    fig.text(0.02, 0.975, "\n".join(textwrap.wrap(title, 95)[:2]), fontsize=12, fontweight="bold", color=NAVY, va="top")
     if subtitle:
-        fig.text(0.02, 0.885, subtitle[:150], fontsize=9, color=GOLD, va="top")
+        fig.text(0.02, 0.885, "\n".join(textwrap.wrap(subtitle, 150)[:2]), fontsize=8.5, color=GOLD, va="top")
     foot = " · ".join(x for x in ((f"Satuan: {unit}" if unit else ""), (f"Sumber: {source}" if source else ""),
                                   "PT Pertamina Lubricants") if x)
     fig.text(0.02, 0.02, foot[:180], fontsize=7, color=GRAY)
@@ -625,3 +722,74 @@ def render(spec: dict, title: str, subtitle: str = "", source: str = "", unit: s
     fig.savefig(buf, format="png", facecolor="white")
     plt.close(fig)
     return buf.getvalue()
+
+
+# ==========================================================================
+# Rekomendasi chart dari bentuk tabel (pelengkap otomatis)
+# ==========================================================================
+_PERIOD_NAME = re.compile(r"(tanggal|date|bulan|month|periode|period|kuartal|quarter|tahun|year|minggu|week|^q$|dt_)", re.I)
+_PERIOD_VAL = re.compile(r"^(q[1-4]|\d{4}[-/]\d{1,2}|\d{4}-q[1-4]|(jan|feb|mar|apr|mei|may|jun|jul|agu|aug|sep|okt|oct|nov|des|dec)\w*)", re.I)
+_ADDITIVE = re.compile(r"(vol|sales|penjualan|qty|jumlah|outlet|carry|customer|transaksi|revenue|omzet|kl|liter|count|total)", re.I)
+_IDLIKE = re.compile(r"(^id$|_id$|kode|code|kimap|^no$)", re.I)
+NAMES = {"trend": "Tren", "heatmap": "Peta", "comparison": "Peringkat", "cumulative": "Konsentrasi (Pareto)",
+         "distribution": "Sebaran", "scatter": "Hubungan"}
+
+
+def table_profile(table: dict) -> dict:
+    cols = [str(c) for c in table.get("columns") or []]
+    rows = table.get("rows") or []
+    nums, texts, period = [], [], None
+    for i, c in enumerate(cols):
+        vals = [r[i] for r in rows if i < len(r) and r[i] not in (None, "")]
+        if not vals:
+            continue
+        numeric = sum(num(v) is not None for v in vals) >= 0.8 * len(vals)
+        uniq = len({str(v) for v in vals})
+        if period is None and (_PERIOD_NAME.search(c) or sum(bool(_PERIOD_VAL.match(str(v))) for v in vals) >= 0.8 * len(vals)) \
+                and 2 <= uniq <= 60:
+            period = c
+            continue
+        if numeric and not _IDLIKE.search(c):
+            nums.append(c)
+        elif not numeric and 2 <= uniq <= 40:
+            texts.append((c, uniq))
+    return {"nums": nums, "texts": texts, "period": period, "rows": len(rows)}
+
+
+def lower_is_better(domain: str, column_name: str | None) -> bool:
+    """Retail: gap harga negatif = PTPL lebih murah (baik). Industri: gap % positif = kompetitif (tidak dibalik)."""
+    return domain in ("retail", "retail_planogram") and bool(re.search(r"gap", str(column_name or ""), re.I)) \
+        and bool(re.search(r"(hj|harga|price|hto|het|jual|tebus)", str(column_name or ""), re.I))
+
+
+def recommend(table: dict, main_value: str | None = None, skip: set | None = None, limit: int = 3) -> list[dict]:
+    """Daftar argumen chart yang cocok dengan bentuk tabel, untuk melengkapi chart yang dipilih model."""
+    p = table_profile(table)
+    skip = set(skip or ())
+    if not p["nums"] or p["rows"] < 3:
+        return []
+    val = main_value if main_value in p["nums"] else p["nums"][0]
+    texts = [c for c, _ in sorted(p["texts"], key=lambda t: t[1])]
+    out: list[dict] = []
+
+    def add(kind, **kw):
+        if kind not in skip and len(out) < limit:
+            out.append({"jenis": kind, **kw})
+            skip.add(kind)
+    if p["period"]:
+        add("trend", x=p["period"], y=[val])
+    if len(texts) >= 2:
+        add("heatmap", x=texts[0], kategori=texts[1], nilai=val)
+    for c in texts[:2]:
+        if "comparison" not in skip:
+            add("comparison", x=c, y=[val], agregasi="sum" if _ADDITIVE.search(val) else "mean")
+    if texts and _ADDITIVE.search(val):
+        vals = column(table, val, True)
+        if all(v is None or v >= 0 for v in vals):
+            add("cumulative", x=texts[-1], y=[val])
+    if p["rows"] >= 15:
+        add("distribution", nilai=val)
+    others = [n for n in p["nums"] if n != val]
+    if others and p["rows"] >= 5:
+        add("scatter", x=others[0], y=[val], label=texts[0] if texts else None)
+    return out

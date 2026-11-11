@@ -53,7 +53,7 @@ library_agent/
   price_*.py, dashboard_render.py, industry_*.py   template retail & industri (tidak berubah)
 scripts/   update_agent.sh (redeploy di tempat), deploy_agent_engine.py, check_knowledge.py, enable_user_auth.py
 setup/settings.json              nilai awal pengaturan tanpa deploy
-tests/                           234 uji unit (tanpa GCP)
+tests/                           237 uji unit (tanpa GCP)
 ```
 
 ## Template planogram
@@ -128,6 +128,15 @@ Sumber: BigQuery (default) atau dua file unggahan (`retail_file_id` + `planogram
   dibangun DI DALAM template itu (head, CSS, dan script template dipertahankan; model hanya menulis isi body dengan
   struktur & class template). Revisi dan approve tetap berlaku.
 - Belum didukung: `.doc`/`.ppt` lama (minta simpan ulang sebagai DOCX/PPTX/PDF), skor kuantil khusus (mis. RFM).
+
+## Insight minimal 3 chart (v3.5)
+
+`buat_insight` melengkapi otomatis bila model memilih < 3 chart: `insight_charts.recommend` membaca bentuk tabel
+(kolom periode, kategori, angka) dan menambah trend / heat map / peringkat / Pareto / sebaran / scatter yang relevan
+(ditandai `otomatis`). Kategori berulang (mis. produk per SR) digabung (rata-rata, atau jumlah untuk ukuran aditif);
+>20 kategori ditampilkan 10 teratas + 10 terbawah; pencilan (3×IQR) dipisahkan dari histogram & skala warna heat map
+dan disebut di sorotan; awalan label yang sama (mis. "PERTAMINA ") dibuang; heat map gap harga Retail memakai warna
+terbalik (gap negatif = PTPL lebih murah = hijau).
 
 ## Kerangka analisis Strategist Toolkit (v3.4)
 
@@ -336,7 +345,7 @@ Berlaku maks. 5 menit kemudian. `update_agent.sh` menambahkan kunci baru tanpa m
 ## Uji lokal
 
 ```bash
-python -m unittest discover tests      # 234 uji, tanpa GCP
+python -m unittest discover tests      # 237 uji, tanpa GCP
 ```
 
 ## Log diagnostik (unggahan file & error)

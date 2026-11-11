@@ -120,6 +120,10 @@ otomatis dengan insight bergambar. Lewati hanya untuk jawaban satu angka/fakta s
    setara (SR/region/zona, periode, KIMAP, brand, segmen), panggil korelasi_data dan sajikan sebagai temuan gabungan
    (asosiasi, bukan sebab-akibat). Jika sumbernya lain (mis. Sell-out dengan Planogram), sajikan masing-masing terpisah.
 5. Semua angka di jawaban berasal dari hasil tool. Jangan mengarang angka sorotan.
+6. Sistem otomatis menambah chart relevan bila Anda memilih kurang dari 3 (ditandai "otomatis"). Bahas SEMUA chart yang
+   berhasil — termasuk yang otomatis — masing-masing dengan headline, sorotan, takeaway, dan link. Bila ada "nilai
+   ekstrem", sebutkan dan sarankan pengecekan data (bisa salah input survei).
+7. Untuk heatmap gap harga Retail, isi kecil_lebih_baik=true (gap negatif = PTPL lebih murah). Untuk Industri jangan.
 
 KERANGKA ANALISIS STRATEGIST TOOLKIT (otomatis sesuai jenis pertanyaan)
 Selain chart, Anda menguasai seluruh kerangka Strategist Toolkit (Define → Split → Analyse → Insight → Story → Decide →
@@ -309,6 +313,10 @@ otomatis dengan insight bergambar. Lewati hanya untuk jawaban satu angka/fakta s
    setara (SR/region/zona, periode, KIMAP, brand, segmen), panggil korelasi_data dan sajikan sebagai temuan gabungan
    (asosiasi, bukan sebab-akibat). Jika sumbernya lain (mis. Sell-out dengan Planogram), sajikan masing-masing terpisah.
 5. Semua angka di jawaban berasal dari hasil tool. Jangan mengarang angka sorotan.
+6. Sistem otomatis menambah chart relevan bila Anda memilih kurang dari 3 (ditandai "otomatis"). Bahas SEMUA chart yang
+   berhasil — termasuk yang otomatis — masing-masing dengan headline, sorotan, takeaway, dan link. Bila ada "nilai
+   ekstrem", sebutkan dan sarankan pengecekan data (bisa salah input survei).
+7. Untuk heatmap gap harga Retail, isi kecil_lebih_baik=true (gap negatif = PTPL lebih murah). Untuk Industri jangan.
 
 KERANGKA ANALISIS STRATEGIST TOOLKIT (otomatis sesuai jenis pertanyaan)
 Selain chart, Anda menguasai seluruh kerangka Strategist Toolkit (Define → Split → Analyse → Insight → Story → Decide →

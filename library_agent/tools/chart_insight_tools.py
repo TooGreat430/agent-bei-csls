@@ -18,6 +18,7 @@ from google.adk.tools import ToolContext
 logger = logging.getLogger(__name__)
 CHARTS_KEY = "insight_charts"
 MAX_CHARTS = 8
+MIN_CHARTS = 3
 LINKABLE = {"retail", "planogram", "retail_planogram"}
 
 
@@ -124,7 +125,7 @@ def daftar_data(tool_context: ToolContext) -> dict[str, Any]:
 
 
 @_safe
-def buat_insight(charts: list[dict], tool_context: ToolContext) -> dict[str, Any]:
+def buat_insight(charts: list[dict], tool_context: ToolContext, lengkapi: bool = True) -> dict[str, Any]:
     """Membuat BEBERAPA chart insight sekaligus dari data di chat ini; angka sorotan dihitung otomatis.
 
     Pilih jenis chart sesuai pertanyaan analisis (katalog Strategist Toolkit): trend, comparison, mix, distribution,
@@ -142,6 +143,7 @@ def buat_insight(charts: list[dict], tool_context: ToolContext) -> dict[str, Any
             heatmap: x=kolom, kategori=baris, nilai, kecil_lebih_baik; profit_margin: x, y=[pendapatan, biaya];
             unit_economics: x, y=[LTV, CAC]; roic: x, y=[NOPAT, modal]; bull_bear: x, y=[aktual], horizon,
             skenario_pct}.
+        lengkapi: Bila chart yang berhasil < 3 dan data mendukung, sistem menambah chart relevan otomatis (default true).
     """
     from .. import insight_charts as ic
 
@@ -163,10 +165,43 @@ def buat_insight(charts: list[dict], tool_context: ToolContext) -> dict[str, Any
         except (ic.ChartError, ValueError) as exc:
             results.append({"status": "error", "judul": title, "jenis": kind, "message": str(exc)})
     ok = [r for r in results if r["status"] == "ok"]
+    if lengkapi and len(ok) < MIN_CHARTS and charts:
+        results += _auto_charts(tool_context, charts, {r["jenis"] for r in ok}, MIN_CHARTS - len(ok))
+        ok = [r for r in results if r["status"] == "ok"]
     return {"status": "ok" if ok else "error", "chart": results,
-            "panduan": ("Mulai jawaban dengan kesimpulan utama (jawaban dulu). Lalu untuk tiap chart: headline, angka "
-                        "sorotan dari 'fakta' (persis), takeaway 'so what' untuk user, dan link chart. Perbaiki chart "
-                        "yang error bila perlu (cek nama kolom).")}
+            "panduan": ("Mulai jawaban dengan kesimpulan utama (jawaban dulu). Lalu bahas SETIAP chart yang berhasil "
+                        "(termasuk yang otomatis): headline, angka sorotan dari 'fakta' (persis), takeaway 'so what', dan "
+                        "link chart. Perbaiki chart yang error bila perlu (cek nama kolom).")}
+
+
+def _auto_charts(tool_context: ToolContext, charts: list[dict], used: set, need: int) -> list[dict]:
+    """Lengkapi insight: chart tambahan sesuai bentuk tabel (judul = temuan utama hasil hitungan)."""
+    from .. import insight_charts as ic
+
+    base = dict(charts[0] or {})
+    try:
+        table, domain, source = get_table(tool_context.state, base.get("data_id", ""), int(base.get("tabel") or 0))
+    except ValueError:
+        return []
+    main = (base.get("y") or [None])[0] or base.get("nilai")
+    out = []
+    for a in ic.recommend(table, main, used, limit=need + 2):
+        if len(out) >= need:
+            break
+        a["satuan"] = base.get("satuan", "")
+        if a["jenis"] == "heatmap" and ic.lower_is_better(domain, a.get("nilai")):
+            a["kecil_lebih_baik"] = True
+        try:
+            spec, facts = ic.build(a["jenis"], table, a)
+        except ic.ChartError:
+            continue
+        title = f"{ic.NAMES.get(a['jenis'], a['jenis'])}: {facts[0]}" if facts else ic.NAMES.get(a["jenis"], a["jenis"])
+        png = ic.render(spec, title, " · ".join(facts[1:3]), source, a["satuan"])
+        link = _upload(tool_context, png, title)
+        _remember(tool_context, {"judul": title, "jenis": a["jenis"], "data_id": base.get("data_id"), "sumber": domain,
+                                 "fakta": facts, "link": link})
+        out.append({"status": "ok", "judul": title, "jenis": a["jenis"], "fakta": facts, "link": link, "otomatis": True})
+    return out
 
 
 @_safe
