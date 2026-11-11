@@ -53,7 +53,7 @@ library_agent/
   price_*.py, dashboard_render.py, industry_*.py   template retail & industri (tidak berubah)
 scripts/   update_agent.sh (redeploy di tempat), deploy_agent_engine.py, check_knowledge.py, enable_user_auth.py
 setup/settings.json              nilai awal pengaturan tanpa deploy
-tests/                           237 uji unit (tanpa GCP)
+tests/                           242 uji unit (tanpa GCP)
 ```
 
 ## Template planogram
@@ -128,6 +128,20 @@ Sumber: BigQuery (default) atau dua file unggahan (`retail_file_id` + `planogram
   dibangun DI DALAM template itu (head, CSS, dan script template dipertahankan; model hanya menulis isi body dengan
   struktur & class template). Revisi dan approve tetap berlaku.
 - Belum didukung: `.doc`/`.ppt` lama (minta simpan ulang sebagai DOCX/PPTX/PDF), skor kuantil khusus (mis. RFM).
+
+## Pemeriksa angka: pembulatan wajar (v3.5.2)
+
+`rounding_ok`: angka bulat ke ribuan (≥ 10.000) atau ratusan (≥ 1.000) yang sesuai nilai data (dibulatkan/dipotong)
+diterima — mis. "Rp 91.000" untuk 91.571. Laporan dengan gambar referensi: dilarang menyalin angka dari gambar; tulis
+ulang menyebut penyebabnya; log mencatat jumlah gambar referensi, ukuran data, dan angka yang masih gagal.
+
+## Jawaban tidak pernah kosong (v3.5.1)
+
+Jawaban akhir = teks agent SETELAH pemanggilan tool terakhir (kalimat pembuka sebelum tool tidak dihitung). Bila model
+berhenti tanpa jawaban (mis. setelah pemeriksa angka meminta revisi), `compose_fallback` menyusun jawaban dari hasil
+giliran itu: jawaban Data Agent + chart insight (judul, sorotan, link) + file laporan; pesan internal
+(`periksa_angka`, dll.) tidak ditampilkan. `create_chart` (satu grafik) tidak lagi diberikan ke agent — diganti
+`buat_insight`; `save_data_insight` hanya bila user meminta.
 
 ## Insight minimal 3 chart (v3.5)
 
@@ -345,7 +359,7 @@ Berlaku maks. 5 menit kemudian. `update_agent.sh` menambahkan kunci baru tanpa m
 ## Uji lokal
 
 ```bash
-python -m unittest discover tests      # 237 uji, tanpa GCP
+python -m unittest discover tests      # 242 uji, tanpa GCP
 ```
 
 ## Log diagnostik (unggahan file & error)

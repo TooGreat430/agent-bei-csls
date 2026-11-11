@@ -107,8 +107,11 @@ def load_prompt(domain: str) -> str:
 IMAGE_NOTE = """
 GAMBAR REFERENSI DARI USER (dilampirkan bersama prompt ini)
 Ikuti tata letak, pengelompokan, urutan kolom, simbol/ikon, warna penanda, dan gaya penyajian pada gambar referensi
-semirip mungkin dengan komponen yang tersedia. Gambar adalah CONTOH BENTUK, bukan sumber angka: semua angka tetap dari
-data INPUT. Jika gambar memuat keterangan simbol (mis. → ↗ ↘ atau warna), terapkan aturan itu pada data INPUT.
+semirip mungkin dengan komponen yang tersedia. Gambar adalah CONTOH BENTUK, bukan sumber angka.
+DILARANG menyalin angka apa pun dari gambar (harga, jumlah outlet, persentase, periode contoh): isi setiap sel dan
+grafik HANYA dengan angka dari data INPUT. Jika data INPUT tidak punya angka untuk sebuah kolom/periode di gambar,
+tulis "n/a" atau hilangkan kolom itu — jangan mengambil angka dari gambar. Pemeriksa otomatis menolak angka yang tidak
+ada di data INPUT. Jika gambar memuat keterangan simbol (mis. → ↗ ↘ atau warna), terapkan aturan itu pada data INPUT.
 """
 
 
@@ -319,7 +322,10 @@ def generate(domain: str, request: str, data_text: str, previous_body: str = "",
     bad = check_numbers(out["body"], pool)
     revised = False
     if bad:
-        logger.warning("Laporan custom: %d angka tidak terverifikasi, minta tulis ulang: %s", len(bad), bad[:10])
+        logger.warning("Laporan custom: %d angka tidak terverifikasi, minta tulis ulang: %s (gambar referensi: %d, "
+                       "data: %d karakter, domain: %s)", len(bad), bad[:10], len(images or []), len(data_text), domain)
+        if images:
+            bad = bad + ["(angka-angka ini kemungkinan disalin dari GAMBAR REFERENSI — jangan pakai angka dari gambar)"]
         retry = parse_output(generate_text(build_prompt(domain, request, data_text, previous_body, feedback, bad,
                                                         extra_instructions, example, with_images=bool(images)),
                                            images=images), template_mode=tmode)
@@ -327,6 +333,8 @@ def generate(domain: str, request: str, data_text: str, previous_body: str = "",
             revised = True
             out = retry
             bad = check_numbers(out["body"], pool)
+            if bad:
+                logger.warning("Laporan custom: setelah tulis ulang masih %d angka tidak terverifikasi: %s", len(bad), bad[:10])
     body = add_checker_note(out["body"], bad) if bad else out["body"]
     title = out["title"] or f"{FIRST_LINE.get(domain, 'LAPORAN DATA')} — Laporan custom"
     return {"status": "ok", "title": title, "body": body, "unverified": bad, "revised_for_numbers": revised,

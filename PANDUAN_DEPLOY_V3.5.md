@@ -58,7 +58,7 @@ mkdir %TEMP%\gla
 tar -xf %USERPROFILE%\Downloads\ge-library-agent.zip -C %TEMP%\gla
 xcopy /e /h /y /q %TEMP%\gla\ge-library-agent\* .
 git add -A
-git commit -m "v3.5: insight min. 3 chart otomatis, chart lebih terbaca, kerangka strategist"
+git commit -m "v3.5.2: jawaban tidak pernah kosong, pemeriksa angka terima pembulatan, insight min. 3 chart"
 git push
 ```
 
@@ -67,7 +67,7 @@ git push
 ```bash
 cd ~/agent-bei-csls && git status --short && git pull && git log --oneline -1
 ```
-Baris terakhir harus `… v3.5: insight min. 3 chart otomatis, chart lebih terbaca, kerangka strategist`. Jika `git status` menampilkan file
+Baris terakhir harus `… v3.5.2: jawaban tidak pernah kosong, pemeriksa angka terima pembulatan, insight min. 3 chart`. Jika `git status` menampilkan file
 selain `.venv/` atau `log_*.txt`, jalankan `git reset --hard @{u}` lalu ulangi.
 
 ```bash
@@ -88,7 +88,7 @@ find . -name __pycache__ -prune -exec rm -rf {} + && bash scripts/update_agent.s
 ```
 Hasil yang diharapkan, berurutan:
 - `Model utama: gemini-4-argon @ …` dan `Tugas berat: claude-opus-5-5 @ global (cadangan Argon)`
-- Uji: `OK` (237 uji)
+- Uji: `OK` (242 uji)
 - `Selesai.`
 
 Jalankan **sekali saja** dan jangan `Ctrl+C`. Jika terminal terputus, jangan jalankan ulang; cek status deploy di

@@ -364,19 +364,61 @@ def _invocation_events(callback_context: CallbackContext) -> list:
     return [e for e in ctx.session.events if getattr(e, "invocation_id", None) == ctx.invocation_id]
 
 
+INTERNAL_TOOLS = {"periksa_angka", "transfer_to_agent", "daftar_data", "panduan_kerangka", "muat_skill",
+                  "daftar_skill", "list_documents", "cek_biaya_analisis"}
+
+
 def fallback_reply(events: list, agent_name: str) -> str:
-    """Jika TIDAK ADA agent yang menulis teks di giliran ini, ambil pesan dari hasil tool terakhir."""
-    last_response = None
+    """Jawaban akhir = teks agent SETELAH pemanggilan tool terakhir. Bila tidak ada (mis. model berhenti setelah
+    diminta merevisi angka), susun jawaban dari hasil tool giliran ini: jawaban data + chart insight + hasil lain."""
+    last_fr_idx, last_text_idx, responses = -1, -1, []
+    idx = 0
     for event in events:
         content = getattr(event, "content", None)
         for part in (getattr(content, "parts", None) or []):
-            if getattr(event, "author", "") not in ("", "user") and getattr(part, "text", None) \
-                    and not getattr(part, "thought", False) and part.text.strip():
-                return ""
+            idx += 1
             fr = getattr(part, "function_response", None)
-            if fr is not None and getattr(fr, "response", None):
-                last_response = fr.response
-    return summarize_result(last_response) if last_response else ""
+            if fr is not None:
+                last_fr_idx = idx
+                if getattr(fr, "response", None) and getattr(fr, "name", "") not in INTERNAL_TOOLS:
+                    responses.append((getattr(fr, "name", ""), fr.response))
+            elif getattr(event, "author", "") not in ("", "user") and getattr(part, "text", None) \
+                    and not getattr(part, "thought", False) and part.text.strip():
+                last_text_idx = idx
+    if last_text_idx > last_fr_idx or not responses:
+        return ""
+    return compose_fallback(responses)
+
+
+def compose_fallback(responses: list[tuple[str, dict]]) -> str:
+    """Ringkasan yang tetap berguna bagi user dari hasil tool (tanpa pesan internal)."""
+    lines: list[str] = []
+    answers = [r for n, r in responses if n.startswith("ask_") and isinstance(r, dict) and r.get("answer")]
+    if answers:
+        lines.append(str(answers[-1]["answer"]).strip()[:2500])
+    charts = []
+    for n, r in responses:
+        if n in ("buat_insight",) and isinstance(r, dict):
+            charts += [c for c in r.get("chart", []) if c.get("status") == "ok"]
+        elif n in ("korelasi_data", "buat_diagram") and isinstance(r, dict) and r.get("status") == "ok":
+            charts.append(r)
+    if charts:
+        lines.append("\n**Chart & insight:**")
+        for ch in charts:
+            fakta = "; ".join((ch.get("fakta") or [])[:2])
+            lines.append(f"- **{ch.get('judul', '')}** — {fakta}  \n  [Lihat chart]({ch.get('link', '')})")
+    files = [r for n, r in responses if isinstance(r, dict) and (r.get("file") or r.get("url")) and r.get("status") == "ok"
+             and n not in ("buat_insight", "korelasi_data", "buat_diagram")]
+    for r in files[-2:]:
+        f = r.get("file")
+        if isinstance(f, dict):
+            lines += [f"- {fmt.upper()}: {url}" for fmt, url in f.items()]
+        elif r.get("url"):
+            lines.append(f"- File: {r['url']}")
+    if not lines:
+        last = responses[-1][1]
+        return summarize_result(last) if last else ""
+    return "\n".join(lines)
 
 
 def ensure_reply(callback_context: CallbackContext) -> Optional[types.Content]:

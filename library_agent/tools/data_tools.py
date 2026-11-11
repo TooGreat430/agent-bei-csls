@@ -311,5 +311,5 @@ ask_sellout_intelligence = _safe(ask_sellout_intelligence)
 create_chart = _safe(create_chart)
 save_data_insight = _safe(save_data_insight)
 DATA_TOOLS = [ask_retail_intelligence, ask_industry_intelligence, ask_planogram_intelligence, ask_sellout_intelligence,
-              analyze_retail_planogram,
-              create_chart, save_data_insight]
+              analyze_retail_planogram, save_data_insight]
+# create_chart (satu grafik) tidak lagi diberikan ke agent: digantikan buat_insight (beberapa chart + sorotan).

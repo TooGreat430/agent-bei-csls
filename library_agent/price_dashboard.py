@@ -124,6 +124,16 @@ DATA
 _MONEY = re.compile(r"[-−–+]?\s*(?:rp\.?\s*)?[-−–+]?\d[\d.,]*\s*(?:/l\b|%)?", re.IGNORECASE)
 
 
+def rounding_ok(v: float, nums: list[float]) -> bool:
+    """Pembulatan wajar di narasi: angka bulat ke ribuan (≥ 10.000) atau ratusan (≥ 1.000) yang sesuai nilai data
+    (dibulatkan ATAU dipotong). Mis. 'Rp 91.000' untuk 91.571, 'Rp 6.000' untuk 5.985."""
+    for unit, floor in ((1000, 10000), (100, 1000)):
+        if v >= floor and float(v).is_integer() and int(v) % unit == 0:
+            if any(abs(v - n) < unit for n in nums if n >= floor * 0.5):
+                return True
+    return False
+
+
 def ungrounded_numbers(text: str, nums: list[float]) -> list[str]:
     """Angka 'besar' (≥100, bukan tahun) atau persentase di teks yang tidak ada di data."""
     bad = []
@@ -135,7 +145,7 @@ def ungrounded_numbers(text: str, nums: list[float]) -> list[str]:
         is_percent = raw.strip().endswith("%")
         if not is_percent and (v < 100 or (2000 <= v <= 2100 and float(v).is_integer())):
             continue
-        if not any(abs(v - n) <= max(1.0, 0.006 * n) for n in nums):
+        if not any(abs(v - n) <= max(1.0, 0.006 * n) for n in nums) and not (not is_percent and rounding_ok(v, nums)):
             bad.append(raw.strip())
     return bad
 
