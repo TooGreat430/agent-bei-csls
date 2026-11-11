@@ -398,16 +398,20 @@ def data_after_agent(callback_context: CallbackContext) -> Optional[types.Conten
     pending = callback_context.state.get("bq_pending_chart")
     if pending:
         callback_context.state["bq_pending_chart"] = None
+    insight = list(callback_context.state.get("insight_pending_charts") or [])
+    if insight:
+        callback_context.state["insight_pending_charts"] = None
     from .config import live
 
-    if pending and live("chat_inline_chart"):
+    if (pending or insight) and live("chat_inline_chart"):
         # Gemini Enterprise belum menampilkan gambar dari agent ADK (muncul sebagai asc_slot://),
-        # jadi lampiran gambar hanya dikirim jika diaktifkan di settings.json.
-        try:
-            png = storage_client().bucket(pending["bucket"]).blob(pending["path"]).download_as_bytes()
-            parts.append(types.Part.from_bytes(data=png, mime_type="image/png"))
-        except Exception:  # noqa: BLE001
-            logger.exception("Grafik tidak bisa ditampilkan di chat")
+        # jadi lampiran gambar hanya dikirim jika diaktifkan di settings.json; default: link per chart.
+        for item in ([pending] if pending else []) + insight:
+            try:
+                png = storage_client().bucket(item["bucket"]).blob(item["path"]).download_as_bytes()
+                parts.append(types.Part.from_bytes(data=png, mime_type="image/png"))
+            except Exception:  # noqa: BLE001
+                logger.exception("Grafik tidak bisa ditampilkan di chat")
     return types.Content(role="model", parts=parts) if parts else None
 
 

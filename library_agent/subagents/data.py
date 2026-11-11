@@ -8,6 +8,7 @@ from ..usage import budget_guard, budget_notice, chain, chain_before, record_mod
 from ..prompts import DATA_INSTRUCTION, with_agent_name
 from ..tools.data_tools import DATA_TOOLS
 from ..tools.file_tools import periksa_angka
+from ..tools.chart_insight_tools import CHART_INSIGHT_TOOLS
 from ..tools.doc_tools import lihat_gambar, list_documents
 from ..tools.insight_tools import list_insights
 from ..tools.report_tools import (approve_report, generate_battlefield_report, generate_custom_report,
@@ -24,7 +25,7 @@ data_agent = LlmAgent(
         "Planogram per KIMAP (harga × rak, double jeopardy, white space); menyimpan jawabannya sebagai insight."
     ),
     instruction=with_agent_name(DATA_INSTRUCTION),
-    tools=[*DATA_TOOLS, list_insights, periksa_angka, list_documents, lihat_gambar,
+    tools=[*DATA_TOOLS, *CHART_INSIGHT_TOOLS, list_insights, periksa_angka, list_documents, lihat_gambar,
            # laporan langsung dari data BigQuery yang sudah ditarik (ditulis Gemini 4 Argon, template PTPL)
            list_report_options, generate_custom_report, revise_custom_report, approve_report, konversi_laporan_custom,
            generate_price_dashboard, generate_industry_report, generate_planogram_report, generate_battlefield_report],

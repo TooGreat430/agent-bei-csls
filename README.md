@@ -53,7 +53,7 @@ library_agent/
   price_*.py, dashboard_render.py, industry_*.py   template retail & industri (tidak berubah)
 scripts/   update_agent.sh (redeploy di tempat), deploy_agent_engine.py, check_knowledge.py, enable_user_auth.py
 setup/settings.json              nilai awal pengaturan tanpa deploy
-tests/                           211 uji unit (tanpa GCP)
+tests/                           223 uji unit (tanpa GCP)
 ```
 
 ## Template planogram
@@ -128,6 +128,19 @@ Sumber: BigQuery (default) atau dua file unggahan (`retail_file_id` + `planogram
   dibangun DI DALAM template itu (head, CSS, dan script template dipertahankan; model hanya menulis isi body dengan
   struktur & class template). Revisi dan approve tetap berlaku.
 - Belum didukung: `.doc`/`.ppt` lama (minta simpan ulang sebagai DOCX/PPTX/PDF), skor kuantil khusus (mis. RFM).
+
+## Insight otomatis + korelasi (v3.3) — Strategist Toolkit
+
+Setiap tarikan data BigQuery / analisis file yang menghasilkan tabel otomatis dilengkapi beberapa chart insight
+(`buat_insight`) dari katalog *Overnight Strategist – Strategist Toolkit* bagian ANALYSE: trend, comparison, mix,
+distribution, candlestick, scatter, positioning (2×2), cumulative (Pareto 80/20), rank, waterfall, actual vs target,
+heat map, profit margin, unit economics, cashflow, ROIC, marginal return, bull/bear (skenario, hanya bila diminta).
+`insight_charts.py` mengolah data (urut, kumulatif, persentil, porsi, korelasi) dan **menghitung angka sorotan**; model
+menulis headline (kesimpulan), takeaway "so what", dan menyusun jawaban Minto/SCQA (kesimpulan dulu). Setiap tarikan
+diberi ID (`p1`, `p2`, … / analisis file `a1`, …; `daftar_data`). `korelasi_data` menghubungkan dua data lewat kolom
+kunci yang setara (r Pearson & Spearman, n, scatter) — **hanya sumber yang sama atau Retail × Planogram**. Chart dibuka
+lewat link (tampil langsung di chat bila `chat_inline_chart` dinyalakan dan Gemini Enterprise mendukung) dan dipakai
+ulang sebagai bahan laporan custom.
 
 ## Melihat gambar unggahan (v3.2)
 
@@ -311,7 +324,7 @@ Berlaku maks. 5 menit kemudian. `update_agent.sh` menambahkan kunci baru tanpa m
 ## Uji lokal
 
 ```bash
-python -m unittest discover tests      # 211 uji, tanpa GCP
+python -m unittest discover tests      # 223 uji, tanpa GCP
 ```
 
 ## Log diagnostik (unggahan file & error)

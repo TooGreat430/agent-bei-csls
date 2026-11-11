@@ -716,6 +716,7 @@ def _file_data_text(tool_context: ToolContext, file_id: str) -> tuple[str, str, 
         except Exception as exc:  # noqa: BLE001
             logger.warning("Analisis %s tidak bisa dijalankan ulang: %s", a.get("id"), str(exc)[:200])
     blocks += _code_result_blocks(tool_context)
+    blocks += _chart_blocks(tool_context)
     last = tool_context.state.get(LAST_KEY) or {}
     if not tool_context.state.get(ANALYSES_KEY) and last.get("domain") == "file" and last.get("file_id") == entry["file_id"]:
         blocks.append(cr.data_block(f"Analisis terakhir di chat: {last.get('question', '')}", "", last.get("tables")))
@@ -756,6 +757,19 @@ def _pull_blocks(tool_context: ToolContext, domains: tuple[str, ...]) -> list[st
             out.append(cr.data_block(f"Data yang sudah ditarik di chat — {data_agent.SOURCE_LABELS.get(p['domain'], p['domain'])}"
                                      f" — {p.get('question', '')}", p.get("answer", ""), p.get("tables")))
     return out
+
+
+def _chart_blocks(tool_context: ToolContext) -> list[str]:
+    """Chart insight yang sudah dibuat di chat (judul + angka sorotan) agar laporan bisa memakai ulang."""
+    from .. import custom_report as cr
+    from .chart_insight_tools import CHARTS_KEY
+
+    charts = tool_context.state.get(CHARTS_KEY, []) or []
+    if not charts:
+        return []
+    rows = [[c.get("judul"), c.get("jenis"), c.get("data_id"), "; ".join(c.get("fakta") or [])] for c in charts[-12:]]
+    return [cr.data_block("Chart insight yang sudah dibuat di chat (pakai ulang jenis chart & temuannya bila relevan)",
+                          "", [{"columns": ["Headline", "Jenis chart", "Data", "Angka sorotan"], "rows": rows}])]
 
 
 def _code_result_blocks(tool_context: ToolContext) -> list[str]:
@@ -979,6 +993,7 @@ def generate_custom_report(request: str, source: str, tool_context: ToolContext,
                 continue
             blocks.append(cr.data_block(f"Hasil {data_agent.SOURCE_LABELS[domain]} — {q}", res["answer"], res["tables"]))
         blocks += _insight_blocks(tool_context, domain)
+        blocks += _chart_blocks(tool_context)
         blocks = list(dict.fromkeys(blocks))
         if not blocks:
             return {"status": "error", "message": "Data tidak bisa diambil dari Data Agent: " + "; ".join(errors)[:300]}

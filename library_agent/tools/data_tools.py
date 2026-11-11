@@ -85,20 +85,24 @@ def pull(question: str, tool_context: ToolContext, domain: str = "retail") -> di
     history.append({"question": question, "answer": result["answer"][:2000]})
     tool_context.state[hist_key] = history[-data_agent.MAX_HISTORY:]
     tool_context.state[LAST_KEY] = dict(data_agent.trim_for_state(result), question=question, domain=domain)
-    remember_pull(tool_context, domain, question, result)
-    return {"status": "ok", "domain": domain, "question": question, **result}
+    data_id = remember_pull(tool_context, domain, question, result)
+    return {"status": "ok", "domain": domain, "question": question, "data_id": data_id, **result}
 
 
 PULLS_KEY = "bq_pulls"
 
 
-def remember_pull(tool_context: ToolContext, domain: str, question: str, result: dict) -> None:
-    """Simpan hasil tarikan data di chat ini (ringkas) agar laporan bisa memakai data yang sudah dilihat user."""
+def remember_pull(tool_context: ToolContext, domain: str, question: str, result: dict) -> str:
+    """Simpan hasil tarikan data di chat ini (ringkas) agar laporan, chart insight, dan korelasi bisa memakainya.
+    Mengembalikan data_id (p1, p2, ...)."""
     pulls = list(tool_context.state.get(PULLS_KEY, []) or [])
-    item = dict(data_agent.trim_for_state(result, max_rows=80), domain=domain, question=question[:300])
+    seq = int(tool_context.state.get("bq_pull_seq", 0) or 0) + 1
+    tool_context.state["bq_pull_seq"] = seq
+    item = dict(data_agent.trim_for_state(result, max_rows=300), domain=domain, question=question[:300], id=f"p{seq}")
     item["answer"] = (item.get("answer") or "")[:4000]
     pulls.append(item)
     tool_context.state[PULLS_KEY] = pulls[-10:]
+    return f"p{seq}"
 
 
 def create_chart(x_column: str, y_columns: list[str], tool_context: ToolContext, chart_type: str = "bar",
