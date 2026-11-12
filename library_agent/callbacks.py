@@ -368,9 +368,24 @@ INTERNAL_TOOLS = {"periksa_angka", "transfer_to_agent", "daftar_data", "panduan_
                   "daftar_skill", "list_documents", "cek_biaya_analisis"}
 
 
-def fallback_reply(events: list, agent_name: str) -> str:
-    """Jawaban akhir = teks agent SETELAH pemanggilan tool terakhir. Bila tidak ada (mis. model berhenti setelah
-    diminta merevisi angka), susun jawaban dari hasil tool giliran ini: jawaban data + chart insight + hasil lain."""
+ERROR_TEXT = ("Maaf, terjadi kendala teknis saat menyusun jawaban. Silakan kirim ulang pertanyaan Anda; "
+              "data dan file di chat ini tetap tersimpan.")
+
+
+def _numcheck_keys(callback_context: CallbackContext) -> tuple[str, str, str]:
+    inv = getattr(getattr(callback_context, "_invocation_context", None), "invocation_id", "")
+    return f"temp:numcheck_{inv}", f"temp:numcheck_draft_{inv}", f"temp:numcheck_bad_{inv}"
+
+
+def unverified_note(bad: list[str]) -> str:
+    return ("\n\n_Catatan: angka berikut tidak dapat diverifikasi otomatis terhadap data: "
+            + ", ".join(bad[:8]) + ". Mohon cek ulang sebelum dipakai._")
+
+
+def fallback_reply(events: list, agent_name: str, draft: str = "", bad: list | None = None) -> str:
+    """Jawaban akhir = teks agent SETELAH pemanggilan tool terakhir. Bila tidak ada (mis. model berhenti atau error
+    setelah diminta merevisi angka): pakai draf jawaban sebelum revisi + catatan angka; bila tidak ada draf,
+    susun jawaban dari hasil tool giliran ini: jawaban data + chart insight + hasil lain."""
     last_fr_idx, last_text_idx, responses = -1, -1, []
     idx = 0
     for event in events:
@@ -385,9 +400,19 @@ def fallback_reply(events: list, agent_name: str) -> str:
             elif getattr(event, "author", "") not in ("", "user") and getattr(part, "text", None) \
                     and not getattr(part, "thought", False) and part.text.strip():
                 last_text_idx = idx
-    if last_text_idx > last_fr_idx or not responses:
+    if last_text_idx > last_fr_idx:
+        return ""
+    if draft and draft.strip():
+        return draft.strip() + (unverified_note(bad) if bad else "")
+    if not responses:
         return ""
     return compose_fallback(responses)
+
+
+def _model_failed(events: list) -> bool:
+    from .llm import MODEL_ERROR_CODE
+
+    return any(getattr(e, "error_code", None) == MODEL_ERROR_CODE for e in events)
 
 
 def compose_fallback(responses: list[tuple[str, dict]]) -> str:
@@ -424,7 +449,15 @@ def compose_fallback(responses: list[tuple[str, dict]]) -> str:
 def ensure_reply(callback_context: CallbackContext) -> Optional[types.Content]:
     """after_agent_callback: pastikan user selalu menerima jawaban."""
     try:
-        text = fallback_reply(_invocation_events(callback_context), callback_context.agent_name)
+        events = _invocation_events(callback_context)
+        _, draft_key, bad_key = _numcheck_keys(callback_context)
+        text = fallback_reply(events, callback_context.agent_name,
+                              draft=callback_context.state.get(draft_key) or "",
+                              bad=callback_context.state.get(bad_key) or [])
+        if not text and _model_failed(events):
+            text = ERROR_TEXT
+        if text:
+            logger.warning("Jawaban akhir kosong; dikirim jawaban pengganti (%d karakter)", len(text))
     except Exception:  # noqa: BLE001
         logger.exception("Pemeriksaan jawaban kosong gagal")
         return None
@@ -524,15 +557,19 @@ def verify_numbers(callback_context: CallbackContext, llm_response):
     bad = sorted(set(ungrounded_numbers(text, pool)))
     if not bad:
         return None
-    ctx = getattr(callback_context, "_invocation_context", None)
-    key = f"temp:numcheck_{getattr(ctx, 'invocation_id', '')}"
+    from .llm import SKIP_SIGNATURE
+
+    key, draft_key, bad_key = _numcheck_keys(callback_context)
     tries = callback_context.state.get(key, 0)
     logger.warning("Angka tidak terverifikasi (percobaan %d): %s", tries, bad[:10])
     if tries == 0:
         callback_context.state[key] = 1
+        # Draf disimpan: bila revisi gagal/kosong, ensure_reply mengirim draf ini + catatan (bukan jawaban kosong).
+        callback_context.state[draft_key] = text
+        callback_context.state[bad_key] = bad[:10]
         call = types.FunctionCall(name="periksa_angka", args={"angka_tidak_terverifikasi": bad[:10]})
-        return LlmResponse(content=types.Content(role="model", parts=[types.Part(function_call=call)]))
-    note = ("\n\n_Catatan: angka berikut tidak dapat diverifikasi otomatis terhadap data: "
-            + ", ".join(bad[:8]) + ". Mohon cek ulang sebelum dipakai._")
-    new_parts = [types.Part(text=text + note)]
+        # Panggilan sintetis tanpa thought_signature ditolak Gemini 3.x (400) -> isi tanda lewati validasi.
+        part = types.Part(function_call=call, thought_signature=SKIP_SIGNATURE)
+        return LlmResponse(content=types.Content(role="model", parts=[part]))
+    new_parts = [types.Part(text=text + unverified_note(bad))]
     return LlmResponse(content=types.Content(role="model", parts=new_parts))

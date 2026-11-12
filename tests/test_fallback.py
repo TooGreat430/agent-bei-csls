@@ -60,6 +60,49 @@ class FallbackTest(unittest.TestCase):
                 ev("report_agent", fr=fr("generate_custom_report", {"status": "ok", "file": {"pdf": "https://x/r.pdf"}}))]
         self.assertIn("PDF: https://x/r.pdf", callbacks.fallback_reply(flow, "report_agent"))
 
+    def test_draft_before_revision_used_with_note(self):
+        """v3.5.3: model diam/error setelah periksa_angka -> kirim draf analisisnya + catatan angka."""
+        text = callbacks.fallback_reply(SCREENSHOT_FLOW, "data_agent",
+                                        draft="Kesimpulan: PTPL lebih murah Rp 12.345/L.", bad=["12.345"])
+        self.assertTrue(text.startswith("Kesimpulan: PTPL lebih murah"))
+        self.assertIn("tidak dapat diverifikasi otomatis", text)
+        self.assertIn("12.345", text)
+
+    def test_draft_ignored_when_revision_answered(self):
+        flow = SCREENSHOT_FLOW + [ev("data_agent", text="Jawaban revisi.")]
+        self.assertEqual(callbacks.fallback_reply(flow, "data_agent", draft="draf lama"), "")
+
+
+def _cb(events, state=None):
+    inv = NS(invocation_id="inv9", session=NS(events=[NS(invocation_id="inv9", **vars(e)) for e in events]))
+    return NS(_invocation_context=inv, state=state or {}, agent_name="data_agent")
+
+
+class EnsureReplyTest(unittest.TestCase):
+    def test_model_error_without_tools_gets_apology(self):
+        from library_agent.llm import MODEL_ERROR_CODE
+
+        events = [ev("user", text="halo"), NS(author="data_agent", content=None, error_code=MODEL_ERROR_CODE)]
+        out = callbacks.ensure_reply(_cb(events))
+        self.assertIn("kendala teknis", out.parts[0].text)
+
+    def test_model_error_after_tools_uses_tool_results(self):
+        from library_agent.llm import MODEL_ERROR_CODE
+
+        events = SCREENSHOT_FLOW + [NS(author="data_agent", content=None, error_code=MODEL_ERROR_CODE)]
+        out = callbacks.ensure_reply(_cb(events))
+        self.assertIn("Gap HJ Product Hero Q3 2026 per SR", out.parts[0].text)
+
+    def test_draft_from_state(self):
+        state = {"temp:numcheck_draft_inv9": "Analisis lengkap ...", "temp:numcheck_bad_inv9": ["97.389"]}
+        out = callbacks.ensure_reply(_cb(SCREENSHOT_FLOW, state))
+        self.assertIn("Analisis lengkap", out.parts[0].text)
+        self.assertIn("97.389", out.parts[0].text)
+
+    def test_normal_answer_untouched(self):
+        events = SCREENSHOT_FLOW + [ev("data_agent", text="Kesimpulan: ...")]
+        self.assertIsNone(callbacks.ensure_reply(_cb(events)))
+
 
 if __name__ == "__main__":
     unittest.main()

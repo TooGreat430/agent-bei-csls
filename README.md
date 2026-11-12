@@ -129,6 +129,16 @@ Sumber: BigQuery (default) atau dua file unggahan (`retail_file_id` + `planogram
   struktur & class template). Revisi dan approve tetap berlaku.
 - Belum didukung: `.doc`/`.ppt` lama (minta simpan ulang sebagai DOCX/PPTX/PDF), skor kuantil khusus (mis. RFM).
 
+## Jawaban kosong setelah Periksa Angka — akar masalah (v3.5.3)
+
+Panggilan sintetis `periksa_angka` dari pemeriksa angka tidak punya `thought_signature` → Gemini 3.x (Flash) menolak
+riwayat dengan error 400, error itu dilempar ulang, run berhenti, dan `ensure_reply` tidak pernah jalan (user melihat
+langkah selesai tanpa jawaban). Perbaikan: (1) `llm.ensure_signatures` mengisi tanda lewati validasi resmi untuk
+function_call tanpa signature sebelum setiap panggilan Gemini, dan panggilan sintetis langsung diberi tanda itu;
+(2) error model non-kapasitas tidak lagi mematikan run — `PinnedGemini` mengembalikan respons berkode `MODEL_ERROR`,
+lalu `ensure_reply` menyusun jawaban dari hasil tool (atau pesan "kendala teknis" bila belum ada hasil tool);
+(3) draf jawaban sebelum revisi disimpan, dan bila revisi kosong atau gagal, draf dikirim dengan catatan angka yang belum terverifikasi.
+
 ## Pemeriksa angka: pembulatan wajar (v3.5.2)
 
 `rounding_ok`: angka bulat ke ribuan (≥ 10.000) atau ratusan (≥ 1.000) yang sesuai nilai data (dibulatkan/dipotong)

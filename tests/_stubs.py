@@ -60,6 +60,9 @@ def install() -> None:
     class _LlmResponse:
         def __init__(self, content=None, **kwargs):
             self.content = content
+            self.error_code = kwargs.pop("error_code", None)
+            self.error_message = kwargs.pop("error_message", None)
+            self.__dict__.update(kwargs)
 
     mod("google.adk.models", Gemini=_Any, LlmResponse=_LlmResponse, BaseLlm=_Any)
     mod("google.adk.models.google_llm", Gemini=_Any)

@@ -27,7 +27,7 @@ CAPACITY = re.compile(r"429|529|503|overloaded|rate.?limit|RESOURCE_EXHAUSTED|qu
 FALLBACK_NOTE = ("(Catatan: Claude sedang padat, jadi jawaban ini dibuat dengan Gemini 4 Argon. Hasil tetap memakai "
                  "data dan aturan yang sama.)")
 MAX_TOKENS = 16000
-SKIP_SIGNATURE = b"skip_thought_signature_validator"
+SKIP_SIGNATURE = b"skip_thought_signature_validator"   # sama dengan llm.SKIP_SIGNATURE (dipakai uji)
 
 
 def is_capacity_error(exc: BaseException) -> bool:
@@ -258,7 +258,7 @@ class ClaudeVertex(BaseLlm):
 
     async def _gemini(self, llm_request, stream: bool, note: bool):
         from .clients import location_for
-        from .llm import PinnedGemini
+        from .llm import PinnedGemini, ensure_signatures
 
         argon = PinnedGemini(model=settings.model_pro, location=location_for(settings.model_pro))
         req = llm_request.model_copy(deep=True) if hasattr(llm_request, "model_copy") else llm_request
@@ -266,13 +266,7 @@ class ClaudeVertex(BaseLlm):
             req.model = settings.model_pro
         except Exception:  # noqa: BLE001
             pass
-        for content in getattr(req, "contents", None) or []:        # riwayat dari Claude: tanpa thought signature
-            for part in content.parts or []:
-                if getattr(part, "function_call", None) and not getattr(part, "thought_signature", None):
-                    try:
-                        part.thought_signature = SKIP_SIGNATURE
-                    except Exception:  # noqa: BLE001
-                        pass
+        ensure_signatures(getattr(req, "contents", None))       # riwayat dari Claude: tanpa thought signature
         async for resp in argon.generate_content_async(req, stream):
             _tag(resp, settings.model_pro)
             parts = getattr(getattr(resp, "content", None), "parts", None)

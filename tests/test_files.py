@@ -205,6 +205,10 @@ class VerifyNumbersTest(unittest.TestCase):
         ctx = _ctx("gap Rp 57.202/L")
         first = verify_numbers(ctx, self._resp("Gap Zona 2 −Rp 12.345/L."))
         self.assertEqual(first.content.parts[0].function_call.name, "periksa_angka")
+        from library_agent.llm import SKIP_SIGNATURE
+
+        self.assertEqual(first.content.parts[0].thought_signature, SKIP_SIGNATURE)   # v3.5.3: cegah 400 Gemini 3.x
+        self.assertEqual(ctx.state["temp:numcheck_draft_inv1"], "Gap Zona 2 −Rp 12.345/L.")
         second = verify_numbers(ctx, self._resp("Gap Zona 2 −Rp 12.345/L."))
         self.assertIn("tidak dapat diverifikasi", second.content.parts[0].text)
 
