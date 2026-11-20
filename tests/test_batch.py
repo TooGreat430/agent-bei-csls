@@ -104,6 +104,18 @@ class BatchTest(unittest.TestCase):
         self.assertEqual([p["id"] for p in state["bq_pulls"]], ["p1", "p2", "p3"])
         self.assertEqual(state["bq_pull_seq"], 3)
 
+    def test_fallback_reply_lists_all_links(self):
+        from library_agent.callbacks import compose_fallback
+
+        rfm = {"status": "ok", "halaman_paket": "https://x/paket.html",
+               "laporan": [{"cakupan": "Nasional", "laporan_html": "https://x/n.html", "register_excel": "https://x/n.xlsx"}]}
+        batch = {"status": "ok", "hasil": [{"permintaan": "harga", "status": "ok", "file": {"pdf": "https://x/h.pdf"}},
+                                           {"permintaan": "rfm | region=semua", "status": "ok", **rfm}],
+                 "tertunda_batas_waktu": ["industri"]}
+        text = compose_fallback([("analisis_rfm", rfm), ("buat_laporan_sekaligus", batch)])
+        for frag in ("https://x/paket.html", "https://x/n.xlsx", "PDF: https://x/h.pdf", "lanjut"):
+            self.assertIn(frag, text)
+
     def test_registered_everywhere(self):
         from library_agent import prompts
         from library_agent.subagents.data import data_agent

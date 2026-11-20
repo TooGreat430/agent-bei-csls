@@ -64,7 +64,7 @@ git add -A
 git commit -m "v3.6: analisis_rfm (RFM sell-out dihitung kode) + batas 1 laporan berat per pesan"
 git push
 ```
-Uji harus `OK` (278 uji). Pastikan `riwayat-chat/` tidak ikut ter-commit (`git status` tidak menampilkannya).
+Uji harus `OK` (287 uji). Pastikan `riwayat-chat/` tidak ikut ter-commit (`git status` tidak menampilkannya).
 
 ## Langkah 3 — Ambil kode & cek data RFM (Cloud Shell)
 
@@ -91,7 +91,7 @@ Bandingkan angkanya dengan laporan SR7 v5 yang sudah ada.
 ```bash
 find . -name __pycache__ -prune -exec rm -rf {} + && bash scripts/update_agent.sh
 ```
-Harus berakhir `Uji: OK` (278 uji) dan `Selesai.` Jalankan **sekali** dan jangan `Ctrl+C`.
+Harus berakhir `Uji: OK` (287 uji) dan `Selesai.` Jalankan **sekali** dan jangan `Ctrl+C`.
 
 ## Langkah 5 — Uji (chat baru, tunggu 5 menit setelah deploy)
 

@@ -64,11 +64,14 @@ class FallbackTest(unittest.TestCase):
         self.assertIn("sedang sangat padat", out[0].content.parts[0].text)
         self.assertEqual(len(CALLS), 3)
 
-    def test_other_errors_not_swallowed(self):
+    def test_other_errors_become_error_response(self):
+        """v3.5.3: error non-kapasitas (mis. 400) tidak lagi mematikan run -> respons berkode error, tanpa
+        mencoba cadangan, supaya ensure_reply tetap mengirim jawaban dari hasil tool."""
         base = llm.PinnedGemini.__mro__[1]
 
         async def bad(self, req, stream=False):
-            raise ValueError("400 INVALID_ARGUMENT: schema salah")
+            CALLS.append((self.model, self.location))
+            raise ValueError("400 INVALID_ARGUMENT: function call is missing a thought_signature")
             yield  # pragma: no cover
 
         with mock.patch.object(base, "generate_content_async", bad, create=True):
@@ -76,8 +79,48 @@ class FallbackTest(unittest.TestCase):
 
             async def collect():
                 return [r async for r in m.generate_content_async(NS(model="x"))]
+            out = asyncio.run(collect())
+        self.assertEqual(len(out), 1)
+        self.assertEqual(out[0].error_code, llm.MODEL_ERROR_CODE)
+        self.assertIn("thought_signature", out[0].error_message)
+        self.assertEqual(len(CALLS), 1)
+
+    def test_error_after_partial_stream_still_raises(self):
+        base = llm.PinnedGemini.__mro__[1]
+
+        async def half(self, req, stream=False):
+            yield NS(text="sebagian")
+            raise ValueError("400 putus")
+
+        with mock.patch.object(base, "generate_content_async", half, create=True):
+            m = llm.PinnedGemini(model="gemini-4-argon", location="asia-southeast1")
+
+            async def collect():
+                return [r async for r in m.generate_content_async(NS(model="x"))]
             with self.assertRaises(ValueError):
                 asyncio.run(collect())
+
+    def test_missing_signature_filled_before_call(self):
+        """Panggilan sintetis periksa_angka di riwayat diberi thought_signature sebelum dikirim ke Gemini."""
+        seen = []
+        base = llm.PinnedGemini.__mro__[1]
+
+        async def gen(self, req, stream=False):
+            seen.extend(p.thought_signature for c in req.contents for p in c.parts if p.function_call)
+            yield NS(text="ok")
+
+        own = NS(function_call=NS(name="ask_retail_intelligence"), thought_signature=b"asli")
+        synth = NS(function_call=NS(name="periksa_angka"), thought_signature=None)
+        text = NS(function_call=None, text="halo")
+        req = NS(model="x", contents=[NS(parts=[own]), NS(parts=[synth, text])])
+        with mock.patch.object(base, "generate_content_async", gen, create=True):
+            m = llm.PinnedGemini(model="gemini-3.5-flash", location="global")
+
+            async def collect():
+                return [r async for r in m.generate_content_async(req)]
+            asyncio.run(collect())
+        self.assertEqual(seen, [b"asli", llm.SKIP_SIGNATURE])
+        self.assertFalse(hasattr(text, "thought_signature"))
 
     def test_targets_skip_primary(self):
         self.assertEqual(llm.fallback_targets("gemini-4-argon", "global"), [("gemini-3.5-flash", "global")])

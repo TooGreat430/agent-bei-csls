@@ -31,6 +31,33 @@ BUSY_TEXT = ("Maaf, layanan model AI sedang sangat padat sehingga permintaan ini
              "Silakan kirim ulang pesan Anda dalam 1–2 menit. File dan hasil sebelumnya di chat ini tetap tersimpan.")
 
 
+SKIP_SIGNATURE = b"skip_thought_signature_validator"
+MODEL_ERROR_CODE = "MODEL_ERROR"
+
+
+def ensure_signatures(contents) -> int:
+    """Gemini 3.x menolak (400) function_call di riwayat yang tidak punya thought_signature — mis. panggilan
+    sintetis `periksa_angka` dari pemeriksa angka atau riwayat dari Claude. Isi tanda lewati validasi resmi."""
+    n = 0
+    for content in contents or []:
+        for part in getattr(content, "parts", None) or []:
+            if getattr(part, "function_call", None) and not getattr(part, "thought_signature", None):
+                try:
+                    part.thought_signature = SKIP_SIGNATURE
+                    n += 1
+                except Exception:  # noqa: BLE001
+                    pass
+    return n
+
+
+def error_response(exc: BaseException):
+    """Respons tanpa teks berkode error: agent selesai normal sehingga after_agent_callback (ensure_reply)
+    tetap menyusun jawaban dari hasil tool — user tidak pernah menerima jawaban kosong karena error model."""
+    from google.adk.models import LlmResponse
+
+    return LlmResponse(error_code=MODEL_ERROR_CODE, error_message=str(exc)[:500])
+
+
 def is_capacity_error(exc: BaseException) -> bool:
     return bool(_CAPACITY.search(f"{type(exc).__name__} {exc}"))
 
@@ -68,14 +95,22 @@ class PinnedGemini(Gemini):
 
     async def generate_content_async(self, llm_request, stream: bool = False):
         yielded = False
+        fixed = ensure_signatures(getattr(llm_request, "contents", None))
+        if fixed:
+            logger.info("thought_signature diisi untuk %d function_call tanpa signature", fixed)
         try:
             async for resp in super().generate_content_async(llm_request, stream):
                 yielded = True
                 yield resp
             return
         except Exception as exc:  # noqa: BLE001
-            if yielded or not self.allow_fallback or not is_capacity_error(exc):
+            if yielded or not self.allow_fallback:
                 raise
+            if not is_capacity_error(exc):
+                logger.exception("Error model %s @ %s (bukan kapasitas); jawaban disusun dari hasil tool",
+                                 self.model, self.location)
+                yield error_response(exc)
+                return
             logger.warning("Kapasitas model penuh (%s @ %s): %s", self.model, self.location, str(exc)[:160])
         for model, location in fallback_targets(self.model, self.location):
             alt = PinnedGemini(model=model, location=location, allow_fallback=False)
@@ -91,7 +126,9 @@ class PinnedGemini(Gemini):
                 return
             except Exception as exc:  # noqa: BLE001
                 if not is_capacity_error(exc):
-                    raise
+                    logger.exception("Error model cadangan %s @ %s", model, location)
+                    yield error_response(exc)
+                    return
                 logger.warning("Cadangan juga penuh (%s @ %s)", model, location)
         logger.error("Semua endpoint model penuh; mengirim pesan 'layanan padat' ke user")
         yield busy_response()

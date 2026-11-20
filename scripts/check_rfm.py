@@ -28,6 +28,10 @@ def q(sql, params=None):
     return [dict(r) for r in job.result()]
 
 
+def _pct(v):
+    return "n/a" if v is None else f"{v:+.1f}%"
+
+
 def section(title):
     print(f"\n=== {title} " + "=" * max(0, 70 - len(title)))
 
@@ -102,8 +106,8 @@ def main():
     res = eng.compute(data["outlets"], data["series"], data["audit"], cfg["cutoff"])
     k = res["kpi"]
     print(f"  Nasional: {k['outlets_valid']:,} outlet valid · baseline {k['outlets_baseline']:,} · entrant "
-          f"{k['outlets_entrants']:,} · YTD {k['vol_ytd']:,.2f} KL · YoY {k['yoy_total_pct']}% · cohort YoY "
-          f"{k['yoy_cohort_pct']}% · hitung {time.time() - t0:.1f} dtk")
+          f"{k['outlets_entrants']:,} · YTD {k['vol_ytd']:,.2f} KL · YoY {_pct(k['yoy_total_pct'])} · cohort YoY "
+          f"{_pct(k['yoy_cohort_pct'])} · hitung {time.time() - t0:.1f} dtk")
     print(f"  Pemeriksaan: {res['checks']}")
     for s in res["segments"]:
         print(f"    {s['segment']:<24} {s['outlets']:>7,} outlet · {s['vol_share'] or 0:>5.1f}% volume")

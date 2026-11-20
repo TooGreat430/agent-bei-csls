@@ -1,0 +1,703 @@
+diff --git a/library_agent/callbacks.py b/library_agent/callbacks.py
+index 01846a5..0e3349f 100644
+--- a/library_agent/callbacks.py
++++ b/library_agent/callbacks.py
+@@ -368,24 +368,9 @@ INTERNAL_TOOLS = {"periksa_angka", "transfer_to_agent", "daftar_data", "panduan_
+                   "daftar_skill", "list_documents", "cek_biaya_analisis"}
+ 
+ 
+-ERROR_TEXT = ("Maaf, terjadi kendala teknis saat menyusun jawaban. Silakan kirim ulang pertanyaan Anda; "
+-              "data dan file di chat ini tetap tersimpan.")
+-
+-
+-def _numcheck_keys(callback_context: CallbackContext) -> tuple[str, str, str]:
+-    inv = getattr(getattr(callback_context, "_invocation_context", None), "invocation_id", "")
+-    return f"temp:numcheck_{inv}", f"temp:numcheck_draft_{inv}", f"temp:numcheck_bad_{inv}"
+-
+-
+-def unverified_note(bad: list[str]) -> str:
+-    return ("\n\n_Catatan: angka berikut tidak dapat diverifikasi otomatis terhadap data: "
+-            + ", ".join(bad[:8]) + ". Mohon cek ulang sebelum dipakai._")
+-
+-
+-def fallback_reply(events: list, agent_name: str, draft: str = "", bad: list | None = None) -> str:
+-    """Jawaban akhir = teks agent SETELAH pemanggilan tool terakhir. Bila tidak ada (mis. model berhenti atau error
+-    setelah diminta merevisi angka): pakai draf jawaban sebelum revisi + catatan angka; bila tidak ada draf,
+-    susun jawaban dari hasil tool giliran ini: jawaban data + chart insight + hasil lain."""
++def fallback_reply(events: list, agent_name: str) -> str:
++    """Jawaban akhir = teks agent SETELAH pemanggilan tool terakhir. Bila tidak ada (mis. model berhenti setelah
++    diminta merevisi angka), susun jawaban dari hasil tool giliran ini: jawaban data + chart insight + hasil lain."""
+     last_fr_idx, last_text_idx, responses = -1, -1, []
+     idx = 0
+     for event in events:
+@@ -400,21 +385,11 @@ def fallback_reply(events: list, agent_name: str, draft: str = "", bad: list | N
+             elif getattr(event, "author", "") not in ("", "user") and getattr(part, "text", None) \
+                     and not getattr(part, "thought", False) and part.text.strip():
+                 last_text_idx = idx
+-    if last_text_idx > last_fr_idx:
+-        return ""
+-    if draft and draft.strip():
+-        return draft.strip() + (unverified_note(bad) if bad else "")
+-    if not responses:
++    if last_text_idx > last_fr_idx or not responses:
+         return ""
+     return compose_fallback(responses)
+ 
+ 
+-def _model_failed(events: list) -> bool:
+-    from .llm import MODEL_ERROR_CODE
+-
+-    return any(getattr(e, "error_code", None) == MODEL_ERROR_CODE for e in events)
+-
+-
+ def compose_fallback(responses: list[tuple[str, dict]]) -> str:
+     """Ringkasan yang tetap berguna bagi user dari hasil tool (tanpa pesan internal)."""
+     lines: list[str] = []
+@@ -449,15 +424,7 @@ def compose_fallback(responses: list[tuple[str, dict]]) -> str:
+ def ensure_reply(callback_context: CallbackContext) -> Optional[types.Content]:
+     """after_agent_callback: pastikan user selalu menerima jawaban."""
+     try:
+-        events = _invocation_events(callback_context)
+-        _, draft_key, bad_key = _numcheck_keys(callback_context)
+-        text = fallback_reply(events, callback_context.agent_name,
+-                              draft=callback_context.state.get(draft_key) or "",
+-                              bad=callback_context.state.get(bad_key) or [])
+-        if not text and _model_failed(events):
+-            text = ERROR_TEXT
+-        if text:
+-            logger.warning("Jawaban akhir kosong; dikirim jawaban pengganti (%d karakter)", len(text))
++        text = fallback_reply(_invocation_events(callback_context), callback_context.agent_name)
+     except Exception:  # noqa: BLE001
+         logger.exception("Pemeriksaan jawaban kosong gagal")
+         return None
+@@ -557,19 +524,15 @@ def verify_numbers(callback_context: CallbackContext, llm_response):
+     bad = sorted(set(ungrounded_numbers(text, pool)))
+     if not bad:
+         return None
+-    from .llm import SKIP_SIGNATURE
+-
+-    key, draft_key, bad_key = _numcheck_keys(callback_context)
++    ctx = getattr(callback_context, "_invocation_context", None)
++    key = f"temp:numcheck_{getattr(ctx, 'invocation_id', '')}"
+     tries = callback_context.state.get(key, 0)
+     logger.warning("Angka tidak terverifikasi (percobaan %d): %s", tries, bad[:10])
+     if tries == 0:
+         callback_context.state[key] = 1
+-        # Draf disimpan: bila revisi gagal/kosong, ensure_reply mengirim draf ini + catatan (bukan jawaban kosong).
+-        callback_context.state[draft_key] = text
+-        callback_context.state[bad_key] = bad[:10]
+         call = types.FunctionCall(name="periksa_angka", args={"angka_tidak_terverifikasi": bad[:10]})
+-        # Panggilan sintetis tanpa thought_signature ditolak Gemini 3.x (400) -> isi tanda lewati validasi.
+-        part = types.Part(function_call=call, thought_signature=SKIP_SIGNATURE)
+-        return LlmResponse(content=types.Content(role="model", parts=[part]))
+-    new_parts = [types.Part(text=text + unverified_note(bad))]
++        return LlmResponse(content=types.Content(role="model", parts=[types.Part(function_call=call)]))
++    note = ("\n\n_Catatan: angka berikut tidak dapat diverifikasi otomatis terhadap data: "
++            + ", ".join(bad[:8]) + ". Mohon cek ulang sebelum dipakai._")
++    new_parts = [types.Part(text=text + note)]
+     return LlmResponse(content=types.Content(role="model", parts=new_parts))
+diff --git a/library_agent/config.py b/library_agent/config.py
+index dbc22d3..77034ed 100644
+--- a/library_agent/config.py
++++ b/library_agent/config.py
+@@ -67,6 +67,18 @@ class Settings:
+         "LIB_INDUSTRY_TABLE", "ptpl-curated-prd.DATAMART.survey_industry"))
+     industry_htd_column: str = field(default_factory=lambda: _env("LIB_INDUSTRY_HTD_COLUMN", "htd_ptpl_plus"))
+     chat_inline_chart: int = field(default_factory=lambda: int(_env("LIB_CHAT_INLINE_CHART", "0")))
++    # --- Analisis RFM outlet sell-out (dihitung kode langsung dari BigQuery) ----------
++    rfm_table: str = field(default_factory=lambda: _env("LIB_RFM_TABLE", "ptpl-curated-prd.DATAMART.SALES_OUT_DAILY"))
++    rfm_store_types: tuple = field(default_factory=lambda: ("OTO-5", "OTO-6", "OTO-7", "OTO-8", "OTO-9", "OTO-10",
++                                                            "OTO-13"))
++    rfm_series_column: str = field(default_factory=lambda: _env("LIB_RFM_SERIES_COLUMN", "PRODUCT_SEGMENT"))
++    rfm_exclude_pattern: str = field(default_factory=lambda: _env("LIB_RFM_EXCLUDE_PATTERN", "MEDITRAN SX BIO"))
++    rfm_cutoff: str = field(default_factory=lambda: _env("LIB_RFM_CUTOFF", "2026-09"))
++    rfm_footer_credit: str = field(default_factory=lambda: _env("LIB_RFM_FOOTER_CREDIT",
++                                                                "Prepared with Marketing Insight Assistant"))
++    rfm_time_budget: int = field(default_factory=lambda: int(_env("LIB_RFM_TIME_BUDGET", "300")))
++    rfm_narrative_timeout: int = field(default_factory=lambda: int(_env("LIB_RFM_NARRATIVE_TIMEOUT", "120")))
++    batch_time_budget: int = field(default_factory=lambda: int(_env("LIB_BATCH_TIME_BUDGET", "300")))
+     industry_segment_column: str = field(default_factory=lambda: _env("LIB_INDUSTRY_SEGMENT_COLUMN", "channel"))
+     industry_focus_products: tuple = field(default_factory=lambda: (
+         "Meditran SX Plus 15W40|HDDO", "Meditran S|HDDO", "Turalik 52|Hydraulic", "Rored HDA 90|Gear & Trans",
+@@ -223,6 +235,15 @@ RUNTIME_KEYS: dict[str, type] = {
+     "industry_htd_column": str,
+     "industry_segment_column": str,
+     "chat_inline_chart": int,
++    "rfm_table": str,
++    "rfm_store_types": list,
++    "rfm_series_column": str,
++    "rfm_exclude_pattern": str,
++    "rfm_cutoff": str,
++    "rfm_footer_credit": str,
++    "rfm_time_budget": int,
++    "rfm_narrative_timeout": int,
++    "batch_time_budget": int,
+     "industry_focus_products": CaseList,
+     "industry_segments": CaseList,
+     "industry_competitors": list,
+diff --git a/library_agent/llm.py b/library_agent/llm.py
+index 5a3038d..f49aded 100644
+--- a/library_agent/llm.py
++++ b/library_agent/llm.py
+@@ -31,33 +31,6 @@ BUSY_TEXT = ("Maaf, layanan model AI sedang sangat padat sehingga permintaan ini
+              "Silakan kirim ulang pesan Anda dalam 1–2 menit. File dan hasil sebelumnya di chat ini tetap tersimpan.")
+ 
+ 
+-SKIP_SIGNATURE = b"skip_thought_signature_validator"
+-MODEL_ERROR_CODE = "MODEL_ERROR"
+-
+-
+-def ensure_signatures(contents) -> int:
+-    """Gemini 3.x menolak (400) function_call di riwayat yang tidak punya thought_signature — mis. panggilan
+-    sintetis `periksa_angka` dari pemeriksa angka atau riwayat dari Claude. Isi tanda lewati validasi resmi."""
+-    n = 0
+-    for content in contents or []:
+-        for part in getattr(content, "parts", None) or []:
+-            if getattr(part, "function_call", None) and not getattr(part, "thought_signature", None):
+-                try:
+-                    part.thought_signature = SKIP_SIGNATURE
+-                    n += 1
+-                except Exception:  # noqa: BLE001
+-                    pass
+-    return n
+-
+-
+-def error_response(exc: BaseException):
+-    """Respons tanpa teks berkode error: agent selesai normal sehingga after_agent_callback (ensure_reply)
+-    tetap menyusun jawaban dari hasil tool — user tidak pernah menerima jawaban kosong karena error model."""
+-    from google.adk.models import LlmResponse
+-
+-    return LlmResponse(error_code=MODEL_ERROR_CODE, error_message=str(exc)[:500])
+-
+-
+ def is_capacity_error(exc: BaseException) -> bool:
+     return bool(_CAPACITY.search(f"{type(exc).__name__} {exc}"))
+ 
+@@ -95,22 +68,14 @@ class PinnedGemini(Gemini):
+ 
+     async def generate_content_async(self, llm_request, stream: bool = False):
+         yielded = False
+-        fixed = ensure_signatures(getattr(llm_request, "contents", None))
+-        if fixed:
+-            logger.info("thought_signature diisi untuk %d function_call tanpa signature", fixed)
+         try:
+             async for resp in super().generate_content_async(llm_request, stream):
+                 yielded = True
+                 yield resp
+             return
+         except Exception as exc:  # noqa: BLE001
+-            if yielded or not self.allow_fallback:
++            if yielded or not self.allow_fallback or not is_capacity_error(exc):
+                 raise
+-            if not is_capacity_error(exc):
+-                logger.exception("Error model %s @ %s (bukan kapasitas); jawaban disusun dari hasil tool",
+-                                 self.model, self.location)
+-                yield error_response(exc)
+-                return
+             logger.warning("Kapasitas model penuh (%s @ %s): %s", self.model, self.location, str(exc)[:160])
+         for model, location in fallback_targets(self.model, self.location):
+             alt = PinnedGemini(model=model, location=location, allow_fallback=False)
+@@ -126,9 +91,7 @@ class PinnedGemini(Gemini):
+                 return
+             except Exception as exc:  # noqa: BLE001
+                 if not is_capacity_error(exc):
+-                    logger.exception("Error model cadangan %s @ %s", model, location)
+-                    yield error_response(exc)
+-                    return
++                    raise
+                 logger.warning("Cadangan juga penuh (%s @ %s)", model, location)
+         logger.error("Semua endpoint model penuh; mengirim pesan 'layanan padat' ke user")
+         yield busy_response()
+diff --git a/library_agent/llm_claude.py b/library_agent/llm_claude.py
+index 3251bf8..fda39a0 100644
+--- a/library_agent/llm_claude.py
++++ b/library_agent/llm_claude.py
+@@ -27,7 +27,7 @@ CAPACITY = re.compile(r"429|529|503|overloaded|rate.?limit|RESOURCE_EXHAUSTED|qu
+ FALLBACK_NOTE = ("(Catatan: Claude sedang padat, jadi jawaban ini dibuat dengan Gemini 4 Argon. Hasil tetap memakai "
+                  "data dan aturan yang sama.)")
+ MAX_TOKENS = 16000
+-SKIP_SIGNATURE = b"skip_thought_signature_validator"   # sama dengan llm.SKIP_SIGNATURE (dipakai uji)
++SKIP_SIGNATURE = b"skip_thought_signature_validator"
+ 
+ 
+ def is_capacity_error(exc: BaseException) -> bool:
+@@ -258,7 +258,7 @@ class ClaudeVertex(BaseLlm):
+ 
+     async def _gemini(self, llm_request, stream: bool, note: bool):
+         from .clients import location_for
+-        from .llm import PinnedGemini, ensure_signatures
++        from .llm import PinnedGemini
+ 
+         argon = PinnedGemini(model=settings.model_pro, location=location_for(settings.model_pro))
+         req = llm_request.model_copy(deep=True) if hasattr(llm_request, "model_copy") else llm_request
+@@ -266,7 +266,13 @@ class ClaudeVertex(BaseLlm):
+             req.model = settings.model_pro
+         except Exception:  # noqa: BLE001
+             pass
+-        ensure_signatures(getattr(req, "contents", None))       # riwayat dari Claude: tanpa thought signature
++        for content in getattr(req, "contents", None) or []:        # riwayat dari Claude: tanpa thought signature
++            for part in content.parts or []:
++                if getattr(part, "function_call", None) and not getattr(part, "thought_signature", None):
++                    try:
++                        part.thought_signature = SKIP_SIGNATURE
++                    except Exception:  # noqa: BLE001
++                        pass
+         async for resp in argon.generate_content_async(req, stream):
+             _tag(resp, settings.model_pro)
+             parts = getattr(getattr(resp, "content", None), "parts", None)
+diff --git a/library_agent/prompts.py b/library_agent/prompts.py
+index eb082d0..5e70aed 100644
+--- a/library_agent/prompts.py
++++ b/library_agent/prompts.py
+@@ -18,7 +18,8 @@ pesan itu muncul dalam percakapan:
+   whitespace, brand di rak.
+   GABUNGAN RETAIL × PLANOGRAM (harga sekaligus kondisi rak per KIMAP, double jeopardy, white space), dan data
+   SELL-OUT distributor (Selling Out Intelligence: volume, fulfillment, Active Customer, kontribusi region/channel/
+-  produk/distributor).
++  produk/distributor), termasuk ANALISIS/LAPORAN RFM outlet sell-out (Champions, At Risk, migrasi segmen, register
++  outlet) per region atau nasional.
+   Juga permintaan menyimpan jawaban data sebagai insight.
+ - file_agent: pesan dengan LAMPIRAN APA PUN (CSV/Excel maupun dokumen), atau pertanyaan tentang file/dokumen
+   yang sudah diunggah, cross-tab, gabung file, dll. Termasuk permintaan "generate/unduh Excel" atau "file Excel
+@@ -30,8 +31,12 @@ pesan itu muncul dalam percakapan:
+ Aturan:
+ - Nama bagian internal (data_agent, file_agent, report_agent, sub-agent) JANGAN pernah disebut ke user.
+ - Pesan yang berisi lampiran apa pun -> file_agent (kecuali user jelas meminta laporan -> report_agent).
++  Analisis/laporan RFM outlet sell-out dengan lampiran metodologi/master prompt (tanpa file data) boleh ke file_agent
++  atau data_agent — keduanya memakai alat RFM yang sama.
+ - Gabungan sumber hanya Retail × Planogram. Data Industri dan Sell-out tidak digabung dengan sumber lain.
+ - Jangan menjawab angka data sendiri.
++- Satu pesan = paling banyak satu panggilan alat laporan berat. RFM nasional + 7 region = SATU panggilan
++  analisis_rfm(region="semua"); beberapa laporan berbeda = SATU panggilan buat_laporan_sekaligus.
+ - Saat memperkenalkan diri: sebut "__AGENT_NAME__" dan tiga kemampuan di atas.
+ - Insight (temuan yang disimpan) hanya hidup di chat ini dan menjadi bahan laporan di chat yang sama.
+   Jangan memakai istilah "workspace".
+@@ -147,6 +152,33 @@ Gambar kerangka visual dengan buat_diagram (judul = kesimpulan) dan sertakan lin
+ skor, dan peluang yang BUKAN dari data wajib disebut asalnya (asumsi user / hipotesis) — jangan disajikan sebagai fakta.
+ Angka hanya dari hasil tool. Satu jawaban cukup 1–3 kerangka yang paling relevan, jangan semuanya.
+ 
++ANALISIS RFM OUTLET SELL-OUT (Bengkel + Toko Oli)
++- Semua permintaan RFM / segmentasi outlet (Champions, Loyal, At Risk, Can't Lose Them, Hibernating, migrasi segmen,
++  momentum outlet, register outlet) dari data sell-out -> analisis_rfm(region=...). Alat ini menghitung SELURUH
++  metodologi PTPL RFM SR7 v5 langsung dari BigQuery dan membuat laporan HTML 8 section + Excel register sekaligus.
++  JANGAN memakai ask_sellout_intelligence atau generate_custom_report untuk RFM (datanya ringkasan, bagian jadi n/a).
++- region: "" = nasional; "SR1".."SR7" = satu Sales Region; "semua" = nasional + SR1–SR7; "semua_region" = SR1–SR7;
++  daftar dipisah koma ("nasional, SR1, SR3"); "daftar" = lihat region tersedia.
++- BEBERAPA LAPORAN = SATU PANGGILAN. Bila user meminta beberapa region / "setiap Sales Region" / "semua region dan
++  nasional", panggil analisis_rfm SEKALI dengan region="semua" (atau daftar region). JANGAN memanggilnya berulang
++  per region. Alat menarik data sekali, menulis narasi paralel, dan membuat halaman paket berisi perbandingan +
++  semua link. Bila ada 'tertunda_batas_waktu', tawarkan "ketik lanjut" lalu panggil sekali lagi dengan daftar itu.
++- Jika user mengunggah master prompt/metodologi RFM, tetap pakai alat ini (metodologinya sudah dibangun di
++  dalamnya). Tidak perlu menanyakan format — hasilnya selalu HTML + Excel. Tidak perlu meminta persetujuan bertahap;
++  langsung kerjakan seluruh cakupan yang diminta.
++- Setelah selesai: link halaman paket (bila ada), tabel ringkas per cakupan dari 'ringkasan' (outlet valid, volume
++  YTD, YoY, Champions), dan link HTML/Excel tiap laporan.
++
++SATU LAPORAN BERAT PER PESAN (WAJIB)
++- Dalam satu pesan user, panggil paling banyak SATU alat pembuat laporan (generate_*, revise_custom_report,
++  analisis_rfm). Laporan berat butuh beberapa menit; dua sekaligus melewati batas waktu (DEADLINE_EXCEEDED).
++  Pengecualian yang benar: RFM banyak region dikerjakan dalam SATU panggilan analisis_rfm(region="semua").
++- User meminta 2+ laporan BERBEDA dalam satu pesan (mis. dashboard harga + planogram, custom retail + custom
++  industri, laporan + RFM) -> SATU panggilan buat_laporan_sekaligus(laporan=[...], output_format=...). Semua dikerjakan
++  paralel dan hasilnya keluar di jawaban yang sama — jangan meminta user memesan satu per satu.
++- Jika alat mengembalikan status "deferred", JANGAN mencoba lagi di pesan ini: sampaikan hasil yang sudah jadi dan
++  tawarkan "ketik lanjut" untuk laporan berikutnya. Status "redirect" -> panggil alat yang disebut di pesannya.
++
+ LAPORAN DARI DATA BIGQUERY (buat sendiri, jangan dialihkan)
+ - Jika user setuju atau meminta laporan/one-pager/PDF/PowerPoint/HTML dari data yang sudah ditarik: panggil
+   generate_custom_report(source=<"retail"|"industri"|"planogram"|"sellout"|"retail_planogram">, request=...,
+@@ -188,7 +220,7 @@ A. TEMPLATE — isi, urutan halaman, dan perhitungan tetap; angka dihitung kode
+       momentum kompetitor & white space, Sales Region, action matrix.
+ B. CUSTOM — disusun bebas oleh model utama sesuai permintaan user (temuan, grafik, halaman dipilih dari data),
+    gaya design system PTPL, format HTML, PDF, dan/atau PowerPoint (boleh beberapa sekaligus).
+-   Data SELL-OUT (Selling Out Intelligence) saat ini HANYA laporan custom (source "sellout"); belum ada template. Sumber: retail, industri, planogram, sellout, retail_planogram (gabungan), atau file
++   Data SELL-OUT (Selling Out Intelligence): laporan custom (source "sellout"), KECUALI RFM outlet -> analisis_rfm. Sumber: retail, industri, planogram, sellout, retail_planogram (gabungan), atau file
+    unggahan. Tool: generate_custom_report. Hasilnya DRAFT sampai user menyetujui.
+    Jika user mengunggah dokumen berisi prompt, template, atau contoh laporan dan ingin laporan mengikutinya, isi
+    instruction_doc_id dengan ID dokumen itu (lihat list_documents). Jika dokumen itu TEMPLATE HTML (desain), laporan
+@@ -262,6 +294,33 @@ MEMILIH JENIS LAPORAN (WAJIB)
+ 4. Angka laporan hanya dari data BigQuery atau file CSV/Excel. Dokumen unggahan (PDF/Word/PPT/teks) dipakai
+    sebagai instruksi, kerangka, atau contoh gaya — angkanya tidak disalin ke laporan baru.
+ 
++ANALISIS RFM OUTLET SELL-OUT (Bengkel + Toko Oli)
++- Semua permintaan RFM / segmentasi outlet (Champions, Loyal, At Risk, Can't Lose Them, Hibernating, migrasi segmen,
++  momentum outlet, register outlet) dari data sell-out -> analisis_rfm(region=...). Alat ini menghitung SELURUH
++  metodologi PTPL RFM SR7 v5 langsung dari BigQuery dan membuat laporan HTML 8 section + Excel register sekaligus.
++  JANGAN memakai ask_sellout_intelligence atau generate_custom_report untuk RFM (datanya ringkasan, bagian jadi n/a).
++- region: "" = nasional; "SR1".."SR7" = satu Sales Region; "semua" = nasional + SR1–SR7; "semua_region" = SR1–SR7;
++  daftar dipisah koma ("nasional, SR1, SR3"); "daftar" = lihat region tersedia.
++- BEBERAPA LAPORAN = SATU PANGGILAN. Bila user meminta beberapa region / "setiap Sales Region" / "semua region dan
++  nasional", panggil analisis_rfm SEKALI dengan region="semua" (atau daftar region). JANGAN memanggilnya berulang
++  per region. Alat menarik data sekali, menulis narasi paralel, dan membuat halaman paket berisi perbandingan +
++  semua link. Bila ada 'tertunda_batas_waktu', tawarkan "ketik lanjut" lalu panggil sekali lagi dengan daftar itu.
++- Jika user mengunggah master prompt/metodologi RFM, tetap pakai alat ini (metodologinya sudah dibangun di
++  dalamnya). Tidak perlu menanyakan format — hasilnya selalu HTML + Excel. Tidak perlu meminta persetujuan bertahap;
++  langsung kerjakan seluruh cakupan yang diminta.
++- Setelah selesai: link halaman paket (bila ada), tabel ringkas per cakupan dari 'ringkasan' (outlet valid, volume
++  YTD, YoY, Champions), dan link HTML/Excel tiap laporan.
++
++SATU LAPORAN BERAT PER PESAN (WAJIB)
++- Dalam satu pesan user, panggil paling banyak SATU alat pembuat laporan (generate_*, revise_custom_report,
++  analisis_rfm). Laporan berat butuh beberapa menit; dua sekaligus melewati batas waktu (DEADLINE_EXCEEDED).
++  Pengecualian yang benar: RFM banyak region dikerjakan dalam SATU panggilan analisis_rfm(region="semua").
++- User meminta 2+ laporan BERBEDA dalam satu pesan (mis. dashboard harga + planogram, custom retail + custom
++  industri, laporan + RFM) -> SATU panggilan buat_laporan_sekaligus(laporan=[...], output_format=...). Semua dikerjakan
++  paralel dan hasilnya keluar di jawaban yang sama — jangan meminta user memesan satu per satu.
++- Jika alat mengembalikan status "deferred", JANGAN mencoba lagi di pesan ini: sampaikan hasil yang sudah jadi dan
++  tawarkan "ketik lanjut" untuk laporan berikutnya. Status "redirect" -> panggil alat yang disebut di pesannya.
++
+ SETELAH LAPORAN CUSTOM DIBUAT
+ - Tulis judul, link setiap format, dan bahwa statusnya DRAFT. Jika ada angka_tidak_terverifikasi, sampaikan daftarnya dan bahwa
+   catatan pemeriksa sudah ditempel di halaman terakhir.
+@@ -280,6 +339,17 @@ Anda adalah bagian dari __AGENT_NAME__ yang menangani FILE UNGGAHAN user di chat
+ dianalisis, file DOKUMEN (PDF, Word, PowerPoint, teks, Markdown, HTML, gambar, dll.) dicerna isinya.
+ Jangan menyebut nama agent atau komponen internal kepada user.
+ 
++RFM OUTLET SELL-OUT DARI DOKUMEN METODOLOGI
++- Jika user mengunggah DOKUMEN metodologi/master prompt RFM (txt/docx/pdf/HTML contoh laporan) dan meminta analisis
++  RFM outlet sell-out (Bengkel/Toko Oli, per Sales Region atau nasional) TANPA file data transaksi, panggil
++  analisis_rfm(region=...) — metodologi PTPL RFM SR7 v5 sudah dibangun di dalamnya dan datanya ditarik langsung dari
++  datamart sell-out. Jangan memakai generate_custom_report untuk ini. Beberapa region / nasional + semua region =
++  SATU panggilan analisis_rfm(region="semua") atau daftar ("SR1, SR2").
++- Jika user mengunggah FILE DATA transaksi outlet sendiri (CSV/Excel), analisis file itu seperti biasa.
++- Satu pesan = paling banyak satu panggilan alat laporan berat (generate_*, revise_custom_report, analisis_rfm,
++  buat_laporan_sekaligus). Beberapa laporan berbeda sekaligus -> buat_laporan_sekaligus. Status "deferred" -> jangan
++  diulang; tawarkan "ketik lanjut". Status "redirect" -> panggil alat yang disebut.
++
+ TOOL SANDBOX (siapkan_sandbox, jalankan_python, akhiri_sandbox, cek_biaya_analisis) HANYA dipakai bila instruksi ini
+ memuat bagian "MODE ANALIS". Tanpa bagian itu, jangan memanggilnya dan jangan menyebut sandbox/eksekusi kode ke user.
+ 
+diff --git a/library_agent/subagents/data.py b/library_agent/subagents/data.py
+index 41dfc5c..5747e4e 100644
+--- a/library_agent/subagents/data.py
++++ b/library_agent/subagents/data.py
+@@ -12,7 +12,7 @@ from ..tools.chart_insight_tools import CHART_INSIGHT_TOOLS
+ from ..tools.strategy_tools import STRATEGY_TOOLS
+ from ..tools.doc_tools import lihat_gambar, list_documents
+ from ..tools.insight_tools import list_insights
+-from ..tools.report_tools import (approve_report, generate_battlefield_report, generate_custom_report,
++from ..tools.report_tools import (approve_report, buat_laporan_sekaligus, generate_battlefield_report, generate_custom_report,
+                                   generate_industry_report, generate_planogram_report, generate_price_dashboard,
+                                   konversi_laporan_custom, list_report_options, revise_custom_report)
+ 
+@@ -29,7 +29,8 @@ data_agent = LlmAgent(
+     tools=[*DATA_TOOLS, *CHART_INSIGHT_TOOLS, *STRATEGY_TOOLS, list_insights, periksa_angka, list_documents, lihat_gambar,
+            # laporan langsung dari data BigQuery yang sudah ditarik (ditulis Gemini 4 Argon, template PTPL)
+            list_report_options, generate_custom_report, revise_custom_report, approve_report, konversi_laporan_custom,
+-           generate_price_dashboard, generate_industry_report, generate_planogram_report, generate_battlefield_report],
++           generate_price_dashboard, generate_industry_report, generate_planogram_report, generate_battlefield_report,
++           buat_laporan_sekaligus],
+     before_agent_callback=capture_uploads,
+     before_model_callback=chain_before(budget_guard, sanitize_request),
+     after_model_callback=chain(record_model_usage, verify_numbers, budget_notice),
+diff --git a/library_agent/subagents/files.py b/library_agent/subagents/files.py
+index 0fd7d9c..a41bbbe 100644
+--- a/library_agent/subagents/files.py
++++ b/library_agent/subagents/files.py
+@@ -16,11 +16,12 @@ from ..tools.chart_insight_tools import CHART_INSIGHT_TOOLS
+ from ..tools.strategy_tools import STRATEGY_TOOLS
+ from ..tools.doc_tools import DOC_TOOLS
+ from ..tools.export_tools import EXPORT_TOOLS
+-from ..tools.report_tools import (approve_report, generate_battlefield_report, generate_custom_report,
++from ..tools.report_tools import (approve_report, buat_laporan_sekaligus, generate_battlefield_report, generate_custom_report,
+                                   generate_industry_report, generate_planogram_report, generate_price_dashboard,
+                                   konversi_laporan_custom, list_report_options, revise_custom_report)
+ from ..tools.file_tools import FILE_TOOLS
+ from ..tools.insight_tools import list_insights
++from ..tools.rfm_tools import RFM_TOOLS
+ 
+ file_agent = LlmAgent(
+     name="file_agent",
+@@ -34,8 +35,9 @@ file_agent = LlmAgent(
+     tools=[*FILE_TOOLS, *CHART_INSIGHT_TOOLS, *STRATEGY_TOOLS, *DOC_TOOLS, *EXPORT_TOOLS, *CODE_TOOLS,
+            # laporan langsung dari hasil analisis file (tanpa harus pindah agent): base template PTPL, ditulis Argon
+            list_report_options, generate_custom_report, revise_custom_report, approve_report, konversi_laporan_custom,
+-           generate_price_dashboard, generate_industry_report, generate_planogram_report, generate_battlefield_report, save_data_insight, ask_retail_intelligence, ask_industry_intelligence,
+-           ask_planogram_intelligence, list_insights],
++           generate_price_dashboard, generate_industry_report, generate_planogram_report, generate_battlefield_report,
++           buat_laporan_sekaligus, save_data_insight, ask_retail_intelligence, ask_industry_intelligence,
++           ask_planogram_intelligence, list_insights, *RFM_TOOLS],
+     before_agent_callback=capture_uploads,
+     before_model_callback=chain_before(budget_guard, sanitize_request),
+     after_model_callback=chain(record_model_usage, verify_numbers, budget_notice),
+diff --git a/library_agent/tools/data_tools.py b/library_agent/tools/data_tools.py
+index 4a210ea..204548f 100644
+--- a/library_agent/tools/data_tools.py
++++ b/library_agent/tools/data_tools.py
+@@ -310,6 +310,8 @@ ask_planogram_intelligence = _safe(ask_planogram_intelligence)
+ ask_sellout_intelligence = _safe(ask_sellout_intelligence)
+ create_chart = _safe(create_chart)
+ save_data_insight = _safe(save_data_insight)
++from .rfm_tools import RFM_TOOLS  # noqa: E402
++
+ DATA_TOOLS = [ask_retail_intelligence, ask_industry_intelligence, ask_planogram_intelligence, ask_sellout_intelligence,
+-              analyze_retail_planogram, save_data_insight]
++              analyze_retail_planogram, save_data_insight, *RFM_TOOLS]
+ # create_chart (satu grafik) tidak lagi diberikan ke agent: digantikan buat_insight (beberapa chart + sorotan).
+diff --git a/library_agent/tools/report_tools.py b/library_agent/tools/report_tools.py
+index 9940113..9801bf2 100644
+--- a/library_agent/tools/report_tools.py
++++ b/library_agent/tools/report_tools.py
+@@ -8,6 +8,7 @@ from google.adk.tools import ToolContext
+ 
+ from .. import insights, report_engine
+ from ..clients import get_user_id
++from .rfm_tools import RFM_TOOLS, heavy_turn, is_rfm_request
+ 
+ logger = logging.getLogger(__name__)
+ 
+@@ -178,7 +179,7 @@ def preview_price_dashboard(tool_context: ToolContext, output_format: str = "")
+             "message": "Ini contoh tampilan dengan angka ilustrasi, bukan data asli."}
+ 
+ 
+-generate_price_dashboard = _logged(_budget(generate_price_dashboard))
++generate_price_dashboard = _logged(_budget(heavy_turn("Dashboard Daya Saing Harga")(generate_price_dashboard)))
+ preview_price_dashboard = _logged(preview_price_dashboard)
+ INDUSTRY_ID = "daya_saing_harga_industri"
+ 
+@@ -318,7 +319,7 @@ def preview_industry_report(tool_context: ToolContext, output_format: str = "")
+     return {"status": "ok", "report_title": title, **links, "message": "Ini contoh tampilan dengan angka ilustrasi, bukan data asli."}
+ 
+ 
+-generate_industry_report = _logged(_budget(generate_industry_report))
++generate_industry_report = _logged(_budget(heavy_turn("Laporan Industri B2B")(generate_industry_report)))
+ preview_industry_report = _logged(preview_industry_report)
+ 
+ 
+@@ -928,12 +929,18 @@ def generate_custom_report(request: str, source: str, tool_context: ToolContext,
+ 
+     if not request.strip():
+         return {"status": "needs_input", "message": "Tanyakan ke user isi laporan yang diinginkan (fokus, periode, audiens)."}
++    src = source.strip().lower().replace(" ", "")
++    if "sellout" in src.replace("-", "").replace("sellingout", "sellout") and is_rfm_request(request):
++        return {"status": "redirect", "tool": "analisis_rfm",
++                "message": ("Laporan RFM outlet sell-out TIDAK dibuat dengan laporan custom (data tanya-jawab terlalu "
++                            "ringkas, bagian laporan jadi n/a). Panggil analisis_rfm SATU KALI: region='semua' untuk "
++                            "nasional + semua Sales Region, daftar mis. 'SR2, SR3' untuk beberapa region, atau satu "
++                            "region; hasilnya laporan HTML 8 section + Excel register (dihitung kode) + halaman paket.")}
+     formats = cr.parse_formats(output_format)
+     if not formats:
+         return {"status": "needs_input", "available_formats": ["html", "pdf", "pptx"],
+                 "message": ("Tanyakan ke user format laporan yang diinginkan (boleh lebih dari satu): HTML (interaktif, "
+                             "grafik bisa disorot), PDF (siap cetak/kirim), atau PowerPoint (siap presentasi).")}
+-    src = source.strip().lower().replace(" ", "")
+     combined = src in ("retail_planogram", "retail+planogram", "planogram+retail", "gabungan", "retailxplanogram",
+                        "retail×planogram", "battlefield")
+     if "sellout" in src.replace("-", "").replace("sellingout", "sellout") and any(x in src for x in ("+", "×", "gabung")):
+@@ -1143,15 +1150,18 @@ def konversi_laporan_custom(output_format: str, tool_context: ToolContext, repor
+             "status_laporan": rec["status"], "message": "Berikan link file ke user." + note}
+ 
+ 
+-generate_planogram_report = _logged(_budget(generate_planogram_report))
++generate_planogram_report = _logged(_budget(heavy_turn("Laporan Planogram")(generate_planogram_report)))
+ preview_planogram_report = _logged(preview_planogram_report)
+-generate_battlefield_report = _logged(_budget(generate_battlefield_report))
++generate_battlefield_report = _logged(_budget(heavy_turn("Competitive Battlefield")(generate_battlefield_report)))
+ preview_battlefield_report = _logged(preview_battlefield_report)
+-generate_custom_report = _logged(_budget(generate_custom_report))
+-revise_custom_report = _logged(_budget(revise_custom_report))
++generate_custom_report = _logged(_budget(heavy_turn("laporan custom")(generate_custom_report)))
++revise_custom_report = _logged(_budget(heavy_turn("revisi laporan custom")(revise_custom_report)))
+ approve_report = _logged(approve_report)
+ konversi_laporan_custom = _logged(konversi_laporan_custom)
++from .batch_tools import buat_laporan_sekaligus as _batch  # noqa: E402
++
++buat_laporan_sekaligus = _logged(_budget(_batch))
+ REPORT_TOOLS = [list_report_options, generate_price_dashboard, preview_price_dashboard, generate_industry_report,
+                 preview_industry_report, generate_planogram_report, preview_planogram_report,
+                 generate_battlefield_report, preview_battlefield_report, generate_custom_report,
+-                revise_custom_report, approve_report, konversi_laporan_custom]
++                revise_custom_report, approve_report, konversi_laporan_custom, buat_laporan_sekaligus, *RFM_TOOLS]
+diff --git a/setup/settings.json b/setup/settings.json
+index 77bd4ca..f1d5013 100644
+--- a/setup/settings.json
++++ b/setup/settings.json
+@@ -80,5 +80,19 @@
+   "price_claude_input": 4.0,
+   "price_claude_output": 20.0,
+   "price_claude_cached": 0.4,
+-  "data_agent_sellout": "projects/ptpl-land-dev/locations/global/dataAgents/agent_e188b55c-e61b-4c3f-9f91-3c97a54a6d4a"
++  "data_agent_sellout": "projects/ptpl-land-dev/locations/global/dataAgents/agent_e188b55c-e61b-4c3f-9f91-3c97a54a6d4a",
++  "rfm_table": "ptpl-curated-prd.DATAMART.SALES_OUT_DAILY",
++  "rfm_store_types": [
++    "OTO-5",
++    "OTO-6",
++    "OTO-7",
++    "OTO-8",
++    "OTO-9",
++    "OTO-10",
++    "OTO-13"
++  ],
++  "rfm_series_column": "PRODUCT_SEGMENT",
++  "rfm_exclude_pattern": "MEDITRAN SX BIO",
++  "rfm_cutoff": "2026-09",
++  "rfm_footer_credit": "Prepared with Marketing Insight Assistant"
+ }
+diff --git a/tests/_stubs.py b/tests/_stubs.py
+index d95d706..2c29b98 100644
+--- a/tests/_stubs.py
++++ b/tests/_stubs.py
+@@ -60,9 +60,6 @@ def install() -> None:
+     class _LlmResponse:
+         def __init__(self, content=None, **kwargs):
+             self.content = content
+-            self.error_code = kwargs.pop("error_code", None)
+-            self.error_message = kwargs.pop("error_message", None)
+-            self.__dict__.update(kwargs)
+ 
+     mod("google.adk.models", Gemini=_Any, LlmResponse=_LlmResponse, BaseLlm=_Any)
+     mod("google.adk.models.google_llm", Gemini=_Any)
+diff --git a/tests/test_fallback.py b/tests/test_fallback.py
+index 5c7b392..365a41a 100644
+--- a/tests/test_fallback.py
++++ b/tests/test_fallback.py
+@@ -60,49 +60,6 @@ class FallbackTest(unittest.TestCase):
+                 ev("report_agent", fr=fr("generate_custom_report", {"status": "ok", "file": {"pdf": "https://x/r.pdf"}}))]
+         self.assertIn("PDF: https://x/r.pdf", callbacks.fallback_reply(flow, "report_agent"))
+ 
+-    def test_draft_before_revision_used_with_note(self):
+-        """v3.5.3: model diam/error setelah periksa_angka -> kirim draf analisisnya + catatan angka."""
+-        text = callbacks.fallback_reply(SCREENSHOT_FLOW, "data_agent",
+-                                        draft="Kesimpulan: PTPL lebih murah Rp 12.345/L.", bad=["12.345"])
+-        self.assertTrue(text.startswith("Kesimpulan: PTPL lebih murah"))
+-        self.assertIn("tidak dapat diverifikasi otomatis", text)
+-        self.assertIn("12.345", text)
+-
+-    def test_draft_ignored_when_revision_answered(self):
+-        flow = SCREENSHOT_FLOW + [ev("data_agent", text="Jawaban revisi.")]
+-        self.assertEqual(callbacks.fallback_reply(flow, "data_agent", draft="draf lama"), "")
+-
+-
+-def _cb(events, state=None):
+-    inv = NS(invocation_id="inv9", session=NS(events=[NS(invocation_id="inv9", **vars(e)) for e in events]))
+-    return NS(_invocation_context=inv, state=state or {}, agent_name="data_agent")
+-
+-
+-class EnsureReplyTest(unittest.TestCase):
+-    def test_model_error_without_tools_gets_apology(self):
+-        from library_agent.llm import MODEL_ERROR_CODE
+-
+-        events = [ev("user", text="halo"), NS(author="data_agent", content=None, error_code=MODEL_ERROR_CODE)]
+-        out = callbacks.ensure_reply(_cb(events))
+-        self.assertIn("kendala teknis", out.parts[0].text)
+-
+-    def test_model_error_after_tools_uses_tool_results(self):
+-        from library_agent.llm import MODEL_ERROR_CODE
+-
+-        events = SCREENSHOT_FLOW + [NS(author="data_agent", content=None, error_code=MODEL_ERROR_CODE)]
+-        out = callbacks.ensure_reply(_cb(events))
+-        self.assertIn("Gap HJ Product Hero Q3 2026 per SR", out.parts[0].text)
+-
+-    def test_draft_from_state(self):
+-        state = {"temp:numcheck_draft_inv9": "Analisis lengkap ...", "temp:numcheck_bad_inv9": ["97.389"]}
+-        out = callbacks.ensure_reply(_cb(SCREENSHOT_FLOW, state))
+-        self.assertIn("Analisis lengkap", out.parts[0].text)
+-        self.assertIn("97.389", out.parts[0].text)
+-
+-    def test_normal_answer_untouched(self):
+-        events = SCREENSHOT_FLOW + [ev("data_agent", text="Kesimpulan: ...")]
+-        self.assertIsNone(callbacks.ensure_reply(_cb(events)))
+-
+ 
+ if __name__ == "__main__":
+     unittest.main()
+diff --git a/tests/test_files.py b/tests/test_files.py
+index c044126..8e6f8e5 100644
+--- a/tests/test_files.py
++++ b/tests/test_files.py
+@@ -205,10 +205,6 @@ class VerifyNumbersTest(unittest.TestCase):
+         ctx = _ctx("gap Rp 57.202/L")
+         first = verify_numbers(ctx, self._resp("Gap Zona 2 −Rp 12.345/L."))
+         self.assertEqual(first.content.parts[0].function_call.name, "periksa_angka")
+-        from library_agent.llm import SKIP_SIGNATURE
+-
+-        self.assertEqual(first.content.parts[0].thought_signature, SKIP_SIGNATURE)   # v3.5.3: cegah 400 Gemini 3.x
+-        self.assertEqual(ctx.state["temp:numcheck_draft_inv1"], "Gap Zona 2 −Rp 12.345/L.")
+         second = verify_numbers(ctx, self._resp("Gap Zona 2 −Rp 12.345/L."))
+         self.assertIn("tidak dapat diverifikasi", second.content.parts[0].text)
+ 
+diff --git a/tests/test_industry.py b/tests/test_industry.py
+index 9fc1093..0a8e49c 100644
+--- a/tests/test_industry.py
++++ b/tests/test_industry.py
+@@ -100,7 +100,8 @@ class RoutingTest(unittest.TestCase):
+                           "generate_industry_report", "preview_industry_report", "generate_planogram_report",
+                           "preview_planogram_report", "generate_battlefield_report", "preview_battlefield_report",
+                           "generate_custom_report", "revise_custom_report",
+-                          "approve_report", "konversi_laporan_custom"])
++                          "approve_report", "konversi_laporan_custom", "buat_laporan_sekaligus",
++                      "analisis_rfm"])
+ 
+     def test_industry_settings_keep_case(self):
+         from library_agent import config
+diff --git a/tests/test_llm_fallback.py b/tests/test_llm_fallback.py
+index 62f2c65..d34c259 100644
+--- a/tests/test_llm_fallback.py
++++ b/tests/test_llm_fallback.py
+@@ -64,64 +64,21 @@ class FallbackTest(unittest.TestCase):
+         self.assertIn("sedang sangat padat", out[0].content.parts[0].text)
+         self.assertEqual(len(CALLS), 3)
+ 
+-    def test_other_errors_become_error_response(self):
+-        """v3.5.3: error non-kapasitas (mis. 400) tidak lagi mematikan run -> respons berkode error, tanpa
+-        mencoba cadangan, supaya ensure_reply tetap mengirim jawaban dari hasil tool."""
++    def test_other_errors_not_swallowed(self):
+         base = llm.PinnedGemini.__mro__[1]
+ 
+         async def bad(self, req, stream=False):
+-            CALLS.append((self.model, self.location))
+-            raise ValueError("400 INVALID_ARGUMENT: function call is missing a thought_signature")
++            raise ValueError("400 INVALID_ARGUMENT: schema salah")
+             yield  # pragma: no cover
+ 
+         with mock.patch.object(base, "generate_content_async", bad, create=True):
+             m = llm.PinnedGemini(model="gemini-4-argon", location="asia-southeast1")
+ 
+-            async def collect():
+-                return [r async for r in m.generate_content_async(NS(model="x"))]
+-            out = asyncio.run(collect())
+-        self.assertEqual(len(out), 1)
+-        self.assertEqual(out[0].error_code, llm.MODEL_ERROR_CODE)
+-        self.assertIn("thought_signature", out[0].error_message)
+-        self.assertEqual(len(CALLS), 1)
+-
+-    def test_error_after_partial_stream_still_raises(self):
+-        base = llm.PinnedGemini.__mro__[1]
+-
+-        async def half(self, req, stream=False):
+-            yield NS(text="sebagian")
+-            raise ValueError("400 putus")
+-
+-        with mock.patch.object(base, "generate_content_async", half, create=True):
+-            m = llm.PinnedGemini(model="gemini-4-argon", location="asia-southeast1")
+-
+             async def collect():
+                 return [r async for r in m.generate_content_async(NS(model="x"))]
+             with self.assertRaises(ValueError):
+                 asyncio.run(collect())
+ 
+-    def test_missing_signature_filled_before_call(self):
+-        """Panggilan sintetis periksa_angka di riwayat diberi thought_signature sebelum dikirim ke Gemini."""
+-        seen = []
+-        base = llm.PinnedGemini.__mro__[1]
+-
+-        async def gen(self, req, stream=False):
+-            seen.extend(p.thought_signature for c in req.contents for p in c.parts if p.function_call)
+-            yield NS(text="ok")
+-
+-        own = NS(function_call=NS(name="ask_retail_intelligence"), thought_signature=b"asli")
+-        synth = NS(function_call=NS(name="periksa_angka"), thought_signature=None)
+-        text = NS(function_call=None, text="halo")
+-        req = NS(model="x", contents=[NS(parts=[own]), NS(parts=[synth, text])])
+-        with mock.patch.object(base, "generate_content_async", gen, create=True):
+-            m = llm.PinnedGemini(model="gemini-3.5-flash", location="global")
+-
+-            async def collect():
+-                return [r async for r in m.generate_content_async(req)]
+-            asyncio.run(collect())
+-        self.assertEqual(seen, [b"asli", llm.SKIP_SIGNATURE])
+-        self.assertFalse(hasattr(text, "thought_signature"))
+-
+     def test_targets_skip_primary(self):
+         self.assertEqual(llm.fallback_targets("gemini-4-argon", "global"), [("gemini-3.5-flash", "global")])
+ 
