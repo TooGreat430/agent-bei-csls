@@ -18,7 +18,12 @@
 | v3.4 | Seluruh 68 kerangka pptx (Define→Act) sebagai skill + diagram; dipilih sesuai jenis pertanyaan | Klien ingin teknik analisis pptx, bukan hanya chart |
 | v3.5 | Minimal 3 chart dijamin kode; agregasi kategori berulang; pencilan dipisah; warna gap Retail terbalik | Agent (Flash) hanya membuat 1 chart; label berulang & nilai ekstrem hilang |
 | v3.5.1 | Jawaban tidak pernah kosong (`compose_fallback`); `create_chart` dihapus dari agent | Jawaban hilang setelah pemeriksa angka minta revisi; instruksi lama bentrok |
-| v3.5.3 | Error model non-kapasitas → jawaban dari hasil tool (bukan exception); signature dummy pada panggilan sintetis; draf sebelum revisi dikirim bila revisi gagal | Jawaban kosong berulang setelah Periksa Angka |
 | v3.5.2 | Pemeriksa angka menerima pembulatan wajar; larang salin angka dari gambar referensi | Log: "Rp 91.000" ditolak; angka laporan diduga disalin dari gambar |
+| v3.6 | **`analisis_rfm`**: RFM sell-out dihitung kode langsung dari `SALES_OUT_DAILY` (bukan Data Agent), HTML 8 section SR7 v5 + Excel register, per region/nasional; **maks. 1 laporan berat per pesan**; RFM di laporan custom dialihkan; **semua region + nasional dalam satu pesan** (`region="semua"`, paralel, halaman paket, batas waktu internal) atas permintaan Jason: tim MIR ingin hasil instan "seperti Claude", bukan satu per satu; ditambah `buat_laporan_sekaligus` untuk beberapa laporan BERBEDA dalam satu pesan (paralel, batas waktu internal) | DEADLINE_EXCEEDED 20 Nov (2 laporan custom dalam 1 giliran) + bagian RFM selalu "n/a" karena Data Agent hanya memberi ringkasan ≤ 300 baris |
+
+Asumsi v3.6 yang perlu dikonfirmasi user: `DT_PR` = tanggal transaksi (deskripsi skema: "processing/partition
+date"); seri = `PRODUCT_SEGMENT`; volume = `TOTAL_VOL_KL_DELIVERED` semua status order; region & tipe outlet =
+dominan per volume; footer "Prepared with ChatGPT Analytics" (v5) diganti `rfm_footer_credit`; HTML v5 asli belum
+diterima (desain dari spesifikasi docx). `scripts/check_rfm.py` menampilkan bukti untuk tiap asumsi.
 
 Prinsip yang konsisten: angka dari kode/tool; jujur soal keterbatasan; user non-IT; saklar operasional tanpa deploy.

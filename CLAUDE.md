@@ -1,8 +1,8 @@
 # Marketing Insight Assistant — ADK agent untuk PT Pertamina Lubricants (PTPL)
 
 Vendor: tim mii.co.id (Jason Kusuma). Klien: tim MIR PTPL (user NON-IT). Bahasa ke user & dokumen: **Indonesia**.
-Agent ADK di Agent Engine, dipakai lewat **Gemini Enterprise (GE)**. Versi terakhir: **v3.5.3** (250 uji).
-Detail lengkap: `README.md` (fitur per versi), `PANDUAN_DEPLOY_V3.5.md` (deploy), `PANDUAN_SELLOUT.md`,
+Agent ADK di Agent Engine, dipakai lewat **Gemini Enterprise (GE)**. Versi terakhir: **v3.6** (278 uji).
+Detail lengkap: `README.md` (fitur per versi), `PANDUAN_DEPLOY_V3.6.md` (deploy terbaru; v3.5 untuk riwayat), `PANDUAN_SELLOUT.md`,
 `PANDUAN_CLAUDE_DAN_SKILL.md`. Pengetahuan non-kode di `docs/knowledge/`: `keputusan.md` (keputusan + alasan per
 versi), `insiden.md` (riwayat error & log), `biaya_sizing.md` (sizing & tarif), `klien.md` (konteks & ekspektasi
 klien). Baca hanya bila tugasnya butuh; perbarui file terkait saat ada keputusan/insiden baru.
@@ -40,6 +40,9 @@ lengkap 01/02 (±4 MB) jangan dibaca seluruhnya — cari dengan grep kata kunci 
   `doc_tools` (`lihat_gambar`), `chart_insight_tools` (`daftar_data`, `buat_insight`, `korelasi_data`),
   `strategy_tools` (`panduan_kerangka`, `buat_diagram`)
 - `skills/*.md` (excel, powerpoint, word, edit_file, pdf, analisis_data, strategist = 68 kerangka pptx)
+- `rfm_engine.py` (RFM sell-out: SQL agregasi per outlet + cache bucket + hitung metodologi SR7 v5) · `rfm_report.py`
+  (HTML 8 section + narasi Claude terperiksa) · `tools/rfm_tools.py` (`analisis_rfm`, `heavy_turn` = 1 panggilan berat/pesan)
+  · `tools/batch_tools.py` (`buat_laporan_sekaligus`: beberapa laporan paralel + batas waktu)
 - `custom_report.py` + `report_assets/custom_prompts/*.txt` (prompt MIR per domain) · `ptpl_design.py`, `html_convert.py`
 - `usage.py` meteran & batas biaya · `config.py` (`live()` = settings.json, cache 5 menit)
 
@@ -55,6 +58,10 @@ lengkap 01/02 (±4 MB) jangan dibaca seluruhnya — cari dengan grep kata kunci 
   Hipotesis/asumsi wajib ditandai. Bull/bear hanya bila diminta.
 - Retail: gap harga negatif = PTPL lebih murah (baik); bandingkan harga **per liter**. Industri: gap % positif = kompetitif.
 - Gambar referensi: tiru bentuk, **jangan salin angka dari gambar**.
+- RFM outlet sell-out → `analisis_rfm` (dihitung kode dari BigQuery), BUKAN laporan custom / Data Agent. Satu pesan =
+  maksimal satu panggilan alat laporan berat; banyak region = SATU panggilan `analisis_rfm(region="semua")`.
+  Beberapa laporan berbeda = SATU panggilan `buat_laporan_sekaligus` (paralel). User (tim MIR) ingin hasil instan
+  seperti Claude — jangan memaksa user meminta satu per satu.
 - User non-IT → hasil berupa file siap pakai, bukan kode. `save_data_insight` hanya bila user meminta.
 
 ## Batasan platform yang sudah diketahui
@@ -81,8 +88,9 @@ lengkap 01/02 (±4 MB) jangan dibaca seluruhnya — cari dengan grep kata kunci 
 - Jawaban ringkas, Bahasa Indonesia, jujur soal keterbatasan; sertakan cara verifikasi (perintah/log).
 
 ## Status & pekerjaan terbuka
-- v3.5.3 siap deploy (perbaikan akar jawaban kosong setelah Periksa Angka: signature + error model → fallback).
-  v3.5.2: pemeriksa angka terima pembulatan, insight ≥3 chart.
+- v3.6 siap deploy (dibangun di atas v3.5.2): `analisis_rfm` + batas 1 laporan berat per pesan (insiden DEADLINE_EXCEEDED
+  20 Nov). Menunggu: hasil `scripts/check_rfm.py` di Cloud Shell (konfirmasi DT_PR = tanggal transaksi, kolom seri,
+  nilai REGION_NAME), wording footer, file HTML SR7 v5 asli (desain saat ini dari spesifikasi docx).
 - Konfirmasi: angka laporan custom 97.389/37.742/85.513 (log 11 Nov 15:08) diduga disalin dari gambar referensi.
 - Opsi ditawarkan: jalur campuran (pertanyaan "kenapa/apa yang dilakukan" di jalur BQ → Claude).
 - Checklist uji: `Checklist_Uji_Chart_Kerangka_v3.4.xlsx` (37 uji). Kuota Argon/Claude perlu dipantau.

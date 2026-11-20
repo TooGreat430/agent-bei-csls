@@ -12,7 +12,7 @@ from ..tools.chart_insight_tools import CHART_INSIGHT_TOOLS
 from ..tools.strategy_tools import STRATEGY_TOOLS
 from ..tools.doc_tools import lihat_gambar, list_documents
 from ..tools.insight_tools import list_insights
-from ..tools.report_tools import (approve_report, generate_battlefield_report, generate_custom_report,
+from ..tools.report_tools import (approve_report, buat_laporan_sekaligus, generate_battlefield_report, generate_custom_report,
                                   generate_industry_report, generate_planogram_report, generate_price_dashboard,
                                   konversi_laporan_custom, list_report_options, revise_custom_report)
 
@@ -29,7 +29,8 @@ data_agent = LlmAgent(
     tools=[*DATA_TOOLS, *CHART_INSIGHT_TOOLS, *STRATEGY_TOOLS, list_insights, periksa_angka, list_documents, lihat_gambar,
            # laporan langsung dari data BigQuery yang sudah ditarik (ditulis Gemini 4 Argon, template PTPL)
            list_report_options, generate_custom_report, revise_custom_report, approve_report, konversi_laporan_custom,
-           generate_price_dashboard, generate_industry_report, generate_planogram_report, generate_battlefield_report],
+           generate_price_dashboard, generate_industry_report, generate_planogram_report, generate_battlefield_report,
+           buat_laporan_sekaligus],
     before_agent_callback=capture_uploads,
     before_model_callback=chain_before(budget_guard, sanitize_request),
     after_model_callback=chain(record_model_usage, verify_numbers, budget_notice),

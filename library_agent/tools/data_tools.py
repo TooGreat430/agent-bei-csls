@@ -310,6 +310,8 @@ ask_planogram_intelligence = _safe(ask_planogram_intelligence)
 ask_sellout_intelligence = _safe(ask_sellout_intelligence)
 create_chart = _safe(create_chart)
 save_data_insight = _safe(save_data_insight)
+from .rfm_tools import RFM_TOOLS  # noqa: E402
+
 DATA_TOOLS = [ask_retail_intelligence, ask_industry_intelligence, ask_planogram_intelligence, ask_sellout_intelligence,
-              analyze_retail_planogram, save_data_insight]
+              analyze_retail_planogram, save_data_insight, *RFM_TOOLS]
 # create_chart (satu grafik) tidak lagi diberikan ke agent: digantikan buat_insight (beberapa chart + sorotan).

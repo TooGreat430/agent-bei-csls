@@ -80,5 +80,19 @@
   "price_claude_input": 4.0,
   "price_claude_output": 20.0,
   "price_claude_cached": 0.4,
-  "data_agent_sellout": "projects/ptpl-land-dev/locations/global/dataAgents/agent_e188b55c-e61b-4c3f-9f91-3c97a54a6d4a"
+  "data_agent_sellout": "projects/ptpl-land-dev/locations/global/dataAgents/agent_e188b55c-e61b-4c3f-9f91-3c97a54a6d4a",
+  "rfm_table": "ptpl-curated-prd.DATAMART.SALES_OUT_DAILY",
+  "rfm_store_types": [
+    "OTO-5",
+    "OTO-6",
+    "OTO-7",
+    "OTO-8",
+    "OTO-9",
+    "OTO-10",
+    "OTO-13"
+  ],
+  "rfm_series_column": "PRODUCT_SEGMENT",
+  "rfm_exclude_pattern": "MEDITRAN SX BIO",
+  "rfm_cutoff": "2026-09",
+  "rfm_footer_credit": "Prepared with Marketing Insight Assistant"
 }

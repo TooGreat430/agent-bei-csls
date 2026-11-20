@@ -67,6 +67,18 @@ class Settings:
         "LIB_INDUSTRY_TABLE", "ptpl-curated-prd.DATAMART.survey_industry"))
     industry_htd_column: str = field(default_factory=lambda: _env("LIB_INDUSTRY_HTD_COLUMN", "htd_ptpl_plus"))
     chat_inline_chart: int = field(default_factory=lambda: int(_env("LIB_CHAT_INLINE_CHART", "0")))
+    # --- Analisis RFM outlet sell-out (dihitung kode langsung dari BigQuery) ----------
+    rfm_table: str = field(default_factory=lambda: _env("LIB_RFM_TABLE", "ptpl-curated-prd.DATAMART.SALES_OUT_DAILY"))
+    rfm_store_types: tuple = field(default_factory=lambda: ("OTO-5", "OTO-6", "OTO-7", "OTO-8", "OTO-9", "OTO-10",
+                                                            "OTO-13"))
+    rfm_series_column: str = field(default_factory=lambda: _env("LIB_RFM_SERIES_COLUMN", "PRODUCT_SEGMENT"))
+    rfm_exclude_pattern: str = field(default_factory=lambda: _env("LIB_RFM_EXCLUDE_PATTERN", "MEDITRAN SX BIO"))
+    rfm_cutoff: str = field(default_factory=lambda: _env("LIB_RFM_CUTOFF", "2026-09"))
+    rfm_footer_credit: str = field(default_factory=lambda: _env("LIB_RFM_FOOTER_CREDIT",
+                                                                "Prepared with Marketing Insight Assistant"))
+    rfm_time_budget: int = field(default_factory=lambda: int(_env("LIB_RFM_TIME_BUDGET", "300")))
+    rfm_narrative_timeout: int = field(default_factory=lambda: int(_env("LIB_RFM_NARRATIVE_TIMEOUT", "120")))
+    batch_time_budget: int = field(default_factory=lambda: int(_env("LIB_BATCH_TIME_BUDGET", "300")))
     industry_segment_column: str = field(default_factory=lambda: _env("LIB_INDUSTRY_SEGMENT_COLUMN", "channel"))
     industry_focus_products: tuple = field(default_factory=lambda: (
         "Meditran SX Plus 15W40|HDDO", "Meditran S|HDDO", "Turalik 52|Hydraulic", "Rored HDA 90|Gear & Trans",
@@ -223,6 +235,15 @@ RUNTIME_KEYS: dict[str, type] = {
     "industry_htd_column": str,
     "industry_segment_column": str,
     "chat_inline_chart": int,
+    "rfm_table": str,
+    "rfm_store_types": list,
+    "rfm_series_column": str,
+    "rfm_exclude_pattern": str,
+    "rfm_cutoff": str,
+    "rfm_footer_credit": str,
+    "rfm_time_budget": int,
+    "rfm_narrative_timeout": int,
+    "batch_time_budget": int,
     "industry_focus_products": CaseList,
     "industry_segments": CaseList,
     "industry_competitors": list,

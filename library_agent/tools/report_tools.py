@@ -8,6 +8,7 @@ from google.adk.tools import ToolContext
 
 from .. import insights, report_engine
 from ..clients import get_user_id
+from .rfm_tools import RFM_TOOLS, heavy_turn, is_rfm_request
 
 logger = logging.getLogger(__name__)
 
@@ -178,7 +179,7 @@ def preview_price_dashboard(tool_context: ToolContext, output_format: str = "") 
             "message": "Ini contoh tampilan dengan angka ilustrasi, bukan data asli."}
 
 
-generate_price_dashboard = _logged(_budget(generate_price_dashboard))
+generate_price_dashboard = _logged(_budget(heavy_turn("Dashboard Daya Saing Harga")(generate_price_dashboard)))
 preview_price_dashboard = _logged(preview_price_dashboard)
 INDUSTRY_ID = "daya_saing_harga_industri"
 
@@ -318,7 +319,7 @@ def preview_industry_report(tool_context: ToolContext, output_format: str = "") 
     return {"status": "ok", "report_title": title, **links, "message": "Ini contoh tampilan dengan angka ilustrasi, bukan data asli."}
 
 
-generate_industry_report = _logged(_budget(generate_industry_report))
+generate_industry_report = _logged(_budget(heavy_turn("Laporan Industri B2B")(generate_industry_report)))
 preview_industry_report = _logged(preview_industry_report)
 
 
@@ -928,12 +929,18 @@ def generate_custom_report(request: str, source: str, tool_context: ToolContext,
 
     if not request.strip():
         return {"status": "needs_input", "message": "Tanyakan ke user isi laporan yang diinginkan (fokus, periode, audiens)."}
+    src = source.strip().lower().replace(" ", "")
+    if "sellout" in src.replace("-", "").replace("sellingout", "sellout") and is_rfm_request(request):
+        return {"status": "redirect", "tool": "analisis_rfm",
+                "message": ("Laporan RFM outlet sell-out TIDAK dibuat dengan laporan custom (data tanya-jawab terlalu "
+                            "ringkas, bagian laporan jadi n/a). Panggil analisis_rfm SATU KALI: region='semua' untuk "
+                            "nasional + semua Sales Region, daftar mis. 'SR2, SR3' untuk beberapa region, atau satu "
+                            "region; hasilnya laporan HTML 8 section + Excel register (dihitung kode) + halaman paket.")}
     formats = cr.parse_formats(output_format)
     if not formats:
         return {"status": "needs_input", "available_formats": ["html", "pdf", "pptx"],
                 "message": ("Tanyakan ke user format laporan yang diinginkan (boleh lebih dari satu): HTML (interaktif, "
                             "grafik bisa disorot), PDF (siap cetak/kirim), atau PowerPoint (siap presentasi).")}
-    src = source.strip().lower().replace(" ", "")
     combined = src in ("retail_planogram", "retail+planogram", "planogram+retail", "gabungan", "retailxplanogram",
                        "retail×planogram", "battlefield")
     if "sellout" in src.replace("-", "").replace("sellingout", "sellout") and any(x in src for x in ("+", "×", "gabung")):
@@ -1143,15 +1150,18 @@ def konversi_laporan_custom(output_format: str, tool_context: ToolContext, repor
             "status_laporan": rec["status"], "message": "Berikan link file ke user." + note}
 
 
-generate_planogram_report = _logged(_budget(generate_planogram_report))
+generate_planogram_report = _logged(_budget(heavy_turn("Laporan Planogram")(generate_planogram_report)))
 preview_planogram_report = _logged(preview_planogram_report)
-generate_battlefield_report = _logged(_budget(generate_battlefield_report))
+generate_battlefield_report = _logged(_budget(heavy_turn("Competitive Battlefield")(generate_battlefield_report)))
 preview_battlefield_report = _logged(preview_battlefield_report)
-generate_custom_report = _logged(_budget(generate_custom_report))
-revise_custom_report = _logged(_budget(revise_custom_report))
+generate_custom_report = _logged(_budget(heavy_turn("laporan custom")(generate_custom_report)))
+revise_custom_report = _logged(_budget(heavy_turn("revisi laporan custom")(revise_custom_report)))
 approve_report = _logged(approve_report)
 konversi_laporan_custom = _logged(konversi_laporan_custom)
+from .batch_tools import buat_laporan_sekaligus as _batch  # noqa: E402
+
+buat_laporan_sekaligus = _logged(_budget(_batch))
 REPORT_TOOLS = [list_report_options, generate_price_dashboard, preview_price_dashboard, generate_industry_report,
                 preview_industry_report, generate_planogram_report, preview_planogram_report,
                 generate_battlefield_report, preview_battlefield_report, generate_custom_report,
-                revise_custom_report, approve_report, konversi_laporan_custom]
+                revise_custom_report, approve_report, konversi_laporan_custom, buat_laporan_sekaligus, *RFM_TOOLS]

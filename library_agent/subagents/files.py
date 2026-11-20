@@ -16,11 +16,12 @@ from ..tools.chart_insight_tools import CHART_INSIGHT_TOOLS
 from ..tools.strategy_tools import STRATEGY_TOOLS
 from ..tools.doc_tools import DOC_TOOLS
 from ..tools.export_tools import EXPORT_TOOLS
-from ..tools.report_tools import (approve_report, generate_battlefield_report, generate_custom_report,
+from ..tools.report_tools import (approve_report, buat_laporan_sekaligus, generate_battlefield_report, generate_custom_report,
                                   generate_industry_report, generate_planogram_report, generate_price_dashboard,
                                   konversi_laporan_custom, list_report_options, revise_custom_report)
 from ..tools.file_tools import FILE_TOOLS
 from ..tools.insight_tools import list_insights
+from ..tools.rfm_tools import RFM_TOOLS
 
 file_agent = LlmAgent(
     name="file_agent",
@@ -34,8 +35,9 @@ file_agent = LlmAgent(
     tools=[*FILE_TOOLS, *CHART_INSIGHT_TOOLS, *STRATEGY_TOOLS, *DOC_TOOLS, *EXPORT_TOOLS, *CODE_TOOLS,
            # laporan langsung dari hasil analisis file (tanpa harus pindah agent): base template PTPL, ditulis Argon
            list_report_options, generate_custom_report, revise_custom_report, approve_report, konversi_laporan_custom,
-           generate_price_dashboard, generate_industry_report, generate_planogram_report, generate_battlefield_report, save_data_insight, ask_retail_intelligence, ask_industry_intelligence,
-           ask_planogram_intelligence, list_insights],
+           generate_price_dashboard, generate_industry_report, generate_planogram_report, generate_battlefield_report,
+           buat_laporan_sekaligus, save_data_insight, ask_retail_intelligence, ask_industry_intelligence,
+           ask_planogram_intelligence, list_insights, *RFM_TOOLS],
     before_agent_callback=capture_uploads,
     before_model_callback=chain_before(budget_guard, sanitize_request),
     after_model_callback=chain(record_model_usage, verify_numbers, budget_notice),

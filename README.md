@@ -53,7 +53,7 @@ library_agent/
   price_*.py, dashboard_render.py, industry_*.py   template retail & industri (tidak berubah)
 scripts/   update_agent.sh (redeploy di tempat), deploy_agent_engine.py, check_knowledge.py, enable_user_auth.py
 setup/settings.json              nilai awal pengaturan tanpa deploy
-tests/                           242 uji unit (tanpa GCP)
+tests/                           278 uji unit (tanpa GCP)
 ```
 
 ## Template planogram
@@ -127,17 +127,43 @@ Sumber: BigQuery (default) atau dua file unggahan (`retail_file_id` + `planogram
 - **Template HTML dari user**: jika dokumen yang dirujuk `instruction_doc_id` adalah halaman HTML, laporan custom
   dibangun DI DALAM template itu (head, CSS, dan script template dipertahankan; model hanya menulis isi body dengan
   struktur & class template). Revisi dan approve tetap berlaku.
-- Belum didukung: `.doc`/`.ppt` lama (minta simpan ulang sebagai DOCX/PPTX/PDF), skor kuantil khusus (mis. RFM).
+- Belum didukung: `.doc`/`.ppt` lama (minta simpan ulang sebagai DOCX/PPTX/PDF), skor kuantil khusus dari file unggahan (RFM sell-out
+  dari BigQuery: pakai `analisis_rfm`, v3.6).
 
-## Jawaban kosong setelah Periksa Angka — akar masalah (v3.5.3)
+## Analisis RFM outlet sell-out (v3.6)
 
-Panggilan sintetis `periksa_angka` dari pemeriksa angka tidak punya `thought_signature` → Gemini 3.x (Flash) menolak
-riwayat dengan error 400, error itu dilempar ulang, run berhenti, dan `ensure_reply` tidak pernah jalan (user melihat
-langkah selesai tanpa jawaban). Perbaikan: (1) `llm.ensure_signatures` mengisi tanda lewati validasi resmi untuk
-function_call tanpa signature sebelum setiap panggilan Gemini, dan panggilan sintetis langsung diberi tanda itu;
-(2) error model non-kapasitas tidak lagi mematikan run — `PinnedGemini` mengembalikan respons berkode `MODEL_ERROR`,
-lalu `ensure_reply` menyusun jawaban dari hasil tool (atau pesan "kendala teknis" bila belum ada hasil tool);
-(3) draf jawaban sebelum revisi disimpan, dan bila revisi kosong atau gagal, draf dikirim dengan catatan angka yang belum terverifikasi.
+Alat `analisis_rfm` (data_agent & report_agent) menghitung **seluruh** metodologi "PTPL RFM Outlet Analysis — Master
+Prompt v1.0" / "SR7 v5 Methodology & Report Guide" langsung dari `ptpl-curated-prd.DATAMART.SALES_OUT_DAILY`,
+tanpa tanya-jawab Data Agent (yang hanya mengembalikan tabel ringkas ≤ 300 baris → bagian laporan "n/a").
+
+- `rfm_engine.py`: SQL berparameter mengagregasi di BigQuery jadi **satu baris per Customer Code** (volume per bulan,
+  region & tipe outlet dominan, himpunan seri produk per periode) + audit; cache gzip di bucket
+  (`ge-docs-agent/rfm_cache/`, 12 jam) agar nasional + 7 region tidak query ulang. pandas menghitung R (band tetap),
+  F/M (P20–P80 baseline **per region**; nilai = threshold → skor lebih tinggi), special case F=M=1, 12 segmen
+  first-match + uji 125 kombinasi, momentum, matriks 12×12 baseline cohort (rekonsiliasi), Dataset Entrants terpisah,
+  produk (top, growth comparable, penetrasi per segmen, adopsi/berhenti), Top 20 outlet, kuartal, audit.
+- `rfm_report.py`: laporan HTML 8 section SR7 v5 (palet v5, SVG inline, matriks bisa digulir) — **angka & tabel dari
+  kode**, Claude hanya menulis narasi (JSON terstruktur); kalimat dengan angka di luar data dibuang dan diganti
+  narasi aturan. Plus Excel register (Outlet RFM Master, Snapshot, Migration Cohort, 125 Rule Validation, Scoring
+  Reference, Data Audit; > 25.000 outlet: sheet snapshot digabung ke master).
+- `region`: "" = nasional, "SR1".."SR7", daftar ("nasional, SR1"), **"semua" = nasional + SR1–SR7 dalam SATU panggilan**
+  (data ditarik sekali, narasi Claude paralel 4 sekaligus dengan batas tunggu, unggah paralel, halaman paket
+  `render_index` berisi perbandingan + semua link). Batas waktu internal `rfm_time_budget` (300 dtk): sisa cakupan
+  dikembalikan sebagai `tertunda_batas_waktu` ("ketik lanjut"), tidak pernah timeout. Uji 52 rb outlet sintetis:
+  8 laporan ±67 dtk di luar tarik data. Pengaturan opsional: `rfm_table`, `rfm_store_types`, `rfm_series_column`,
+  `rfm_exclude_pattern`, `rfm_cutoff`, `rfm_footer_credit`, `rfm_time_budget`, `rfm_narrative_timeout`.
+- Cek di Cloud Shell: `python scripts/check_rfm.py [--report SR7|nasional] [--cutoff 2026-09] [--refresh]`.
+
+**Beberapa laporan berbeda dalam satu pesan** (`tools/batch_tools.buat_laporan_sekaligus`, data/files/report agent):
+`laporan=["harga | period=2026-Q3", "planogram | period=2026-Q3", "custom | source=retail | request=…",
+"rfm | region=semua"]` + `output_format`. Fungsi asli dijalankan paralel (6 thread, tanpa pembungkus per pesan) dengan
+state per-thread yang digabung setelahnya (list = tambah item baru, `bq_pull_seq` = maks, ID tarikan bentrok diberi
+nomor baru). Batas waktu `batch_time_budget` (300 dtk): yang belum selesai → `tertunda_batas_waktu`.
+
+**Satu panggilan alat laporan berat per pesan** (`tools/rfm_tools.heavy_turn`): semua `generate_*`, `revise_custom_report`, dan
+`analisis_rfm` maksimal satu per pesan user (penanda per invocation_id di proses + state sesi). Panggilan kedua →
+status `deferred` ("ketik lanjut"). `generate_custom_report(source="sellout")` dengan kata RFM → status `redirect`
+ke `analisis_rfm`. Latar: insiden DEADLINE_EXCEEDED 20 Nov 2026.
 
 ## Pemeriksa angka: pembulatan wajar (v3.5.2)
 
@@ -369,7 +395,7 @@ Berlaku maks. 5 menit kemudian. `update_agent.sh` menambahkan kunci baru tanpa m
 ## Uji lokal
 
 ```bash
-python -m unittest discover tests      # 242 uji, tanpa GCP
+python -m unittest discover tests      # 278 uji, tanpa GCP
 ```
 
 ## Log diagnostik (unggahan file & error)
