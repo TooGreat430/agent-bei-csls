@@ -39,10 +39,12 @@ KINDS = {
     "custom": ("report_tools", "generate_custom_report", ("request", "source", "period", "data_questions", "file_id",
                                                           "instruction_doc_id")),
     "rfm": ("rfm_tools", "analisis_rfm", ("region", "cutoff", "fokus")),
+    "visual": ("visual_report_tools", "buat_laporan_visual", ("permintaan", "sumber", "file_id", "period", "judul")),
 }
 ALIASES = {"dashboard": "harga", "dashboard_harga": "harga", "daya_saing_harga": "harga", "price": "harga",
            "retail": "harga", "industry": "industri", "b2b": "industri", "competitive_battlefield": "battlefield",
-           "laporan_custom": "custom", "kustom": "custom", "rfm_outlet": "rfm"}
+           "laporan_custom": "custom", "kustom": "custom", "rfm_outlet": "rfm",
+           "laporan_visual": "visual", "deck": "visual", "presentasi": "visual"}
 NO_FORMAT = {"rfm"}            # RFM selalu HTML + Excel
 
 
@@ -59,7 +61,8 @@ def parse_item(text: str) -> tuple[str, dict[str, Any]]:
         if not p:
             continue
         if "=" not in p:
-            key = "request" if kind == "custom" and "request" not in params else ""
+            key = {"custom": "request", "visual": "permintaan"}.get(kind, "")
+            key = key if key and key not in params else ""
             if not key:
                 raise ValueError(f"bagian '{p}' harus berbentuk kunci=nilai")
             params[key] = p
@@ -169,6 +172,7 @@ def buat_laporan_sekaligus(tool_context: ToolContext, laporan: list[str], output
             - "custom | source=retail | request=Analisis harga Fastron di Zona 2 Q3 untuk manajemen"
               (source: retail / industri / planogram / sellout / retail_planogram; opsional data_questions=a; b)
             - "rfm | region=semua"  (atau region=SR1, SR3 / nasional; hasil selalu HTML + Excel)
+            - "visual | sumber=retail | permintaan=deck temuan harga Q3"  (laporan visual otomatis)
             Tambahkan "format=pdf" pada satu item bila formatnya beda dari output_format.
         output_format: Format untuk semua laporan non-RFM: "html", "pdf", "pptx" atau gabungan "pdf,pptx". Kosongkan
             bila user belum memilih — alat akan meminta Anda menanyakannya sekali untuk semua laporan.
@@ -196,7 +200,8 @@ def buat_laporan_sekaligus(tool_context: ToolContext, laporan: list[str], output
 
     budget = _num(live("batch_time_budget"), 300)
     base_snapshot = {}
-    for key in ("bq_pulls", "custom_reports", "rfm_reports", "insight_charts", "bq_history", "bq_last"):
+    for key in ("bq_pulls", "custom_reports", "rfm_reports", "insight_charts", "bq_history", "bq_last",
+                "visual_reports"):
         try:
             base_snapshot[key] = copy.deepcopy(tool_context.state.get(key))
         except Exception:  # noqa: BLE001

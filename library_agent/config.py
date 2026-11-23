@@ -79,6 +79,8 @@ class Settings:
     rfm_time_budget: int = field(default_factory=lambda: int(_env("LIB_RFM_TIME_BUDGET", "300")))
     rfm_narrative_timeout: int = field(default_factory=lambda: int(_env("LIB_RFM_NARRATIVE_TIMEOUT", "120")))
     batch_time_budget: int = field(default_factory=lambda: int(_env("LIB_BATCH_TIME_BUDGET", "300")))
+    # Laporan visual otomatis (storyboard Claude -> PPTX/PDF/HTML): batas waktu total satu pesan (detik)
+    visual_report_budget: int = field(default_factory=lambda: int(_env("LIB_VISUAL_REPORT_BUDGET", "240")))
     industry_segment_column: str = field(default_factory=lambda: _env("LIB_INDUSTRY_SEGMENT_COLUMN", "channel"))
     industry_focus_products: tuple = field(default_factory=lambda: (
         "Meditran SX Plus 15W40|HDDO", "Meditran S|HDDO", "Turalik 52|Hydraulic", "Rored HDA 90|Gear & Trans",
@@ -244,6 +246,7 @@ RUNTIME_KEYS: dict[str, type] = {
     "rfm_time_budget": int,
     "rfm_narrative_timeout": int,
     "batch_time_budget": int,
+    "visual_report_budget": int,
     "industry_focus_products": CaseList,
     "industry_segments": CaseList,
     "industry_competitors": list,

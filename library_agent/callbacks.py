@@ -368,8 +368,8 @@ INTERNAL_TOOLS = {"periksa_angka", "transfer_to_agent", "daftar_data", "panduan_
                   "daftar_skill", "list_documents", "cek_biaya_analisis"}
 
 
-ERROR_TEXT = ("Maaf, terjadi kendala teknis saat menyusun jawaban. Silakan kirim ulang pertanyaan Anda; "
-              "data dan file di chat ini tetap tersimpan.")
+ERROR_TEXT = ("Mohon maaf, jawaban untuk pertanyaan ini belum selesai disusun. Silakan kirim ulang pertanyaan "
+              "Anda; data dan file di chat ini tetap tersimpan.")
 
 
 def _numcheck_keys(callback_context: CallbackContext) -> tuple[str, str, str]:

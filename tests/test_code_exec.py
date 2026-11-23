@@ -289,4 +289,5 @@ class SkillTest(Base):
 
     def test_skill_rules_in_code_mode(self):
         self.assertIn("muat_skill", prompts.CODE_MODE)
-        self.assertIn("LAPORAN (laporan, one-pager", prompts.CODE_MODE)
+        self.assertIn("LAPORAN / DECK / PRESENTASI dari hasil analisis (laporan, one-pager", prompts.CODE_MODE)
+        self.assertIn("buat_laporan_visual", prompts.CODE_MODE)

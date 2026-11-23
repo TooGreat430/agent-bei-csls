@@ -6,3 +6,10 @@ import_review.csv
 .venv/
 riwayat-chat/
 riwayat-chat.zip
+
+# File contoh/klien di root (deck, PDF, Excel uji) tidak masuk repo
+/*.pptx
+/*.pdf
+/*.docx
+/*.xlsx
+visual_check/

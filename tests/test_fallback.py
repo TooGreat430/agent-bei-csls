@@ -84,7 +84,8 @@ class EnsureReplyTest(unittest.TestCase):
 
         events = [ev("user", text="halo"), NS(author="data_agent", content=None, error_code=MODEL_ERROR_CODE)]
         out = callbacks.ensure_reply(_cb(events))
-        self.assertIn("kendala teknis", out.parts[0].text)
+        self.assertIn("kirim ulang", out.parts[0].text)
+        self.assertNotIn("teknis", out.parts[0].text)
 
     def test_model_error_after_tools_uses_tool_results(self):
         from library_agent.llm import MODEL_ERROR_CODE

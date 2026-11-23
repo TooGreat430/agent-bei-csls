@@ -1,7 +1,7 @@
 # Marketing Insight Assistant — ADK agent untuk PT Pertamina Lubricants (PTPL)
 
 Vendor: tim mii.co.id (Jason Kusuma). Klien: tim MIR PTPL (user NON-IT). Bahasa ke user & dokumen: **Indonesia**.
-Agent ADK di Agent Engine, dipakai lewat **Gemini Enterprise (GE)**. Versi terakhir: **v3.6** (278 uji).
+Agent ADK di Agent Engine, dipakai lewat **Gemini Enterprise (GE)**. Versi terakhir: **v3.7** (323 uji; v3.6 = 278).
 Detail lengkap: `README.md` (fitur per versi), `PANDUAN_DEPLOY_V3.6.md` (deploy terbaru; v3.5 untuk riwayat), `PANDUAN_SELLOUT.md`,
 `PANDUAN_CLAUDE_DAN_SKILL.md`. Pengetahuan non-kode di `docs/knowledge/`: `keputusan.md` (keputusan + alasan per
 versi), `insiden.md` (riwayat error & log), `biaya_sizing.md` (sizing & tarif), `klien.md` (konteks & ekspektasi
@@ -43,6 +43,10 @@ lengkap 01/02 (±4 MB) jangan dibaca seluruhnya — cari dengan grep kata kunci 
 - `rfm_engine.py` (RFM sell-out: SQL agregasi per outlet + cache bucket + hitung metodologi SR7 v5) · `rfm_report.py`
   (HTML 8 section + narasi Claude terperiksa) · `tools/rfm_tools.py` (`analisis_rfm`, `heavy_turn` = 1 panggilan berat/pesan)
   · `tools/batch_tools.py` (`buat_laporan_sekaligus`: beberapa laporan paralel + batas waktu)
+- `visual_report/` (v3.7) mesin laporan visual: `theme`/`prims`/`charts`/`components` (19 komponen) → `build` (Deck, slide
+  lanjutan, lampiran, deck darurat) → `render_pptx` (chart native)/`render_pdf`/`render_html`; `quality` (review, coverage);
+  `planner` (storyboard Claude, `key_numbers`, `Pool` pemeriksa angka, 1 revisi, `fallback_storyboard`, `make_report`)
+  · `tools/visual_report_tools.py` (`buat_laporan_visual`, `revisi_laporan_visual`; bahan dari `report_tools._gather_source`)
 - `custom_report.py` + `report_assets/custom_prompts/*.txt` (prompt MIR per domain) · `ptpl_design.py`, `html_convert.py`
 - `usage.py` meteran & batas biaya · `config.py` (`live()` = settings.json, cache 5 menit)
 
@@ -50,7 +54,12 @@ lengkap 01/02 (±4 MB) jangan dibaca seluruhnya — cari dengan grep kata kunci 
 - **Angka bisnis dihitung kode / berasal dari hasil tool, bukan model.** Pemeriksa angka aktif di chat & laporan.
   Pembulatan wajar ke ratusan/ribuan diterima. Jangan menyebut "80% akurat" ke klien.
 - Laporan: HTML/PDF/PPTX (atau DOCX lewat skill), template PTPL; **tidak pernah TXT/MD**. Tawarkan laporan (ya/tidak)
-  setelah analisis; tanyakan format bila belum disebut. Laporan custom: DRAFT → approve → konversi.
+  setelah analisis; tanyakan format bila belum disebut. **Default = `buat_laporan_visual`** (isi disusun sendiri, user
+  tidak ditanya isi; langsung final). Laporan custom (template/prompt milik user): DRAFT → approve → konversi.
+- **Angka tidak pernah dibulatkan** di laporan (desimal asli; `theme.fmt` dec = minimum). Angka kunci hasil analitik
+  wajib masuk laporan (pemeriksa + lampiran angka kunci).
+- **Tidak ada error teknis ke user**: setiap fitur punya jalur cadangan; pesan gagal tanpa istilah teknis
+  (`prompts.NO_TECH_ERRORS`, `callbacks.ERROR_TEXT`).
 - Gabungan/korelasi data: **hanya sumber yang sama atau Retail × Planogram**. Sell-out & Industri berdiri sendiri.
 - Insight otomatis tiap tarikan/analisis: **minimal 3 chart** (dijamin kode), headline = kesimpulan, sorotan dari
   `fakta`, takeaway, link. Jawaban gaya Minto/SCQA. Kerangka Strategist dipilih sesuai jenis pertanyaan
@@ -88,6 +97,9 @@ lengkap 01/02 (±4 MB) jangan dibaca seluruhnya — cari dengan grep kata kunci 
 - Jawaban ringkas, Bahasa Indonesia, jujur soal keterbatasan; sertakan cara verifikasi (perintah/log).
 
 ## Status & pekerjaan terbuka
+- v3.7 (23 Nov) belum di-commit/deploy: laporan visual otomatis Tahap A+B. Berikutnya: `scripts/check_visual_report.py`
+  di Cloud Shell (Claude sungguhan), deploy, uji di GE dengan PDF Brand Health + "buatkan laporan PPT"; Tahap C =
+  penyempurnaan dari masukan klien (opsional QA gambar render). Contoh Tahap A ada di scratchpad sesi (bukan repo).
 - v3.6 siap deploy (dibangun di atas v3.5.2): `analisis_rfm` + batas 1 laporan berat per pesan (insiden DEADLINE_EXCEEDED
   20 Nov). Menunggu: hasil `scripts/check_rfm.py` di Cloud Shell (konfirmasi DT_PR = tanggal transaksi, kolom seri,
   nilai REGION_NAME), wording footer, file HTML SR7 v5 asli (desain saat ini dari spesifikasi docx).

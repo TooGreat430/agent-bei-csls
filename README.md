@@ -8,7 +8,7 @@ Agent ADK di Vertex AI Agent Engine (Jakarta, `asia-southeast2`), terdaftar di G
 | **Data BigQuery** | Tanya-jawab lewat tiga Data Agent resmi tim data: **Retail**, **Industry**, dan **Planogram Marketing Intelligence**. Angka persis dari Data Agent, tabel + grafik, simpan sebagai insight |
 | **Analisis silang Retail × Planogram** | Harga jual, margin outlet, carry, dan skor AV digabung per KIMAP → status Pemenang Kompetitif / Gap Eksekusi / Gap Ekonomi / Gap Harga / Double Jeopardy, white space, ancaman kompetitor. Hanya kombinasi ini; Industri tidak bisa digabung |
 | **File unggahan (semua format)** | **CSV/Excel**: jenis dikenali (retail / industri / planogram / lainnya), **pengetahuan resmi Data Agent** diserap, angka dihitung pandas. **Dokumen** (PDF, Word, PowerPoint, teks, Markdown, HTML, gambar): isi dicerna, diringkas, jenisnya dikenali (laporan, prompt/metodologi, template), lalu agent mengusulkan langkah berikutnya |
-| **Laporan** | **Template**: Daya Saing Harga Retail, Daya Saing Harga Industri (B2B), **Kinerja Planogram PTPL vs Kompetitor**, **Competitive Battlefield (Retail × Planogram)** — PDF/PowerPoint/HTML. **Custom**: disusun Gemini 4 Argon dengan prompt laporan MIR (Retail Only / Industry Only / Planogram / Retail × Planogram), bisa mengikuti dokumen prompt/template unggahan, HTML gaya design system PTPL, DRAFT → revisi → approve FINAL |
+| **Laporan** | **Visual otomatis (v3.7)**: deck PowerPoint (chart native)/PDF/HTML disusun Claude dari seluruh analisis di chat tanpa user menyebut isi, angka diperiksa kode. **Template**: Daya Saing Harga Retail, Daya Saing Harga Industri (B2B), **Kinerja Planogram PTPL vs Kompetitor**, **Competitive Battlefield (Retail × Planogram)** — PDF/PowerPoint/HTML. **Custom**: disusun Gemini 4 Argon dengan prompt laporan MIR (Retail Only / Industry Only / Planogram / Retail × Planogram), bisa mengikuti dokumen prompt/template unggahan, HTML gaya design system PTPL, DRAFT → revisi → approve FINAL |
 
 Perpustakaan dokumen BEI/CSLS (data store, folder `ge-docs-datastore`, tanya-jawab dokumen) **sudah dihapus**
 dari agent ini. Data store dan isi folder di GCP tidak disentuh, hanya tidak dipakai lagi.
@@ -129,6 +129,28 @@ Sumber: BigQuery (default) atau dua file unggahan (`retail_file_id` + `planogram
   struktur & class template). Revisi dan approve tetap berlaku.
 - Belum didukung: `.doc`/`.ppt` lama (minta simpan ulang sebagai DOCX/PPTX/PDF), skor kuantil khusus dari file unggahan (RFM sell-out
   dari BigQuery: pakai `analisis_rfm`, v3.6).
+
+## Laporan visual otomatis (v3.7)
+
+Keluhan klien: kemampuan baca & analisis sudah baik, tetapi **visualisasi & kreativitas laporan kurang** (deck ADK tanpa
+grafik, sedangkan Claude Web menghasilkan deck lengkap). Sekarang user cukup bilang "buatkan laporan/PPT dari analisis
+tadi" — **isi, alur, dan visual disusun sendiri**; user hanya ditanya format.
+
+| Lapisan | Isi |
+|---|---|
+| Alat | `buat_laporan_visual` (pilihan utama semua permintaan laporan/deck dari analisis) · `revisi_laporan_visual` (masukan user) · jenis `visual` di `buat_laporan_sekaligus` |
+| Bahan | `_gather_source` (sama dengan laporan custom: dokumen, file, BigQuery, Retail × Planogram) + jawaban analisis di chat + fakta chart insight + insight tersimpan |
+| Perencana | `visual_report/planner.py`: Claude (cadangan Argon) menyusun storyboard JSON dari 19 komponen (ringkasan, kartu, papan skor, perbandingan, tren, waterfall, funnel, heatmap, tabel, SWOT, SMART, target KPI, aksi, roadmap, …), alur Minto/SCQA, judul = kesimpulan |
+| Pemeriksa | angka di storyboard harus ada di data (selisih dua angka data boleh); angka **dibulatkan** atau **dikarang** → satu putaran revisi; angka kunci hasil analitik (`key_numbers`) wajib muncul |
+| Jaring terakhir | angka kunci yang masih hilang → lampiran "angka kunci"; angka di luar data → halaman catatan pemeriksa; Claude gagal/terlambat → storyboard dibangun kode dari tabel data (tetap ber-chart); kegagalan total → pesan sopan tanpa istilah teknis |
+| Mesin render | `visual_report/` (Tahap A): PPTX dengan **chart native** (bisa diedit), PDF, HTML — tata letak identik, teks tidak pernah meluap, tabel panjang berlanjut, chart dipotong → lampiran data lengkap |
+| Angka asli | format angka **tidak pernah membulatkan** (desimal asli sampai 6 digit; `dec` = minimum untuk penyeragaman); % konversi funnel memakai angka sumber bila ada, bila dihitung kode 1 desimal; data laporan tidak lagi dibulatkan ke 2 desimal |
+| Waktu | `visual_report_budget` (default 240 dtk, settings.json) termasuk tarik data; revisi hanya bila sisa waktu cukup; 1 laporan berat per pesan |
+
+Laporan visual langsung FINAL (tanpa DRAFT/approve). `generate_custom_report` tetap untuk template/prompt laporan milik
+user atau permintaan eksplisit "laporan custom". Uji sungguhan tanpa deploy (Cloud Shell):
+`python scripts/check_visual_report.py [teks_analisis.txt]` → `visual_check/` (pptx/pdf/html + storyboard.json).
+Semua agent kini juga diinstruksikan **tidak menampilkan istilah teknis** saat alat gagal (`prompts.NO_TECH_ERRORS`).
 
 ## Analisis RFM outlet sell-out (v3.6)
 

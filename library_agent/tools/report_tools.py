@@ -9,6 +9,7 @@ from google.adk.tools import ToolContext
 from .. import insights, report_engine
 from ..clients import get_user_id
 from .rfm_tools import RFM_TOOLS, heavy_turn, is_rfm_request
+from .visual_report_tools import VISUAL_TOOLS, buat_laporan_visual, revisi_laporan_visual  # noqa: F401
 
 logger = logging.getLogger(__name__)
 
@@ -794,7 +795,7 @@ def _code_result_blocks(tool_context: ToolContext) -> list[str]:
                 raw = storage_client().bucket(bucket).blob(path).download_as_bytes()
                 df = pd.read_csv(io.BytesIO(raw)) if f["name"].lower().endswith(".csv") else pd.read_excel(io.BytesIO(raw))
                 total = len(df)
-                df = df.head(200).round(2)
+                df = df.head(200).round(6)
                 tables.append({"columns": [f"{f['name']} · {c}" if i == 0 else str(c) for i, c in enumerate(df.columns)],
                                "rows": df.astype(object).where(df.notna(), None).values.tolist(), "total_rows": total})
             except Exception as exc:  # noqa: BLE001
@@ -815,7 +816,7 @@ def _frame_block(frame) -> str:
     df = frame.copy()
     for c in df.columns:
         if df[c].dtype.kind == "f":
-            df[c] = df[c].round(2)
+            df[c] = df[c].round(6)            # angka asli (hanya buang derau float), tanpa pembulatan 2 desimal
     df = df.astype(object).where(df.notna(), None)
     rows = df.values.tolist()
     full = cr.data_block("Data lengkap file (sudah dirapikan kode)", "", [{"columns": [str(c) for c in df.columns],
@@ -826,7 +827,7 @@ def _frame_block(frame) -> str:
     parts = [cr.data_block(f"Contoh 100 baris pertama dari {len(df)} baris", "",
                            [{"columns": [str(c) for c in df.columns], "rows": rows[:100], "total_rows": len(df)}])]
     if not num.empty:
-        desc = num.describe().T.round(2).reset_index()
+        desc = num.describe().T.round(4).reset_index()
         parts.append(cr.data_block("Ringkasan angka seluruh baris (dihitung kode)", "",
                                    [{"columns": ["kolom"] + [str(c) for c in desc.columns[1:]],
                                      "rows": desc.astype(object).where(desc.notna(), None).values.tolist()}]))
@@ -896,51 +897,14 @@ def _save_custom(tool_context: ToolContext, result: dict, domain: str, request: 
             "message": msg}
 
 
-def generate_custom_report(request: str, source: str, tool_context: ToolContext,
-                           data_questions: list[str] | None = None, file_id: str = "",
-                           instruction_doc_id: str = "", period: str = "", output_format: str = "",
-                           gambar_referensi: list[str] | None = None) -> dict[str, Any]:
-    """Membuat laporan CUSTOM (HTML, gaya design system PTPL) yang disusun model utama sesuai permintaan user,
-    memakai prompt laporan MIR (Retail Only / Industry Only / Planogram). Status awal DRAFT.
-
-    Data diambil lebih dulu: dari Data Agent BigQuery (source retail/industri/planogram) atau dari file unggahan
-    (source "file"). Angka di laporan diperiksa otomatis terhadap data tersebut.
-
-    Args:
-        request: Permintaan laporan user selengkap mungkin (fokus produk/segmen/wilayah/periode, audiens).
-        source: "retail", "industri", "planogram", "sellout" (Selling Out Intelligence), "retail_planogram" (gabungan
-            Retail × Planogram), "file" (data
-            CSV/Excel), atau "dokumen" (TXT/PDF/Word berisi HASIL ANALISIS yang dibawa user, mis. dari chat lain).
-            Gabungan hanya Retail × Planogram; Industri tidak bisa digabung.
-        data_questions: 1-3 pertanyaan data untuk Data Agent yang bersama-sama mencakup permintaan (opsional;
-            default: request). Untuk "retail_planogram" pertanyaan dikirim ke kedua Data Agent. Abaikan jika "file".
-        file_id: ID file (mis. "f1") jika source "file", atau ID dokumen (mis. "d1") jika source "dokumen";
-            kosongkan untuk file/dokumen terakhir.
-        instruction_doc_id: ID dokumen unggahan (mis. "d1") berisi prompt/template/arahan laporan dari user (opsional).
-        period: Kuartal utama untuk analisis silang Retail × Planogram (opsional, mis. "2026-Q3").
-        output_format: "html", "pdf", "pptx", atau gabungan (mis. "pdf,pptx"). Kosongkan jika user belum memilih —
-            tool akan meminta Anda menanyakannya.
-        gambar_referensi: ID gambar unggahan (mis. ["d2", "d3"]) yang menjadi contoh bentuk laporan (tata letak,
-            pengelompokan, simbol). Penulis laporan melihat gambar ini; angka tetap dari data.
-    """
+def _gather_source(tool_context: ToolContext, request: str, src: str, data_questions: list[str] | None = None,
+                   file_id: str = "", period: str = "") -> dict[str, Any]:
+    """Bahan laporan dari satu sumber -> {"status": "ok", "data_text", "domain", "label"} atau dict status lain
+    (needs_input / invalid / error / needs_authorization) yang langsung dikembalikan ke model."""
     from .. import custom_report as cr
     from .. import data_agent
     from .data_tools import pull
 
-    if not request.strip():
-        return {"status": "needs_input", "message": "Tanyakan ke user isi laporan yang diinginkan (fokus, periode, audiens)."}
-    src = source.strip().lower().replace(" ", "")
-    if "sellout" in src.replace("-", "").replace("sellingout", "sellout") and is_rfm_request(request):
-        return {"status": "redirect", "tool": "analisis_rfm",
-                "message": ("Laporan RFM outlet sell-out TIDAK dibuat dengan laporan custom (data tanya-jawab terlalu "
-                            "ringkas, bagian laporan jadi n/a). Panggil analisis_rfm SATU KALI: region='semua' untuk "
-                            "nasional + semua Sales Region, daftar mis. 'SR2, SR3' untuk beberapa region, atau satu "
-                            "region; hasilnya laporan HTML 8 section + Excel register (dihitung kode) + halaman paket.")}
-    formats = cr.parse_formats(output_format)
-    if not formats:
-        return {"status": "needs_input", "available_formats": ["html", "pdf", "pptx"],
-                "message": ("Tanyakan ke user format laporan yang diinginkan (boleh lebih dari satu): HTML (interaktif, "
-                            "grafik bisa disorot), PDF (siap cetak/kirim), atau PowerPoint (siap presentasi).")}
     combined = src in ("retail_planogram", "retail+planogram", "planogram+retail", "gabungan", "retailxplanogram",
                        "retail×planogram", "battlefield")
     if "sellout" in src.replace("-", "").replace("sellingout", "sellout") and any(x in src for x in ("+", "×", "gabung")):
@@ -1006,6 +970,56 @@ def generate_custom_report(request: str, source: str, tool_context: ToolContext,
             return {"status": "error", "message": "Data tidak bisa diambil dari Data Agent: " + "; ".join(errors)[:300]}
         data_text = "\n\n".join(blocks)
         label = data_agent.SOURCE_LABELS[domain]
+    return {"status": "ok", "data_text": data_text, "domain": domain, "label": label}
+
+
+def generate_custom_report(request: str, source: str, tool_context: ToolContext,
+                           data_questions: list[str] | None = None, file_id: str = "",
+                           instruction_doc_id: str = "", period: str = "", output_format: str = "",
+                           gambar_referensi: list[str] | None = None) -> dict[str, Any]:
+    """Membuat laporan CUSTOM (HTML, gaya design system PTPL) yang disusun model utama sesuai permintaan user,
+    memakai prompt laporan MIR (Retail Only / Industry Only / Planogram). Status awal DRAFT.
+
+    Data diambil lebih dulu: dari Data Agent BigQuery (source retail/industri/planogram) atau dari file unggahan
+    (source "file"). Angka di laporan diperiksa otomatis terhadap data tersebut.
+
+    Args:
+        request: Permintaan laporan user selengkap mungkin (fokus produk/segmen/wilayah/periode, audiens).
+        source: "retail", "industri", "planogram", "sellout" (Selling Out Intelligence), "retail_planogram" (gabungan
+            Retail × Planogram), "file" (data
+            CSV/Excel), atau "dokumen" (TXT/PDF/Word berisi HASIL ANALISIS yang dibawa user, mis. dari chat lain).
+            Gabungan hanya Retail × Planogram; Industri tidak bisa digabung.
+        data_questions: 1-3 pertanyaan data untuk Data Agent yang bersama-sama mencakup permintaan (opsional;
+            default: request). Untuk "retail_planogram" pertanyaan dikirim ke kedua Data Agent. Abaikan jika "file".
+        file_id: ID file (mis. "f1") jika source "file", atau ID dokumen (mis. "d1") jika source "dokumen";
+            kosongkan untuk file/dokumen terakhir.
+        instruction_doc_id: ID dokumen unggahan (mis. "d1") berisi prompt/template/arahan laporan dari user (opsional).
+        period: Kuartal utama untuk analisis silang Retail × Planogram (opsional, mis. "2026-Q3").
+        output_format: "html", "pdf", "pptx", atau gabungan (mis. "pdf,pptx"). Kosongkan jika user belum memilih —
+            tool akan meminta Anda menanyakannya.
+        gambar_referensi: ID gambar unggahan (mis. ["d2", "d3"]) yang menjadi contoh bentuk laporan (tata letak,
+            pengelompokan, simbol). Penulis laporan melihat gambar ini; angka tetap dari data.
+    """
+    from .. import custom_report as cr
+
+    if not request.strip():
+        return {"status": "needs_input", "message": "Tanyakan ke user isi laporan yang diinginkan (fokus, periode, audiens)."}
+    src = source.strip().lower().replace(" ", "")
+    if "sellout" in src.replace("-", "").replace("sellingout", "sellout") and is_rfm_request(request):
+        return {"status": "redirect", "tool": "analisis_rfm",
+                "message": ("Laporan RFM outlet sell-out TIDAK dibuat dengan laporan custom (data tanya-jawab terlalu "
+                            "ringkas, bagian laporan jadi n/a). Panggil analisis_rfm SATU KALI: region='semua' untuk "
+                            "nasional + semua Sales Region, daftar mis. 'SR2, SR3' untuk beberapa region, atau satu "
+                            "region; hasilnya laporan HTML 8 section + Excel register (dihitung kode) + halaman paket.")}
+    formats = cr.parse_formats(output_format)
+    if not formats:
+        return {"status": "needs_input", "available_formats": ["html", "pdf", "pptx"],
+                "message": ("Tanyakan ke user format laporan yang diinginkan (boleh lebih dari satu): HTML (interaktif, "
+                            "grafik bisa disorot), PDF (siap cetak/kirim), atau PowerPoint (siap presentasi).")}
+    got = _gather_source(tool_context, request, src, data_questions, file_id, period)
+    if got.get("status") != "ok":
+        return got
+    data_text, domain, label = got["data_text"], got["domain"], got["label"]
     extra, template_uri, template_html = "", "", ""
     if instruction_doc_id.strip():
         from .doc_tools import DOCS_KEY, document_instructions
@@ -1164,4 +1178,5 @@ buat_laporan_sekaligus = _logged(_budget(_batch))
 REPORT_TOOLS = [list_report_options, generate_price_dashboard, preview_price_dashboard, generate_industry_report,
                 preview_industry_report, generate_planogram_report, preview_planogram_report,
                 generate_battlefield_report, preview_battlefield_report, generate_custom_report,
-                revise_custom_report, approve_report, konversi_laporan_custom, buat_laporan_sekaligus, *RFM_TOOLS]
+                revise_custom_report, approve_report, konversi_laporan_custom, buat_laporan_sekaligus, *RFM_TOOLS,
+                *VISUAL_TOOLS]
