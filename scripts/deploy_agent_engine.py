@@ -52,8 +52,11 @@ def main() -> None:
 
     # Tracing butuh role Cloud Trace Agent di service account; tanpa itu hanya menghasilkan log 403.
     app = AdkApp(agent=root_agent, enable_tracing=os.getenv("LIB_ENABLE_TRACING", "false").lower() == "true")
-    with open(os.path.join(ROOT, "requirements.txt"), encoding="utf-8") as fh:
-        requirements = [line.strip() for line in fh if line.strip() and not line.startswith("#")]
+    # Versi dikunci ke .venv: objek agent di-pickle dengan versi lokal, container harus memasang versi yang sama.
+    sys.path.insert(0, os.path.join(ROOT, "scripts"))
+    from pin_requirements import read_pinned
+
+    requirements = read_pinned(os.path.join(ROOT, "requirements.txt"))
 
     common = dict(requirements=requirements, extra_packages=packages, env_vars=env_vars, display_name=display_name)
     if args.update:
