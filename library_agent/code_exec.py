@@ -62,15 +62,42 @@ def region() -> str:
     return m.group(1)
 
 
-def _client():
+def sandboxes(client):
+    """API sandbox milik client, tahan beda SDK: vertexai.Client -> client.agent_engines.sandboxes;
+    agentplatform.Client (SDK baru google-cloud-agentplatform) -> client.sandboxes."""
+    ae = getattr(client, "agent_engines", None)
+    api = getattr(ae, "sandboxes", None) if ae is not None else None
+    if api is None:
+        api = getattr(client, "sandboxes", None)
+    if api is None:
+        raise AttributeError(f"{type(client).__module__}.{type(client).__name__} tidak punya API sandbox "
+                             "(agent_engines.sandboxes maupun sandboxes)")
+    return api
+
+
+def _sdk_types(client):
+    """Modul `types` dari SDK yang sama dengan client (agentplatform.types / vertexai.types), atau None."""
+    import importlib
+
+    root = (type(client).__module__ or "").split(".")[0]
     try:
-        import agentplatform  # SDK baru (pengganti vertexai.Client)
-
-        return agentplatform.Client(project=settings.project_id, location=region())
+        return importlib.import_module(f"{root}.types")
     except Exception:  # noqa: BLE001
-        import vertexai
+        return None
 
-        return vertexai.Client(project=settings.project_id, location=region())
+
+def _client():
+    """Client pertama yang punya API sandbox: agentplatform (SDK baru) lalu vertexai. Gagal keduanya -> RuntimeError."""
+    errors = []
+    for mod_name in ("agentplatform", "vertexai"):
+        try:
+            mod = __import__(mod_name)
+            client = mod.Client(project=settings.project_id, location=region())
+            sandboxes(client)
+            return client
+        except Exception as exc:  # noqa: BLE001
+            errors.append(f"{mod_name}: {type(exc).__name__}: {str(exc)[:200]}")
+    raise RuntimeError("Tidak ada SDK dengan API sandbox yang bisa dipakai — " + " | ".join(errors))
 
 
 def _engine() -> str:
@@ -88,19 +115,23 @@ def _create_sandbox(client) -> str:
     if settings.code_execution_machine:
         spec["code_execution_environment"]["machine_config"] = settings.code_execution_machine
     cfg: Any = {"display_name": "mia-analisis", "ttl": f"{int(live('code_execution_ttl_seconds') or 1800)}s"}
-    try:
-        from vertexai import types
-
-        cfg = types.CreateAgentEngineSandboxConfig(**cfg)
-    except Exception:  # noqa: BLE001  (SDK menerima dict juga)
-        pass
-    op = client.agent_engines.sandboxes.create(spec=spec, name=_engine(), config=cfg)
-    return op.response.name
+    types = _sdk_types(client)
+    for cls_name in ("CreateAgentEngineSandboxConfig", "CreateSandboxConfig", "CreateSandboxEnvironmentConfig"):
+        cls = getattr(types, cls_name, None) if types is not None else None
+        if cls is None:
+            continue
+        try:
+            cfg = cls(**cfg)
+            break
+        except Exception:  # noqa: BLE001  (SDK menerima dict juga)
+            continue
+    op = sandboxes(client).create(spec=spec, name=_engine(), config=cfg)
+    return (getattr(op, "response", None) or op).name
 
 
 def _alive(client, name: str) -> bool:
     try:
-        sb = client.agent_engines.sandboxes.get(name=name)
+        sb = sandboxes(client).get(name=name)
         return "RUNNING" in str(getattr(sb, "state", "")).upper()
     except Exception:  # noqa: BLE001
         return False
@@ -121,7 +152,7 @@ def delete_sandbox(state) -> bool:
     if not info.get("name"):
         return False
     try:
-        _client().agent_engines.sandboxes.delete(name=info["name"])
+        sandboxes(_client()).delete(name=info["name"])
     except Exception:  # noqa: BLE001
         logger.warning("Sandbox gagal dihapus (akan kedaluwarsa sendiri oleh TTL)", exc_info=True)
     state[SANDBOX_KEY] = None
@@ -189,12 +220,12 @@ def _execute(client, sandbox: str, code: str, files: list[dict]):
     if files:
         payload["files"] = [{"name": f["name"], _FILES_FIELD["value"]: f["content"]} for f in files]
     try:
-        return client.agent_engines.sandboxes.execute_code(name=sandbox, input_data=payload)
+        return sandboxes(client).execute_code(name=sandbox, input_data=payload)
     except Exception as exc:  # noqa: BLE001
         if files and _FILES_FIELD["value"] == "content" and re.search(r"content|field|unknown|invalid", str(exc), re.I):
             _FILES_FIELD["value"] = "contents"
             payload["files"] = [{"name": f["name"], "contents": f["content"]} for f in files]
-            return client.agent_engines.sandboxes.execute_code(name=sandbox, input_data=payload)
+            return sandboxes(client).execute_code(name=sandbox, input_data=payload)
         raise
 
 

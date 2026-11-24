@@ -27,6 +27,9 @@ rfm.to_csv('hasil_uji.csv', index=False)
 rfm.plot.bar(x='Customer Code', y='volume'); plt.savefig('grafik_uji.png', dpi=100)
 """
 client = code_exec._client()
+print("SDK dipakai     :", f"{type(client).__module__}.{type(client).__name__}",
+      "(API: agent_engines.sandboxes)" if getattr(getattr(client, "agent_engines", None), "sandboxes", None) is not None
+      else "(API: sandboxes)")
 print("Region sandbox  :", code_exec.region())
 t0 = time.time()
 sb = code_exec._create_sandbox(client)
@@ -46,5 +49,5 @@ try:
         print("Mentah:", [(getattr(c, 'mime_type', ''), getattr(getattr(c, 'metadata', None), 'attributes', None),
                            (getattr(c, 'data', b'') or b'')[:200]) for c in resp.outputs])
 finally:
-    client.agent_engines.sandboxes.delete(name=sb)
+    code_exec.sandboxes(client).delete(name=sb)
     print("Sandbox dihapus.")

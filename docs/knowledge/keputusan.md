@@ -26,5 +26,8 @@ Asumsi v3.6 yang perlu dikonfirmasi user: `DT_PR` = tanggal transaksi (deskripsi
 date"); seri = `PRODUCT_SEGMENT`; volume = `TOTAL_VOL_KL_DELIVERED` semua status order; region & tipe outlet =
 dominan per volume; footer "Prepared with ChatGPT Analytics" (v5) diganti `rfm_footer_credit`; HTML v5 asli belum
 diterima (desain dari spesifikasi docx). `scripts/check_rfm.py` menampilkan bukti untuk tiap asumsi.
+**Hasil `check_rfm.py` 20 Nov — LULUS:** DT_PR harian = tanggal transaksi; REGION I–VII → SR1–SR7; `PRODUCT_SEGMENT` =
+seri; 50.980 outlet; query 13,6 dtk. Temuan nasional: Champions = 87,3% volume; Can't Lose Them = 0 (struktural,
+bukan bug).
 
 Prinsip yang konsisten: angka dari kode/tool; jujur soal keterbatasan; user non-IT; saklar operasional tanpa deploy.

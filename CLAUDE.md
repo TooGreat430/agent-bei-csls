@@ -1,7 +1,7 @@
 # Marketing Insight Assistant — ADK agent untuk PT Pertamina Lubricants (PTPL)
 
 Vendor: tim mii.co.id (Jason Kusuma). Klien: tim MIR PTPL (user NON-IT). Bahasa ke user & dokumen: **Indonesia**.
-Agent ADK di Agent Engine, dipakai lewat **Gemini Enterprise (GE)**. Versi terakhir: **v3.7** (323 uji; v3.6 = 278).
+Agent ADK di Agent Engine, dipakai lewat **Gemini Enterprise (GE)**. Versi terakhir: **v3.7** (329 uji; v3.6 = 278).
 Detail lengkap: `README.md` (fitur per versi), `PANDUAN_DEPLOY_V3.6.md` (deploy terbaru; v3.5 untuk riwayat), `PANDUAN_SELLOUT.md`,
 `PANDUAN_CLAUDE_DAN_SKILL.md`. Pengetahuan non-kode di `docs/knowledge/`: `keputusan.md` (keputusan + alasan per
 versi), `insiden.md` (riwayat error & log), `biaya_sizing.md` (sizing & tarif), `klien.md` (konteks & ekspektasi
@@ -97,12 +97,21 @@ lengkap 01/02 (±4 MB) jangan dibaca seluruhnya — cari dengan grep kata kunci 
 - Jawaban ringkas, Bahasa Indonesia, jujur soal keterbatasan; sertakan cara verifikasi (perintah/log).
 
 ## Status & pekerjaan terbuka
-- v3.7 (23 Nov) belum di-commit/deploy: laporan visual otomatis Tahap A+B. Berikutnya: `scripts/check_visual_report.py`
+- **24 Nov — sandbox (UAT TC-11)**: `siapkan_sandbox` gagal karena SDK agentplatform memakai `client.sandboxes.*`
+  (bukan `client.agent_engines.sandboxes.*`). Diperbaiki di `code_exec.py` (`sandboxes(client)`, `_client()` mencoba
+  agentplatform lalu vertexai). Perlu deploy + `python scripts/check_code_execution.py` (cetak SDK yang dipakai).
+- **CR ME-44** (Gemini Enterprise Agent Marketing) sudah disusun. Janji yang dicek di kode:
+  (a) kunci versi library `==` di `requirements.txt` — BELUM: menunggu `pip freeze` dari .venv Cloud Shell
+  (deploy sudah mengunci otomatis lewat `scripts/pin_requirements.py`, tetapi file requirements masih `>=`);
+  (b) storyboard laporan — TERPENUHI oleh `visual_report/planner.py` (Claude menyusun storyboard JSON komponen sebelum
+  render, diperiksa kode + 1 revisi + cadangan kode). Teks CR tidak ada di repo; cocokkan ulang bila redaksinya lebih spesifik.
+- **UAT Report v0.1** (22 TC, tanpa bagian Model/Biaya) sedang berjalan; TC-11 (sandbox) menunggu deploy perbaikan 24 Nov.
+- v3.7 (23 Nov, commit 9214d8b): laporan visual otomatis Tahap A+B. Berikutnya: `scripts/check_visual_report.py`
   di Cloud Shell (Claude sungguhan), deploy, uji di GE dengan PDF Brand Health + "buatkan laporan PPT"; Tahap C =
   penyempurnaan dari masukan klien (opsional QA gambar render). Contoh Tahap A ada di scratchpad sesi (bukan repo).
-- v3.6 siap deploy (dibangun di atas v3.5.2): `analisis_rfm` + batas 1 laporan berat per pesan (insiden DEADLINE_EXCEEDED
-  20 Nov). Menunggu: hasil `scripts/check_rfm.py` di Cloud Shell (konfirmasi DT_PR = tanggal transaksi, kolom seri,
-  nilai REGION_NAME), wording footer, file HTML SR7 v5 asli (desain saat ini dari spesifikasi docx).
+- v3.6: `analisis_rfm` + batas 1 laporan berat per pesan (insiden DEADLINE_EXCEEDED 20 Nov). `check_rfm.py` 20 Nov
+  LULUS (DT_PR harian, REGION I–VII → SR1–7, PRODUCT_SEGMENT = seri, 50.980 outlet, 13,6 dtk; Champions 87,3% volume
+  nasional, Can't Lose Them = 0 struktural). Masih menunggu: wording footer, file HTML SR7 v5 asli.
 - Konfirmasi: angka laporan custom 97.389/37.742/85.513 (log 11 Nov 15:08) diduga disalin dari gambar referensi.
 - Opsi ditawarkan: jalur campuran (pertanyaan "kenapa/apa yang dilakukan" di jalur BQ → Claude).
 - Checklist uji: `Checklist_Uji_Chart_Kerangka_v3.4.xlsx` (37 uji). Kuota Argon/Claude perlu dipantau.

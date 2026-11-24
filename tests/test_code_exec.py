@@ -263,6 +263,74 @@ class BatchTest(Base):
             self.assertEqual(code_exec.prepare(self.ctx)["status"], "file_too_large")
 
 
+class SdkCompatTest(unittest.TestCase):
+    """Sandbox harus jalan di SDK lama (vertexai: client.agent_engines.sandboxes) dan SDK baru
+    (agentplatform: client.sandboxes) — insiden 24 Nov: 'Client' object has no attribute 'agent_engines'."""
+
+    def setUp(self):
+        s = dataclasses.replace(config.settings, code_execution_engine=ENGINE)
+        self.patches = [mock.patch.object(code_exec, "settings", s),
+                        mock.patch.object(config, "_read_runtime_file", return_value={})]
+        for p in self.patches:
+            p.start()
+        config._runtime_cache["loaded_at"] = 0
+
+    def tearDown(self):
+        for p in self.patches:
+            p.stop()
+        config._runtime_cache["loaded_at"] = 0
+
+    def test_sandboxes_picks_api_for_both_sdks(self):
+        sb = FakeSandboxes()
+        self.assertIs(code_exec.sandboxes(NS(agent_engines=NS(sandboxes=sb))), sb)
+        self.assertIs(code_exec.sandboxes(NS(sandboxes=sb)), sb)
+        self.assertIs(code_exec.sandboxes(NS(agent_engines=NS(), sandboxes=sb)), sb)
+        with self.assertRaises(AttributeError):
+            code_exec.sandboxes(NS())
+
+    def test_create_get_execute_delete_with_new_sdk_shape(self):
+        sb = FakeSandboxes()
+        client = NS(sandboxes=sb)                                        # agentplatform.Client
+        name = code_exec._create_sandbox(client)
+        self.assertTrue(name.startswith(ENGINE))
+        self.assertTrue(code_exec._alive(client, name))
+        code_exec._execute(client, name, "print(1)", [])
+        self.assertEqual(sb.calls[-1]["code"], "print(1)")
+        with mock.patch.object(code_exec, "_client", return_value=client):
+            state = {code_exec.SANDBOX_KEY: {"name": name}}
+            self.assertTrue(code_exec.delete_sandbox(state))
+        self.assertFalse(code_exec._alive(client, name))
+
+    def test_create_accepts_operation_without_response(self):
+        class Direct(FakeSandboxes):
+            def create(self, spec, name, config):
+                return NS(response=None, name=f"{name}/sandboxEnvironments/7")
+        self.assertTrue(code_exec._create_sandbox(NS(sandboxes=Direct())).endswith("/7"))
+
+    def test_client_falls_back_to_vertexai(self):
+        sb = FakeSandboxes()
+        new_sdk = NS(Client=lambda **kw: NS(agent_engines=NS()))         # tanpa API sandbox
+        old_sdk = NS(Client=lambda **kw: NS(agent_engines=NS(sandboxes=sb)))
+        with mock.patch.dict(sys.modules, {"agentplatform": new_sdk, "vertexai": old_sdk}):
+            self.assertIs(code_exec.sandboxes(code_exec._client()), sb)
+
+    def test_client_prefers_agentplatform_when_it_works(self):
+        sb = FakeSandboxes()
+        new_sdk = NS(Client=lambda **kw: NS(sandboxes=sb, tag="baru"))
+        old_sdk = NS(Client=lambda **kw: NS(agent_engines=NS(sandboxes=FakeSandboxes()), tag="lama"))
+        with mock.patch.dict(sys.modules, {"agentplatform": new_sdk, "vertexai": old_sdk}):
+            self.assertEqual(code_exec._client().tag, "baru")
+
+    def test_client_reports_both_reasons(self):
+        def boom(**kw):
+            raise ImportError("tidak terpasang")
+        with mock.patch.dict(sys.modules, {"agentplatform": NS(Client=boom), "vertexai": NS(Client=lambda **kw: NS())}):
+            with self.assertRaises(RuntimeError) as cm:
+                code_exec._client()
+        self.assertIn("agentplatform", str(cm.exception))
+        self.assertIn("vertexai", str(cm.exception))
+
+
 class SkillTest(Base):
     def test_skills_load_with_ptpl_style(self):
         from library_agent.tools import code_tools
